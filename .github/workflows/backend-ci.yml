@@ -90,8 +90,27 @@ jobs:
           cache: "pip"
           cache-dependency-path: "backend/pyproject.toml"
 
-      - name: Install dependencies and audit tool
-        run: python -m pip install -e . pip-audit
+      - name: Install audit tool
+        run: python -m pip install pip-audit
+
+      - name: Build dependency list from pyproject
+        run: |
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          
+          pyproject = Path("pyproject.toml")
+          data = tomllib.loads(pyproject.read_text())
+          project = data.get("project", {})
+          
+          deps = list(project.get("dependencies", []))
+          for extra_deps in project.get("optional-dependencies", {}).values():
+              deps.extend(extra_deps)
+          
+          output = Path("requirements-audit.txt")
+          output.write_text("\n".join(deps) + "\n")
+          print(f"Wrote {len(deps)} requirements to {output}")
+          PY
 
       - name: Run dependency vulnerability audit
-        run: pip-audit --strict
+        run: pip-audit --strict -r requirements-audit.txt
