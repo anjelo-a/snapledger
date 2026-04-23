@@ -29,7 +29,12 @@ class ExpenseWrite(StrictSchema):
 class ExpensePatch(StrictSchema):
     merchant: str | None = Field(default=None, min_length=1, max_length=160)
     expense_date: date | None = None
-    total_amount: Decimal | None = Field(default=None, gt=Decimal("0"), max_digits=12, decimal_places=2)
+    total_amount: Decimal | None = Field(
+        default=None,
+        gt=Decimal("0"),
+        max_digits=12,
+        decimal_places=2,
+    )
     category_id: str | None = None
     notes: str | None = Field(default=None, max_length=2000)
     items: list[ExpenseItemWrite] | None = Field(default=None, max_length=200)
@@ -54,8 +59,18 @@ class ExpenseListQuery(PaginationQuery):
     date_to: date | None = None
     merchant_query: str | None = Field(default=None, max_length=160)
     category_id: str | None = None
-    amount_min: Decimal | None = Field(default=None, gt=Decimal("0"), max_digits=12, decimal_places=2)
-    amount_max: Decimal | None = Field(default=None, gt=Decimal("0"), max_digits=12, decimal_places=2)
+    amount_min: Decimal | None = Field(
+        default=None,
+        gt=Decimal("0"),
+        max_digits=12,
+        decimal_places=2,
+    )
+    amount_max: Decimal | None = Field(
+        default=None,
+        gt=Decimal("0"),
+        max_digits=12,
+        decimal_places=2,
+    )
 
 
 class ExpenseListResponse(StrictSchema):

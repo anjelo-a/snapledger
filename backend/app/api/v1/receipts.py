@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from app.schemas.expense import (
     ExpenseListResponse,
@@ -20,7 +20,10 @@ def create_receipt(_payload: ExpenseWrite) -> ExpenseRead:
 
 @router.get("/{receipt_id}", response_model=ExpenseRead)
 def get_receipt(receipt_id: str) -> ExpenseRead:
-    raise HTTPException(status_code=501, detail=f"Receipt lookup not implemented for id={receipt_id}.")
+    raise HTTPException(
+        status_code=501,
+        detail=f"Receipt lookup not implemented for id={receipt_id}.",
+    )
 
 
 @router.get("", response_model=ExpenseListResponse)
@@ -40,12 +43,18 @@ def list_receipts(
 
 @router.patch("/{receipt_id}", response_model=ExpenseRead)
 def patch_receipt(receipt_id: str, _payload: ExpensePatch) -> ExpenseRead:
-    raise HTTPException(status_code=501, detail=f"Receipt patch not implemented for id={receipt_id}.")
+    raise HTTPException(
+        status_code=501,
+        detail=f"Receipt patch not implemented for id={receipt_id}.",
+    )
 
 
 @router.delete("/{receipt_id}")
 def delete_receipt(receipt_id: str) -> dict[str, str]:
-    raise HTTPException(status_code=501, detail=f"Receipt delete not implemented for id={receipt_id}.")
+    raise HTTPException(
+        status_code=501,
+        detail=f"Receipt delete not implemented for id={receipt_id}.",
+    )
 
 
 @router.post("/process", response_model=ParsedReceiptCandidate)

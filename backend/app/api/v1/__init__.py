@@ -19,5 +19,8 @@ api_router.include_router(sync_router)
 @api_router.post("/manual-entries")
 def create_manual_entry_alias() -> dict[str, str]:
     return {
-        "detail": "Use POST /v1/receipts with source=manual. Dedicated alias logic is scheduled for Phase 1."
+        "detail": (
+            "Use POST /v1/receipts with source=manual. "
+            "Dedicated alias logic is scheduled for Phase 1."
+        )
     }
