@@ -8,8 +8,8 @@ Implemented in this scaffold:
 - API contract-first routes under `/v1`.
 - Pydantic request/response schemas with strict validation defaults.
 - SQLAlchemy model skeleton for core entities.
-- Migration directory scaffold in `app/db/migrations`.
-- Default category seed surface via `GET /v1/categories`.
+- Alembic migration wiring + Phase 0 foundational schema migration.
+- Default category seeds persisted through migration and exposed via `GET /v1/categories`.
 - Baseline tests for health and API contract path presence.
 
 Deferred intentionally to later phases:
@@ -29,4 +29,11 @@ python -m uvicorn app.main:app --reload
 ```bash
 cd backend
 pytest
+```
+
+## Run migrations
+
+```bash
+cd backend
+alembic upgrade head
 ```

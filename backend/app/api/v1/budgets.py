@@ -12,4 +12,7 @@ def list_budgets() -> BudgetListResponse:
 
 @router.post("", response_model=BudgetRead)
 def upsert_budget(_payload: BudgetWrite) -> BudgetRead:
-    raise HTTPException(status_code=501, detail="Budget write operations are scheduled for Phase 3.")
+    raise HTTPException(
+        status_code=501,
+        detail="Budget write operations are scheduled for Phase 3.",
+    )
