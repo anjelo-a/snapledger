@@ -1,0 +1,17 @@
+[project]
+name = "snapledger-backend"
+version = "0.1.0"
+description = "SnapLedger FastAPI backend"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "sqlalchemy",
+  "alembic",
+  "psycopg[binary]",
+  "pydantic",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"

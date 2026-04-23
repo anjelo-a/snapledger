@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Android / IntelliJ
+.gradle/
+.idea/
+/local.properties
+**/build/
+captures/
+
+# Kotlin
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Env
+.env
+.env.*
+
+# Logs
+*.log
