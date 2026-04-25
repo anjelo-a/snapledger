@@ -15,7 +15,10 @@ captures/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
 .venv/
+*.egg-info/
+*.db
 
 # Env
 .env
