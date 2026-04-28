@@ -5,6 +5,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.api.error_handlers import to_http_exception
+from app.core.errors import DomainError
 from app.db.session import get_db
 from app.schemas.expense import (
     ExpenseListResponse,
@@ -15,7 +17,7 @@ from app.schemas.expense import (
     ReceiptProcessRequest,
 )
 from app.services.parser_service import parse_receipt
-from app.services.receipt_service import ReceiptNotFoundError, ReceiptService
+from app.services.receipt_service import ReceiptService
 
 router = APIRouter(prefix="/receipts", tags=["receipts"])
 
@@ -27,8 +29,8 @@ def create_receipt(
 ) -> ExpenseRead:
     try:
         return ReceiptService.create(db, payload)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DomainError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.get("/{receipt_id}", response_model=ExpenseRead)
@@ -38,13 +40,8 @@ def get_receipt(
 ) -> ExpenseRead:
     try:
         return ReceiptService.get(db, receipt_id)
-    except ReceiptNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Receipt not found for id={receipt_id}.",
-        ) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DomainError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.get("", response_model=ExpenseListResponse)
@@ -80,8 +77,8 @@ def list_receipts(
             cursor=cursor,
             limit=limit,
         )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DomainError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.patch("/{receipt_id}", response_model=ExpenseRead)
@@ -92,13 +89,8 @@ def patch_receipt(
 ) -> ExpenseRead:
     try:
         return ReceiptService.patch(db, receipt_id, payload)
-    except ReceiptNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Receipt not found for id={receipt_id}.",
-        ) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DomainError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.delete("/{receipt_id}")
@@ -109,13 +101,8 @@ def delete_receipt(
     try:
         ReceiptService.soft_delete(db, receipt_id)
         return {"status": "deleted"}
-    except ReceiptNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Receipt not found for id={receipt_id}.",
-        ) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DomainError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.post("/process", response_model=ParsedReceiptCandidate)

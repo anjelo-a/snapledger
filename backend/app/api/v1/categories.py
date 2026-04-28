@@ -1,20 +1,17 @@
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.api.error_handlers import to_http_exception
+from app.core.errors import DomainError
 from app.db.session import get_db
 from app.repositories.category_repo import list_categories as list_categories_from_db
 from app.repositories.category_repo import list_seed_categories
 from app.schemas.category import CategoryCreate, CategoryListResponse, CategoryRead, CategoryUpdate
-from app.services.category_service import (
-    CategoryImmutableDefaultError,
-    CategoryNameConflictError,
-    CategoryNotFoundError,
-    CategoryService,
-)
+from app.services.category_service import CategoryService
 
 router = APIRouter(prefix="/categories", tags=["categories"])
 
@@ -56,13 +53,8 @@ def create_category(
 ) -> CategoryRead:
     try:
         return CategoryService.create(db, payload)
-    except CategoryNameConflictError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail="Category name already exists.",
-        ) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DomainError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.patch("/{category_id}", response_model=CategoryRead)
@@ -73,20 +65,5 @@ def patch_category(
 ) -> CategoryRead:
     try:
         return CategoryService.patch(db, category_id, payload)
-    except CategoryNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Category not found for id={category_id}.",
-        ) from exc
-    except CategoryImmutableDefaultError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail="Default categories cannot be renamed or archived.",
-        ) from exc
-    except CategoryNameConflictError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail="Category name already exists.",
-        ) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DomainError as exc:
+        raise to_http_exception(exc) from exc
