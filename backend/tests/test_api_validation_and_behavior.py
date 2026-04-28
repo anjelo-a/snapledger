@@ -171,6 +171,17 @@ def test_create_category_rejects_case_insensitive_duplicate(client: TestClient) 
     assert duplicate.status_code == 409
 
 
+def test_create_category_rejects_duplicate_of_archived_category(client: TestClient) -> None:
+    created = client.post("/v1/categories", json={"name": "ArchivedDup"})
+    assert created.status_code == 200
+    category_id = created.json()["id"]
+    archived = client.patch(f"/v1/categories/{category_id}", json={"is_archived": True})
+    assert archived.status_code == 200
+
+    duplicate = client.post("/v1/categories", json={"name": " archiveddup "})
+    assert duplicate.status_code == 409
+
+
 def test_patch_custom_category_rename_and_archive(client: TestClient) -> None:
     created = client.post("/v1/categories", json={"name": "Subscriptions"})
     category_id = created.json()["id"]
@@ -206,6 +217,14 @@ def test_patch_default_category_is_rejected(client: TestClient) -> None:
 
     archive = client.patch(f"/v1/categories/{default_category['id']}", json={"is_archived": True})
     assert archive.status_code == 400
+
+
+def test_patch_category_rejects_whitespace_only_name(client: TestClient) -> None:
+    created = client.post("/v1/categories", json={"name": "Whitespace Check"})
+    assert created.status_code == 200
+    category_id = created.json()["id"]
+    invalid = client.patch(f"/v1/categories/{category_id}", json={"name": "   "})
+    assert invalid.status_code == 422
 
 
 def test_receipt_get_patch_delete_flow(client: TestClient) -> None:

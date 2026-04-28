@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from app.core.errors import (
     ConflictError,
@@ -21,3 +23,41 @@ def to_http_exception(error: DomainError) -> HTTPException:
     if isinstance(error, ServiceUnavailableError):
         return HTTPException(status_code=503, detail=error.message)
     return HTTPException(status_code=500, detail=error.message)
+
+
+def _error_payload(*, code: str, message: str, details: object | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "error": {
+            "code": code,
+            "message": message,
+        }
+    }
+    if details is not None:
+        payload["error"]["details"] = details
+    return payload
+
+
+async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+    detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=_error_payload(code="http_error", message=detail),
+    )
+
+
+async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content=_error_payload(
+            code="validation_error",
+            message="Request validation failed",
+            details=exc.errors(),
+        ),
+    )
+
+
+async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONResponse:
+    return JSONResponse(
+        status_code=500,
+        content=_error_payload(code="internal_error", message=str(exc) or "Internal server error"),
+    )
