@@ -7,9 +7,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.category_seeds import DEFAULT_CATEGORY_SEEDS
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+from app.models.category import Category
 
 
 @pytest.fixture
@@ -22,6 +24,17 @@ def client(tmp_path: Path) -> TestClient:
     )
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
     Base.metadata.create_all(bind=engine)
+    with TestingSessionLocal() as seed_db:
+        for idx, name in enumerate(DEFAULT_CATEGORY_SEEDS, start=1):
+            seed_db.add(
+                Category(
+                    id=f"seed-{idx}",
+                    name=name,
+                    is_default=True,
+                    is_archived=False,
+                )
+            )
+        seed_db.commit()
 
     def override_get_db() -> Session:
         db = TestingSessionLocal()
@@ -120,6 +133,60 @@ def test_categories_returns_seeded_shape(client: TestClient) -> None:
         "created_at",
         "updated_at",
     }.issubset(first.keys())
+
+
+def test_create_custom_category_success(client: TestClient) -> None:
+    response = client.post("/v1/categories", json={"name": "Dining Out"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["name"] == "Dining Out"
+    assert payload["is_default"] is False
+    assert payload["is_archived"] is False
+
+
+def test_create_category_rejects_case_insensitive_duplicate(client: TestClient) -> None:
+    created = client.post("/v1/categories", json={"name": "Dining Out"})
+    assert created.status_code == 200
+
+    duplicate = client.post("/v1/categories", json={"name": "  dining out  "})
+    assert duplicate.status_code == 409
+
+
+def test_patch_custom_category_rename_and_archive(client: TestClient) -> None:
+    created = client.post("/v1/categories", json={"name": "Subscriptions"})
+    category_id = created.json()["id"]
+
+    rename = client.patch(f"/v1/categories/{category_id}", json={"name": "Streaming"})
+    assert rename.status_code == 200
+    assert rename.json()["name"] == "Streaming"
+
+    archive = client.patch(f"/v1/categories/{category_id}", json={"is_archived": True})
+    assert archive.status_code == 200
+    assert archive.json()["is_archived"] is True
+
+
+def test_patch_category_rejects_duplicate_name(client: TestClient) -> None:
+    created_a = client.post("/v1/categories", json={"name": "Travel"})
+    created_b = client.post("/v1/categories", json={"name": "Leisure"})
+    assert created_a.status_code == 200
+    assert created_b.status_code == 200
+    category_b_id = created_b.json()["id"]
+
+    duplicate = client.patch(f"/v1/categories/{category_b_id}", json={"name": " travel "})
+    assert duplicate.status_code == 409
+
+
+def test_patch_default_category_is_rejected(client: TestClient) -> None:
+    categories = client.get("/v1/categories")
+    default_category = next(
+        item for item in categories.json()["items"] if item["is_default"] is True
+    )
+
+    rename = client.patch(f"/v1/categories/{default_category['id']}", json={"name": "Renamed"})
+    assert rename.status_code == 400
+
+    archive = client.patch(f"/v1/categories/{default_category['id']}", json={"is_archived": True})
+    assert archive.status_code == 400
 
 
 def test_receipt_get_patch_delete_flow(client: TestClient) -> None:
