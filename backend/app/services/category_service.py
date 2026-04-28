@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.errors import (
@@ -37,6 +37,9 @@ class CategoryService:
         except ConflictError:
             db.rollback()
             raise
+        except IntegrityError as exc:
+            db.rollback()
+            raise ConflictError("Category name already exists.") from exc
         except SQLAlchemyError as exc:
             db.rollback()
             raise ServiceUnavailableError(
@@ -76,6 +79,9 @@ class CategoryService:
         except (NotFoundError, InvalidOperationError, ConflictError):
             db.rollback()
             raise
+        except IntegrityError as exc:
+            db.rollback()
+            raise ConflictError("Category name already exists.") from exc
         except SQLAlchemyError as exc:
             db.rollback()
             raise ServiceUnavailableError(
