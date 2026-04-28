@@ -117,6 +117,25 @@ def test_manual_entries_alias_forces_manual_source(client: TestClient) -> None:
     assert payload["source"] == "manual"
 
 
+def test_manual_entries_alias_matches_direct_receipt_shape(client: TestClient) -> None:
+    direct = client.post("/v1/receipts", json=_create_receipt_payload(items=[]))
+    alias = client.post("/v1/manual-entries", json=_create_receipt_payload(items=[]))
+    assert direct.status_code == 200
+    assert alias.status_code == 200
+    direct_json = direct.json()
+    alias_json = alias.json()
+    for field in (
+        "source",
+        "merchant",
+        "expense_date",
+        "total_amount",
+        "currency",
+        "category_id",
+        "notes",
+    ):
+        assert alias_json[field] == direct_json[field]
+
+
 def test_categories_returns_seeded_shape(client: TestClient) -> None:
     response = client.get("/v1/categories")
     assert response.status_code == 200
@@ -266,6 +285,39 @@ def test_receipt_list_filters_and_cursor_pagination(client: TestClient) -> None:
     body_2 = page_2.json()
     assert len(body_2["items"]) == 1
     assert body_2["next_cursor"] is None
+
+
+def test_receipt_cursor_pagination_no_duplicate_or_skip(client: TestClient) -> None:
+    created_ids: list[str] = []
+    for idx in range(5):
+        response = client.post(
+            "/v1/receipts",
+            json=_create_receipt_payload(
+                merchant=f"Cursor-{idx}",
+                expense_date="2026-04-24",
+                total_amount=f"{100 + idx}.00",
+                items=[],
+            ),
+        )
+        assert response.status_code == 200
+        created_ids.append(response.json()["id"])
+
+    seen_ids: list[str] = []
+    cursor: str | None = None
+    for _ in range(6):
+        params = {"limit": 2}
+        if cursor is not None:
+            params["cursor"] = cursor
+        page = client.get("/v1/receipts", params=params)
+        assert page.status_code == 200
+        payload = page.json()
+        seen_ids.extend(item["id"] for item in payload["items"])
+        cursor = payload["next_cursor"]
+        if cursor is None:
+            break
+
+    assert len(seen_ids) == len(set(seen_ids))
+    assert set(created_ids).issubset(set(seen_ids))
 
 
 def test_receipt_list_rejects_invalid_filter_ranges(client: TestClient) -> None:
