@@ -1,4 +1,7 @@
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
 from app.api.v1.budgets import router as budgets_router
 from app.api.v1.categories import router as categories_router
@@ -6,6 +9,9 @@ from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.insights import router as insights_router
 from app.api.v1.receipts import router as receipts_router
 from app.api.v1.sync import router as sync_router
+from app.db.session import get_db
+from app.schemas.expense import ExpenseRead, ExpenseWrite
+from app.services.receipt_service import ReceiptService
 
 api_router = APIRouter()
 api_router.include_router(receipts_router)
@@ -16,11 +22,13 @@ api_router.include_router(insights_router)
 api_router.include_router(sync_router)
 
 
-@api_router.post("/manual-entries")
-def create_manual_entry_alias() -> dict[str, str]:
-    return {
-        "detail": (
-            "Use POST /v1/receipts with source=manual. "
-            "Dedicated alias logic is scheduled for Phase 1."
-        )
-    }
+@api_router.post("/manual-entries", response_model=ExpenseRead)
+def create_manual_entry_alias(
+    payload: ExpenseWrite,
+    db: Annotated[Session, Depends(get_db)],
+) -> ExpenseRead:
+    manual_payload = payload.model_copy(update={"source": "manual"})
+    try:
+        return ReceiptService.create(db, manual_payload)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

@@ -85,6 +85,25 @@ def test_receipt_create_rejects_invalid_source_enum(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_manual_entries_alias_creates_receipt(client: TestClient) -> None:
+    response = client.post("/v1/manual-entries", json=_create_receipt_payload(items=[]))
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["merchant"] == "Coffee Shop"
+    assert payload["source"] == "manual"
+
+
+def test_manual_entries_alias_forces_manual_source(client: TestClient) -> None:
+    response = client.post(
+        "/v1/manual-entries",
+        json=_create_receipt_payload(source="scan", merchant="Scan Payload"),
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["merchant"] == "Scan Payload"
+    assert payload["source"] == "manual"
+
+
 def test_categories_returns_seeded_shape(client: TestClient) -> None:
     response = client.get("/v1/categories")
     assert response.status_code == 200
