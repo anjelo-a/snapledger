@@ -5,7 +5,7 @@ import json
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Select, and_, or_, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.expense import Expense
@@ -53,8 +53,6 @@ class ExpenseRepository:
         expense = db.scalar(stmt)
         if expense is None:
             return None
-
-        expense.items = [item for item in expense.items if item.deleted_at is None]
         return expense
 
     @staticmethod
@@ -87,33 +85,42 @@ class ExpenseRepository:
 
         decoded_cursor = _decode_cursor(cursor)
         if decoded_cursor is not None:
-            cursor_date, cursor_id = decoded_cursor
-            # Sort order: expense_date desc, id desc
+            cursor_date, cursor_created_at, cursor_id = decoded_cursor
+            cursor_created_at_text = cursor_created_at.strftime("%Y-%m-%d %H:%M:%S")
+            created_at_key = func.strftime("%Y-%m-%d %H:%M:%S", Expense.created_at)
+            # Sort order: expense_date desc, created_at desc, id desc
             stmt = stmt.where(
                 or_(
                     Expense.expense_date < cursor_date,
                     and_(
                         Expense.expense_date == cursor_date,
+                        created_at_key < cursor_created_at_text,
+                    ),
+                    and_(
+                        Expense.expense_date == cursor_date,
+                        created_at_key == cursor_created_at_text,
                         Expense.id < cursor_id,
                     ),
                 )
             )
 
-        stmt = stmt.order_by(Expense.expense_date.desc(), Expense.id.desc())
+        stmt = stmt.order_by(
+            Expense.expense_date.desc(),
+            Expense.created_at.desc(),
+            Expense.id.desc(),
+        )
         stmt = stmt.options(selectinload(Expense.items)).limit(limit + 1)
 
         rows = list(db.scalars(stmt).all())
         has_more = len(rows) > limit
         page_rows = rows[:limit]
 
-        for row in page_rows:
-            row.items = [item for item in row.items if item.deleted_at is None]
-
         next_cursor = None
         if has_more and page_rows:
             last = page_rows[-1]
             next_cursor = _encode_cursor(
                 expense_date=last.expense_date,
+                created_at=last.created_at,
                 expense_id=last.id,
             )
 
@@ -134,7 +141,6 @@ class ExpenseRepository:
 
         db.flush()
         db.refresh(expense)
-        expense.items = [item for item in expense.items if item.deleted_at is None]
         return expense
 
     @staticmethod
@@ -169,16 +175,17 @@ class ExpenseRepository:
             )
 
 
-def _encode_cursor(*, expense_date: date, expense_id: str) -> str:
+def _encode_cursor(*, expense_date: date, created_at: datetime, expense_id: str) -> str:
     payload = {
         "expense_date": expense_date.isoformat(),
+        "created_at": created_at.isoformat(),
         "id": expense_id,
     }
     raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     return base64.urlsafe_b64encode(raw).decode("utf-8")
 
 
-def _decode_cursor(cursor: str | None) -> tuple[date, str] | None:
+def _decode_cursor(cursor: str | None) -> tuple[date, datetime, str] | None:
     if not cursor:
         return None
 
@@ -187,6 +194,7 @@ def _decode_cursor(cursor: str | None) -> tuple[date, str] | None:
         payload = json.loads(decoded.decode("utf-8"))
         return (
             date.fromisoformat(payload["expense_date"]),
+            datetime.fromisoformat(payload["created_at"]),
             str(payload["id"]),
         )
     except Exception:
