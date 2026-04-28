@@ -35,11 +35,18 @@ Boundaries:
 - Routers: HTTP mapping + validation only.
 - Services: business rules.
 - Repositories: DB access only.
+- Domain errors are mapped consistently to HTTP responses.
 
 Must not couple:
 - SQL in API routers.
 - Budget logic with AI pipeline.
 - AI outputs with deterministic finance logic.
+
+Current backend implementation notes:
+- Receipts and category mutation endpoints are implemented through service/repository layers.
+- Receipts list uses opaque cursor pagination with stable ordering.
+- Global error envelope handlers are registered for HTTP/validation/unhandled exceptions.
+- Optional security middleware gates are available via env config: API key, CORS allowlist, in-memory rate limiting, HTTPS enforcement.
 
 ## Data/storage architecture
 Local:

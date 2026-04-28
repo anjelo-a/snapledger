@@ -14,6 +14,13 @@ If private staging or external testers are introduced:
   - real authentication and authorization
   - stronger audit logging
 
+Current backend implementation status:
+- Optional security gates are implemented and env-toggle controlled:
+  - API key requirement (`REQUIRE_API_KEY`, `API_KEY`)
+  - CORS allowlist (`CORS_ALLOWED_ORIGINS`)
+  - in-memory rate limiting (`RATE_LIMIT_ENABLED`, `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW_SECONDS`)
+  - HTTPS enforcement (`ENFORCE_HTTPS`)
+
 ## Secrets handling
 - Gemini API key stored on backend only via environment variable.
 - No Gemini or backend secret in Android app.

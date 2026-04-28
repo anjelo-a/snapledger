@@ -35,12 +35,14 @@
 - Error paths and validation failures.
 - Pagination/filter behavior.
 - Auth/security behavior when enabled for exposed deployments.
+- Phase 1 backend coverage now includes receipts CRUD, manual-entry alias behavior, category mutation rules, and cursor pagination regression checks.
 
 ### Domain/service tests
 - Parser rules with known receipt fixtures.
 - Budget calculations for weekly/monthly windows and threshold boundaries.
 - Dashboard aggregation correctness with seeded datasets.
 - Sync merge and idempotency behavior.
+- Phase 1 backend service tests include domain error mapping and rollback behavior for receipts/categories flows.
 
 ## OCR and sync smoke tests
 - OCR smoke set with representative receipt images.
