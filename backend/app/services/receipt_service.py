@@ -6,6 +6,7 @@ from decimal import Decimal
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core.errors import NotFoundError, ServiceUnavailableError
 from app.models.expense import Expense
 from app.repositories.expense_repo import ExpenseRepository
 from app.schemas.expense import (
@@ -15,10 +16,6 @@ from app.schemas.expense import (
     ExpenseRead,
     ExpenseWrite,
 )
-
-
-class ReceiptNotFoundError(Exception):
-    pass
 
 
 class ReceiptService:
@@ -33,17 +30,21 @@ class ReceiptService:
             return _to_read(expense)
         except SQLAlchemyError as exc:
             db.rollback()
-            raise RuntimeError("Database operation failed while creating receipt.") from exc
+            raise ServiceUnavailableError(
+                "Database operation failed while creating receipt."
+            ) from exc
 
     @staticmethod
     def get(db: Session, receipt_id: str) -> ExpenseRead:
         try:
             expense = ExpenseRepository.get_active_by_id(db, receipt_id)
         except SQLAlchemyError as exc:
-            raise RuntimeError("Database operation failed while loading receipt.") from exc
+            raise ServiceUnavailableError(
+                "Database operation failed while loading receipt."
+            ) from exc
 
         if expense is None:
-            raise ReceiptNotFoundError
+            raise NotFoundError(f"Receipt not found for id={receipt_id}.")
         return _to_read(expense)
 
     @staticmethod
@@ -72,7 +73,9 @@ class ReceiptService:
                 limit=limit,
             )
         except SQLAlchemyError as exc:
-            raise RuntimeError("Database operation failed while listing receipts.") from exc
+            raise ServiceUnavailableError(
+                "Database operation failed while listing receipts."
+            ) from exc
 
         return ExpenseListResponse(
             items=[_to_read(item) for item in items],
@@ -85,16 +88,18 @@ class ReceiptService:
             expense = ExpenseRepository.update_active(db, receipt_id, payload)
             if expense is None:
                 db.rollback()
-                raise ReceiptNotFoundError
+                raise NotFoundError(f"Receipt not found for id={receipt_id}.")
 
             db.commit()
             db.refresh(expense)
             return _to_read(expense)
-        except ReceiptNotFoundError:
+        except NotFoundError:
             raise
         except SQLAlchemyError as exc:
             db.rollback()
-            raise RuntimeError("Database operation failed while updating receipt.") from exc
+            raise ServiceUnavailableError(
+                "Database operation failed while updating receipt."
+            ) from exc
 
     @staticmethod
     def soft_delete(db: Session, receipt_id: str) -> None:
@@ -102,13 +107,15 @@ class ReceiptService:
             deleted = ExpenseRepository.soft_delete_active(db, receipt_id)
             if not deleted:
                 db.rollback()
-                raise ReceiptNotFoundError
+                raise NotFoundError(f"Receipt not found for id={receipt_id}.")
             db.commit()
-        except ReceiptNotFoundError:
+        except NotFoundError:
             raise
         except SQLAlchemyError as exc:
             db.rollback()
-            raise RuntimeError("Database operation failed while deleting receipt.") from exc
+            raise ServiceUnavailableError(
+                "Database operation failed while deleting receipt."
+            ) from exc
 
 
 def _to_read(expense: Expense) -> ExpenseRead:

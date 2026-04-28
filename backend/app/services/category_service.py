@@ -3,6 +3,12 @@ from __future__ import annotations
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core.errors import (
+    ConflictError,
+    InvalidOperationError,
+    NotFoundError,
+    ServiceUnavailableError,
+)
 from app.repositories.category_repo import (
     create_category as create_category_record,
 )
@@ -11,18 +17,6 @@ from app.repositories.category_repo import (
     get_active_category_by_id,
 )
 from app.schemas.category import CategoryCreate, CategoryRead, CategoryUpdate
-
-
-class CategoryNotFoundError(Exception):
-    pass
-
-
-class CategoryImmutableDefaultError(Exception):
-    pass
-
-
-class CategoryNameConflictError(Exception):
-    pass
 
 
 class CategoryService:
@@ -34,28 +28,32 @@ class CategoryService:
         try:
             existing = find_active_by_normalized_name(db, normalized_name=normalized_name)
             if existing is not None:
-                raise CategoryNameConflictError
+                raise ConflictError("Category name already exists.")
 
             category = create_category_record(db, name=payload.name.strip())
             db.commit()
             db.refresh(category)
             return _to_read(category)
-        except CategoryNameConflictError:
+        except ConflictError:
             db.rollback()
             raise
         except SQLAlchemyError as exc:
             db.rollback()
-            raise RuntimeError("Database operation failed while creating category.") from exc
+            raise ServiceUnavailableError(
+                "Database operation failed while creating category."
+            ) from exc
 
     @staticmethod
     def patch(db: Session, category_id: str, payload: CategoryUpdate) -> CategoryRead:
         try:
             category = get_active_category_by_id(db, category_id)
             if category is None:
-                raise CategoryNotFoundError
+                raise NotFoundError(f"Category not found for id={category_id}.")
 
             if category.is_default:
-                raise CategoryImmutableDefaultError
+                raise InvalidOperationError(
+                    "Default categories cannot be renamed or archived."
+                )
 
             updates = payload.model_dump(exclude_unset=True)
             if "name" in updates:
@@ -66,7 +64,7 @@ class CategoryService:
                     exclude_category_id=category_id,
                 )
                 if existing is not None:
-                    raise CategoryNameConflictError
+                    raise ConflictError("Category name already exists.")
                 category.name = updates["name"].strip()
 
             if "is_archived" in updates:
@@ -75,12 +73,14 @@ class CategoryService:
             db.commit()
             db.refresh(category)
             return _to_read(category)
-        except (CategoryNotFoundError, CategoryImmutableDefaultError, CategoryNameConflictError):
+        except (NotFoundError, InvalidOperationError, ConflictError):
             db.rollback()
             raise
         except SQLAlchemyError as exc:
             db.rollback()
-            raise RuntimeError("Database operation failed while updating category.") from exc
+            raise ServiceUnavailableError(
+                "Database operation failed while updating category."
+            ) from exc
 
 
 def _normalize_name(name: str) -> str:
