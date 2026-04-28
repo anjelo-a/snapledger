@@ -22,7 +22,7 @@ Why:
 - Dashboard priority: budget status, trends, insights slot, categories, recent activity.
 - History filters: date, merchant, category, amount range.
 - Offline-first Room source of truth.
-- Minimal FastAPI backend contracts for later sync.
+- FastAPI backend Phase 1 implemented for receipts/categories + contracts for later sync phases.
 
 ### Should-have after MVP
 - WorkManager-based sync push/pull with retry and idempotency.
@@ -71,9 +71,11 @@ Objective:
 
 Deliverables:
 - Manual entry UI, validation, Room persistence, recent activity, basic filters.
+- Backend Phase 1: receipts CRUD, manual-entries create proxy, category create/patch rules, cursor pagination, and test coverage.
 
 Acceptance criteria:
 - Offline create/edit/delete works end-to-end.
+- Backend receipts/categories endpoints behave per API contracts and pass CI checks.
 
 Must not start:
 - OCR pipeline complexity and advanced backend features.
@@ -150,6 +152,10 @@ Acceptance criteria:
 - Phase 3 gate: dashboard and budgets reflect real data.
 - Phase 4 gate: offline create/edit/delete syncs correctly.
 - Phase 5 gate: Gemini insight added only after base numbers are proven correct.
+
+Backend progress note (April 28, 2026):
+- Phase 1 backend scope is complete.
+- Remaining backend work is Phase 2+ (OCR parser hardening), Phase 3 (budgets/dashboard), Phase 4 (sync), and Phase 5 (insight).
 
 ## Implementation order
 1. Lock docs and scope boundaries.

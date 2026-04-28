@@ -23,7 +23,7 @@
 `GET /v1/receipts`
 - Purpose: history listing with filtering and pagination.
 - Request summary: date range, merchant query, category, amount min/max, cursor, limit.
-- Response summary: paged receipt summaries + next cursor.
+- Response summary: paged receipt summaries + next cursor (`next_cursor=null` when exhausted).
 - Scope: MVP.
 
 `PATCH /v1/receipts/{id}`
@@ -35,7 +35,8 @@
 - Scope: MVP.
 
 `POST /v1/manual-entries`
-- Purpose: explicit manual entry endpoint alias.
+- Purpose: explicit manual entry endpoint alias; performs create and returns canonical receipt payload.
+- Behavior: enforces `source=manual` server-side.
 - Scope: MVP.
 
 ### OCR processing
@@ -56,7 +57,16 @@
 
 `PATCH /v1/categories/{id}`
 - Purpose: rename/archive custom category.
+- Behavior: default categories are immutable for rename/archive.
+- Validation: category names are case-insensitive trimmed unique among active categories.
 - Scope: MVP.
+
+## Implemented error/status notes (Phase 1 backend)
+- `400` for invalid operation or invalid filter ranges.
+- `404` for active-record not found.
+- `409` for category name conflicts.
+- `422` for schema validation errors.
+- `503` for DB/service availability failures.
 
 ### Budgets
 `GET /v1/budgets`
