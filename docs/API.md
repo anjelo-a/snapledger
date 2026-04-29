@@ -52,8 +52,8 @@
   - `total_amount: decimal string | null`
   - `items: {name, amount}[]`
   - `warnings: string[]`
-  - `warning_codes: string[]` optional machine-readable warning metadata for review UX.
-  - `field_confidence: {merchant?, expense_date?, total_amount?, items?} | null` optional 0..1 confidence hints.
+  - `warning_codes: string[]` always present machine-readable warning metadata for review UX; `[]` when there are no warning codes.
+  - `field_confidence: {merchant?, expense_date?, total_amount?, items?} | null` always present 0..1 confidence hints; `null` when unavailable.
 - Contract rules:
   - Backward-compatible additions are allowed only as optional response fields.
   - No image bytes are posted to this endpoint; the contract starts after OCR as normalized text lines.
