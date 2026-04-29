@@ -9,6 +9,8 @@
 ### UI instrumentation tests
 - Manual entry hero flow end-to-end.
 - Scan -> review -> save flow on emulator/device.
+- Phase 2 receipt smoke test may mock scan input and OCR lines, but must exercise deterministic
+  parse, review validation, and local save.
 - Budget creation/edit and threshold display.
 - History filtering by date/merchant/category/amount.
 
@@ -22,6 +24,7 @@
 - Local-first write behavior.
 - Room + fake remote integration paths.
 - Sync queue enqueue behavior on mutations.
+- Backend or sync dispatch failure must not block a valid local reviewed receipt save.
 
 ### Room tests
 - DAO query correctness.
@@ -40,6 +43,7 @@
 ### Domain/service tests
 - Parser rules with known receipt fixtures.
 - Parser output remains deterministic-only and never invokes LLM-based extraction.
+- Backend `/v1/receipts/process` fallback parser remains optional, deterministic, and structured.
 - Budget calculations for weekly/monthly windows and threshold boundaries.
 - Dashboard aggregation correctness with seeded datasets.
 - Sync merge and idempotency behavior.
@@ -48,8 +52,10 @@
 ## OCR and sync smoke tests
 - OCR smoke set with representative receipt images.
 - Assert that extracted fields remain editable and savable even with partial items.
-- Assert `/v1/receipts/process` contract stability for `merchant`, `expense_date`, `total_amount`, `items`, `warnings`, and optional metadata fields.
+- Assert `/v1/receipts/process` contract stability for `merchant`, `expense_date`,
+  `total_amount`, `items`, `warnings`, and optional metadata fields.
 - Assert local review/save still works when backend parser fallback is unavailable.
+- Assert local receipt persistence and sync metadata queueing are separate outcomes.
 - Offline create/edit/delete then reconnect sync reconciliation tests.
 
 ## AI-related tests

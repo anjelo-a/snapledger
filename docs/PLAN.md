@@ -92,6 +92,8 @@ Deliverables:
 Acceptance criteria:
 - Save succeeds when merchant/date/total present even if items incomplete.
 - Review always happens before save; parser output is never auto-persisted.
+- Reviewed receipts are persisted locally first, with sync metadata queued separately.
+- Backend parser fallback is optional and must not block a valid local save.
 - No LLM parsing is introduced for receipts, including fallback behavior.
 
 Must not start:
@@ -159,13 +161,21 @@ Acceptance criteria:
 
 Backend progress note (April 28, 2026):
 - Phase 1 backend scope is complete.
-- Remaining backend work is Phase 2+ (OCR parser hardening), Phase 3 (budgets/dashboard), Phase 4 (sync), and Phase 5 (insight).
+- Phase 2 backend fallback parser is implemented as deterministic rule-based parsing only.
+- Remaining backend work is Phase 3 (budgets/dashboard), Phase 4 (sync), and Phase 5 (insight).
 
 Phase 2 contract lock (April 29, 2026):
 - `ReceiptProcessRequest` is already present with `ocr_lines`, optional `locale`, and optional `currency_hint`.
 - `ParsedReceiptCandidate` already carries `merchant`, `expense_date`, `total_amount`, `items`, and `warnings`.
-- Optional backward-compatible metadata fields are allowed for review UX only; current contract adds `warning_codes` and `field_confidence`.
+- Optional backward-compatible metadata fields are allowed for review UX only; current contract adds
+  `warning_codes` and `field_confidence`.
 - No schema change in this contract may require Android or backend callers to send new required fields.
+
+Phase 2 implementation note (April 30, 2026):
+- Android scan/review/save is local-first: a valid reviewed receipt saves locally even when
+  backend fallback is unavailable.
+- The backend fallback parser remains optional and deterministic-only.
+- Sync metadata is queued separately from the local receipt record.
 
 ## Implementation order
 1. Lock docs and scope boundaries.
