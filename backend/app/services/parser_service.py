@@ -134,7 +134,9 @@ class _ItemsSelection:
     warning_codes: list[str]
 
 
-def _normalize_ocr_lines(ocr_lines: list[str]) -> tuple[list[_NormalizedLine], list[str], list[str]]:
+def _normalize_ocr_lines(
+    ocr_lines: list[str],
+) -> tuple[list[_NormalizedLine], list[str], list[str]]:
     warnings: list[str] = []
     warning_codes: list[str] = []
     normalized_lines: list[_NormalizedLine] = []
