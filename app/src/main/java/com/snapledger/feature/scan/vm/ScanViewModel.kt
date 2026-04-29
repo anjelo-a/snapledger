@@ -18,6 +18,8 @@ import com.snapledger.feature.scan.domain.PendingCapture
 import com.snapledger.feature.scan.domain.ScanCapturePhase
 import com.snapledger.feature.scan.domain.ScanRepository
 import com.snapledger.feature.scan.domain.ScanUiState
+import com.snapledger.feature.review.domain.InMemoryReviewRepository
+import com.snapledger.feature.review.domain.ReviewRepository
 import com.snapledger.feature.scan.ocr.MlKitReceiptOcrService
 import com.snapledger.feature.scan.ocr.ReceiptOcrResult
 import com.snapledger.feature.scan.ocr.ReceiptOcrService
@@ -33,6 +35,7 @@ class ScanViewModel(
     private val repository: ScanRepository = CameraCaptureRepository(),
     private val ocrService: ReceiptOcrService,
     private val parserService: ReceiptParserService,
+    private val reviewRepository: ReviewRepository = InMemoryReviewRepository.instance,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     var uiState: ScanUiState by mutableStateOf(repository.loadInitialState())
@@ -83,6 +86,7 @@ class ScanViewModel(
     }
 
     fun onCameraFailure(message: String) {
+        reviewRepository.storeParsedCandidate(null)
         uiState = uiState.copy(
             status = "Camera unavailable",
             captureStatus = "Camera setup failed. Retry to rebind the preview.",
@@ -122,6 +126,7 @@ class ScanViewModel(
     }
 
     fun onCaptureFailed(message: String) {
+        reviewRepository.storeParsedCandidate(null)
         uiState = uiState.copy(
             status = "Capture failed",
             captureStatus = "CameraX could not capture the image. Retry to continue.",
@@ -134,6 +139,7 @@ class ScanViewModel(
     }
 
     fun onRetryCapture() {
+        reviewRepository.storeParsedCandidate(null)
         val nextPhase = if (uiState.permissionState == CameraPermissionState.Granted) {
             ScanCapturePhase.PreviewLoading
         } else {
@@ -174,6 +180,7 @@ class ScanViewModel(
             return
         }
 
+        reviewRepository.storeParsedCandidate(null)
         uiState = uiState.copy(
             ocr = OcrUiState(
                 phase = OcrExtractionPhase.Running,
@@ -265,6 +272,7 @@ class ScanViewModel(
                 candidate.expenseDate != null &&
                 candidate.totalAmount != null &&
                 candidate.warnings.isEmpty()
+            reviewRepository.storeParsedCandidate(candidate)
 
             uiState = uiState.copy(
                 parser = ParserUiState(
@@ -281,6 +289,7 @@ class ScanViewModel(
     }
 
     private fun applyCapturedImage(metadata: CapturedImageMetadata) {
+        reviewRepository.storeParsedCandidate(null)
         uiState = uiState.copy(
             status = "Capture complete",
             captureStatus = "Captured image metadata is ready for the next scan step",
@@ -307,6 +316,7 @@ class ScanViewModel(
                             repository = CameraCaptureRepository(),
                             ocrService = MlKitReceiptOcrService(appContext),
                             parserService = DeterministicReceiptParserService(),
+                            reviewRepository = InMemoryReviewRepository.instance,
                         ) as T
                     }
                     throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
