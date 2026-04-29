@@ -5,14 +5,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import com.snapledger.feature.review.domain.InMemoryReviewRepository
+import androidx.lifecycle.viewModelScope
 import com.snapledger.feature.review.domain.ReviewItemFieldState
 import com.snapledger.feature.review.domain.ReviewRepository
+import com.snapledger.feature.review.domain.ReviewSaveResult
 import com.snapledger.feature.review.domain.ReviewUiState
 import com.snapledger.feature.review.domain.validateReviewState
+import kotlinx.coroutines.launch
 
 class ReviewViewModel(
-    private val repository: ReviewRepository = InMemoryReviewRepository.instance,
+    private val repository: ReviewRepository,
 ) : ViewModel() {
     var uiState: ReviewUiState by mutableStateOf(validateReviewState(repository.loadDraft()))
         private set
@@ -84,12 +86,37 @@ class ReviewViewModel(
 
     fun onSaveRequested() {
         if (!uiState.saveEnabled) return
-        repository.saveReviewedReceipt(uiState)
+        val draftToSave = uiState
         updateState(
             uiState.copy(
-                saveStatusMessage = "Save is still deferred. This screen only validates and stages edits in Phase 2.",
+                isSaving = true,
+                saveStatusMessage = "Saving receipt locally and queueing sync metadata...",
             ),
         )
+        viewModelScope.launch {
+            val result = repository.saveReviewedReceipt(draftToSave)
+            uiState = when (result) {
+                is ReviewSaveResult.Success -> {
+                    validateReviewState(
+                        uiState.copy(
+                            isSaving = false,
+                            saveStatusMessage = if (result.syncDispatchError == null) {
+                                "Saved locally as ${result.receiptId}. Sync metadata queued as ${result.syncQueueId}."
+                            } else {
+                                "Saved locally as ${result.receiptId}. Sync metadata queued as ${result.syncQueueId}; background dispatch failed: ${result.syncDispatchError}"
+                            },
+                        ),
+                    )
+                }
+
+                is ReviewSaveResult.ValidationFailed -> {
+                    result.uiState.copy(
+                        isSaving = false,
+                        saveStatusMessage = "Local save was skipped because required review fields are invalid.",
+                    )
+                }
+            }
+        }
     }
 
     private fun updateState(nextState: ReviewUiState) {
@@ -97,7 +124,7 @@ class ReviewViewModel(
     }
 
     companion object {
-        fun factory(repository: ReviewRepository = InMemoryReviewRepository.instance): ViewModelProvider.Factory {
+        fun factory(repository: ReviewRepository): ViewModelProvider.Factory {
             return object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {

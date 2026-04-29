@@ -30,5 +30,6 @@ data class ReviewUiState(
     val items: List<ReviewItemFieldState> = emptyList(),
     val warnings: List<String> = emptyList(),
     val saveEnabled: Boolean = false,
+    val isSaving: Boolean = false,
     val saveStatusMessage: String = "Saving is still intentionally deferred in Phase 2.",
 )

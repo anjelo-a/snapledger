@@ -13,6 +13,8 @@ import com.snapledger.feature.scan.domain.PendingCapture
 import com.snapledger.feature.scan.domain.ScanCapturePhase
 import com.snapledger.feature.scan.domain.ScanRepository
 import com.snapledger.feature.scan.domain.ScanUiState
+import com.snapledger.feature.review.domain.ReviewRepository
+import com.snapledger.feature.review.domain.ReviewSaveResult
 import com.snapledger.feature.scan.ocr.ReceiptOcrResult
 import com.snapledger.feature.scan.ocr.ReceiptOcrService
 import com.snapledger.feature.scan.parser.ReceiptParserService
@@ -39,6 +41,7 @@ class ScanViewModelTest {
             repository = repository,
             ocrService = FakeReceiptOcrService(),
             parserService = FakeReceiptParserService(),
+            reviewRepository = FakeReviewRepository(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -59,7 +62,7 @@ class ScanViewModelTest {
 
         assertEquals(ScanCapturePhase.CaptureSucceeded, viewModel.uiState.capturePhase)
         assertEquals("fake.jpg", viewModel.uiState.capturedImage?.fileName)
-        assertTrue(viewModel.uiState.canContinueToReview)
+        assertTrue(!viewModel.uiState.canContinueToReview)
         assertNull(viewModel.uiState.cameraErrorMessage)
     }
 
@@ -69,6 +72,7 @@ class ScanViewModelTest {
             repository = FakeScanRepository(),
             ocrService = FakeReceiptOcrService(),
             parserService = FakeReceiptParserService(),
+            reviewRepository = FakeReviewRepository(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -106,6 +110,7 @@ class ScanViewModelTest {
                 ),
             ),
             parserService = FakeReceiptParserService(),
+            reviewRepository = FakeReviewRepository(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -130,6 +135,7 @@ class ScanViewModelTest {
                 ),
             ),
             parserService = FakeReceiptParserService(),
+            reviewRepository = FakeReviewRepository(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -152,6 +158,7 @@ class ScanViewModelTest {
                 ),
             ),
             parserService = FakeReceiptParserService(),
+            reviewRepository = FakeReviewRepository(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -176,6 +183,7 @@ class ScanViewModelTest {
                 ),
             ),
             parserService = FakeReceiptParserService(),
+            reviewRepository = FakeReviewRepository(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -214,6 +222,7 @@ class ScanViewModelTest {
                     warnings = emptyList(),
                 ),
             ),
+            reviewRepository = FakeReviewRepository(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -226,6 +235,7 @@ class ScanViewModelTest {
         assertEquals(ParserPhase.Success, viewModel.uiState.parser.phase)
         assertEquals("Merchant Example", viewModel.uiState.parser.candidate?.merchant)
         assertEquals(12345, viewModel.uiState.parser.candidate?.totalAmount?.amountMinor)
+        assertTrue(viewModel.uiState.canContinueToReview)
     }
 
     @Test
@@ -247,6 +257,7 @@ class ScanViewModelTest {
                     warnings = listOf("Merchant could not be determined from the OCR lines."),
                 ),
             ),
+            reviewRepository = FakeReviewRepository(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -258,6 +269,18 @@ class ScanViewModelTest {
 
         assertEquals(ParserPhase.Partial, viewModel.uiState.parser.phase)
         assertEquals(1, viewModel.uiState.parser.candidate?.warnings?.size)
+    }
+}
+
+private class FakeReviewRepository : ReviewRepository {
+    override fun loadDraft(): com.snapledger.feature.review.domain.ReviewUiState {
+        return com.snapledger.feature.review.domain.ReviewUiState()
+    }
+
+    override fun storeParsedCandidate(candidate: ParsedReceiptCandidate?) = Unit
+
+    override suspend fun saveReviewedReceipt(uiState: com.snapledger.feature.review.domain.ReviewUiState): ReviewSaveResult {
+        return ReviewSaveResult.ValidationFailed(uiState)
     }
 }
 
