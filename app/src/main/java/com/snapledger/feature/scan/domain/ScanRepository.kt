@@ -1,24 +1,49 @@
 package com.snapledger.feature.scan.domain
 
+import android.graphics.BitmapFactory
+import androidx.core.net.toUri
+import java.io.File
+
 interface ScanRepository {
-    fun loadPlaceholderState(): ScanUiState
+    fun loadInitialState(): ScanUiState
 
-    // TODO(phase-2): Add CameraX capture orchestration once the capture pipeline starts.
-    fun requestCapture()
+    fun createPendingCapture(cacheDirectory: File, timestampMillis: Long): PendingCapture
 
-    // TODO(phase-2): Add OCR extraction boundary for ML Kit text recognition results.
-    fun requestOcrExtraction()
-
-    // TODO(phase-2): Add deterministic parser handoff after OCR text normalization.
-    fun requestDeterministicParse()
+    fun readCapturedImageMetadata(outputPath: String, savedUri: String?): CapturedImageMetadata
 }
 
-class PlaceholderScanRepository : ScanRepository {
-    override fun loadPlaceholderState(): ScanUiState = ScanUiState()
+class CameraCaptureRepository : ScanRepository {
+    override fun loadInitialState(): ScanUiState = ScanUiState()
 
-    override fun requestCapture() = Unit
+    override fun createPendingCapture(
+        cacheDirectory: File,
+        timestampMillis: Long,
+    ): PendingCapture {
+        val captureDirectory = File(cacheDirectory, "scan-captures").apply {
+            mkdirs()
+        }
+        val outputFile = File(captureDirectory, "receipt-$timestampMillis.jpg")
+        return PendingCapture(outputPath = outputFile.absolutePath)
+    }
 
-    override fun requestOcrExtraction() = Unit
+    override fun readCapturedImageMetadata(
+        outputPath: String,
+        savedUri: String?,
+    ): CapturedImageMetadata {
+        val imageFile = File(outputPath)
+        val bounds = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeFile(imageFile.absolutePath, bounds)
 
-    override fun requestDeterministicParse() = Unit
+        return CapturedImageMetadata(
+            fileName = imageFile.name,
+            absolutePath = imageFile.absolutePath,
+            contentUri = savedUri ?: imageFile.toUri().toString(),
+            capturedAtMillis = imageFile.lastModified(),
+            fileSizeBytes = imageFile.length(),
+            widthPx = bounds.outWidth.takeIf { it > 0 },
+            heightPx = bounds.outHeight.takeIf { it > 0 },
+        )
+    }
 }
