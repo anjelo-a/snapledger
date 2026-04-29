@@ -301,7 +301,11 @@ def _select_total_amount(lines: list[_NormalizedLine]) -> _FieldSelection[Decima
             continue
 
         inline_amount = _parse_last_amount(line.text)
-        next_amount = _parse_last_amount(lines[idx + 1].text) if has_total_keyword and inline_amount is None and idx + 1 < len(lines) else None
+        next_amount = (
+            _parse_last_amount(lines[idx + 1].text)
+            if has_total_keyword and inline_amount is None and idx + 1 < len(lines)
+            else None
+        )
 
         score = -10_000
         if "grand total" in lowered:
@@ -341,7 +345,10 @@ def _select_total_amount(lines: list[_NormalizedLine]) -> _FieldSelection[Decima
             inferred,
             0.6,
             best_index,
-            ["Total amount was inferred from the largest trailing amount without an explicit total label."],
+            [
+                "Total amount was inferred from the largest trailing amount without an "
+                "explicit total label."
+            ],
             ["total_amount_inferred"],
         )
 
