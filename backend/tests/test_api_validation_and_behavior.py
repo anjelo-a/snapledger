@@ -173,6 +173,56 @@ def test_receipt_process_rejects_unknown_request_field(client: TestClient) -> No
     assert response.status_code == 422
 
 
+def test_receipt_process_rejects_blank_ocr_line(client: TestClient) -> None:
+    response = client.post(
+        "/v1/receipts/process",
+        json={
+            "ocr_lines": ["   "],
+        },
+    )
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["error"]["code"] == "validation_error"
+    ctx = payload["error"]["details"][0].get("ctx", {})
+    assert isinstance(ctx.get("error"), str)
+
+
+def test_receipt_process_rejects_malformed_ocr_lines_payload(client: TestClient) -> None:
+    response = client.post(
+        "/v1/receipts/process",
+        json={
+            "ocr_lines": "ACME MART",
+        },
+    )
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["error"]["code"] == "validation_error"
+
+
+def test_receipt_process_rejects_overlong_ocr_line(client: TestClient) -> None:
+    response = client.post(
+        "/v1/receipts/process",
+        json={
+            "ocr_lines": ["A" * 501],
+        },
+    )
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["error"]["code"] == "validation_error"
+
+
+def test_receipt_process_rejects_overlong_total_text(client: TestClient) -> None:
+    response = client.post(
+        "/v1/receipts/process",
+        json={
+            "ocr_lines": ["A" * 500 for _ in range(41)],
+        },
+    )
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["error"]["code"] == "validation_error"
+
+
 def test_categories_returns_seeded_shape(client: TestClient) -> None:
     response = client.get("/v1/categories")
     assert response.status_code == 200

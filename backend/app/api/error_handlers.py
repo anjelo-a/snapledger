@@ -37,6 +37,19 @@ def _error_payload(*, code: str, message: str, details: object | None = None) ->
     return payload
 
 
+def _json_serializable_validation_details(details: object) -> object:
+    if isinstance(details, BaseException):
+        return str(details)
+    if isinstance(details, dict):
+        return {
+            str(key): _json_serializable_validation_details(value)
+            for key, value in details.items()
+        }
+    if isinstance(details, list | tuple):
+        return [_json_serializable_validation_details(value) for value in details]
+    return details
+
+
 async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
     detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
     return JSONResponse(
@@ -51,7 +64,7 @@ async def validation_exception_handler(_: Request, exc: RequestValidationError) 
         content=_error_payload(
             code="validation_error",
             message="Request validation failed",
-            details=exc.errors(),
+            details=_json_serializable_validation_details(exc.errors()),
         ),
     )
 
