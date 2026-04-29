@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.snapledger.feature.review.domain.InMemoryReviewRepository
 import com.snapledger.ui.AppHomeScreen
 import com.snapledger.feature.review.ui.ReviewRoute
 import com.snapledger.feature.review.vm.ReviewViewModel
@@ -42,7 +43,9 @@ fun SnapLedgerNavHost(
             )
         }
         composable(SnapLedgerDestination.Review.route) {
-            val reviewViewModel: ReviewViewModel = viewModel()
+            val reviewViewModel: ReviewViewModel = viewModel(
+                factory = ReviewViewModel.factory(InMemoryReviewRepository.instance),
+            )
             ReviewRoute(
                 viewModel = reviewViewModel,
                 onBack = { navController.popBackStack() },

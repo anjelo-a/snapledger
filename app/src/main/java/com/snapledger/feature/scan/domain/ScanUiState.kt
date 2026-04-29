@@ -115,7 +115,7 @@ data class ScanUiState(
         get() = capturedImage != null || capturePhase == ScanCapturePhase.CameraFailure
 
     val canContinueToReview: Boolean
-        get() = capturedImage != null
+        get() = parser.candidate != null
 
     val canRunOcr: Boolean
         get() = capturedImage != null && ocr.phase != OcrExtractionPhase.Running
