@@ -30,15 +30,47 @@ data class PendingCapture(
     val outputPath: String,
 )
 
+enum class OcrExtractionPhase {
+    Idle,
+    Running,
+    Success,
+    Partial,
+    Empty,
+    Failure,
+}
+
+data class NormalizedOcrLine(
+    val index: Int,
+    val text: String,
+)
+
+data class OcrExtractionMetadata(
+    val capturedAtMillis: Long,
+    val widthPx: Int?,
+    val heightPx: Int?,
+    val fileSizeBytes: Long,
+    val sourcePath: String,
+    val sourceUri: String,
+)
+
+data class OcrUiState(
+    val phase: OcrExtractionPhase = OcrExtractionPhase.Idle,
+    val status: String = "Run OCR after capturing a receipt image",
+    val lines: List<NormalizedOcrLine> = emptyList(),
+    val metadata: OcrExtractionMetadata? = null,
+    val warningMessages: List<String> = emptyList(),
+    val errorMessage: String? = null,
+)
+
 data class ScanUiState(
     val title: String = "Receipt Scan",
     val status: String = "Waiting for camera permission",
     val captureStatus: String = "Grant camera access to start the Phase 2 capture flow",
-    val ocrStatus: String = "ML Kit OCR is intentionally not implemented yet",
     val parserStatus: String = "Deterministic parser is intentionally not implemented yet",
     val permissionState: CameraPermissionState = CameraPermissionState.Unknown,
     val capturePhase: ScanCapturePhase = ScanCapturePhase.AwaitingPermission,
     val capturedImage: CapturedImageMetadata? = null,
+    val ocr: OcrUiState = OcrUiState(),
     val cameraErrorMessage: String? = null,
     val cameraSessionId: Int = 0,
 ) {
@@ -51,6 +83,9 @@ data class ScanUiState(
 
     val canContinueToReview: Boolean
         get() = capturedImage != null
+
+    val canRunOcr: Boolean
+        get() = capturedImage != null && ocr.phase != OcrExtractionPhase.Running
 
     val needsCameraPermission: Boolean
         get() = permissionState != CameraPermissionState.Granted

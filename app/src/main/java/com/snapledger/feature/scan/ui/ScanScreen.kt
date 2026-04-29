@@ -53,6 +53,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.snapledger.feature.scan.domain.CameraPermissionState
+import com.snapledger.feature.scan.domain.OcrExtractionPhase
+import com.snapledger.feature.scan.domain.OcrUiState
 import com.snapledger.feature.scan.domain.PendingCapture
 import com.snapledger.feature.scan.domain.ScanCapturePhase
 import com.snapledger.feature.scan.domain.ScanUiState
@@ -164,11 +166,7 @@ fun ScanScreen(
             )
 
             CaptureStatusCard(uiState = uiState)
-            PlaceholderStatusCard(
-                title = "OCR extraction",
-                body = uiState.ocrStatus,
-                todo = "TODO: add ML Kit OCR after the capture flow; do not run OCR from Compose.",
-            )
+            OcrStatusCard(ocr = uiState.ocr)
             PlaceholderStatusCard(
                 title = "Deterministic parser",
                 body = uiState.parserStatus,
@@ -206,8 +204,15 @@ fun ScanScreen(
             Button(
                 onClick = onOcrRequested,
                 modifier = Modifier.fillMaxWidth(),
+                enabled = uiState.canRunOcr,
             ) {
-                Text(text = "Keep OCR Deferred")
+                Text(
+                    text = if (uiState.ocr.phase == OcrExtractionPhase.Running) {
+                        "Running OCR..."
+                    } else {
+                        "Run OCR Extraction"
+                    },
+                )
             }
             Button(
                 onClick = onParseRequested,
@@ -410,6 +415,65 @@ private fun CaptureStatusCard(uiState: ScanUiState) {
                 }
                 Text(
                     text = "Dimensions: $dimensions",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OcrStatusCard(ocr: OcrUiState) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "OCR extraction",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = ocr.status,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            ocr.errorMessage?.let { errorMessage ->
+                Text(
+                    text = errorMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            ocr.warningMessages.forEach { warning ->
+                Text(
+                    text = warning,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
+            ocr.metadata?.let { metadata ->
+                Text(
+                    text = "Captured at: ${metadata.capturedAtMillis}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    text = "Dimensions: ${metadata.widthPx ?: "Unknown"} x ${metadata.heightPx ?: "Unknown"}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    text = "Image size: ${metadata.fileSizeBytes} bytes",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            ocr.lines.forEach { line ->
+                Text(
+                    text = "${line.index + 1}. ${line.text}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            if (ocr.lines.isEmpty() && ocr.phase == OcrExtractionPhase.Idle) {
+                Text(
+                    text = "Normalized OCR lines will appear here after a capture is processed.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
