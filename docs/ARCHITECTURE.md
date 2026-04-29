@@ -51,13 +51,17 @@ Current backend implementation notes:
 - Receipts list uses opaque cursor pagination with stable ordering.
 - Global error envelope handlers are registered for HTTP/validation/unhandled exceptions.
 - Optional security middleware gates are available via env config: API key, CORS allowlist, in-memory rate limiting, HTTPS enforcement.
-- `POST /v1/receipts/process` already exposes the Phase 2 parser contract, but the parser implementation is still a placeholder.
+- `POST /v1/receipts/process` implements the Phase 2 deterministic parser fallback with strict
+  OCR input validation and structured candidate output.
+- Backend fallback parsing is optional; Android review/save persists locally first and never waits
+  on backend availability.
 
 ## Data/storage architecture
 Local:
 - Room is source of truth for UX.
 - Local writes always happen immediately.
 - Local sync queue tracks pending mutations.
+- Reviewed receipt save writes the local receipt first, then queues sync metadata separately.
 
 Remote:
 - PostgreSQL is canonical for synced state.

@@ -41,7 +41,7 @@
 
 ### OCR processing
 `POST /v1/receipts/process`
-- Purpose: optional server-side deterministic normalization of OCR text lines for the scan review flow.
+- Purpose: optional server-side deterministic parsing fallback for OCR text lines in the scan review flow.
 - Request contract:
   - `ocr_lines: string[]` required, non-empty, max 500 lines.
   - `locale: string | null` optional.
@@ -52,17 +52,25 @@
   - `total_amount: decimal string | null`
   - `items: {name, amount}[]`
   - `warnings: string[]`
-  - `warning_codes: string[]` always present machine-readable warning metadata for review UX; `[]` when there are no warning codes.
-  - `field_confidence: {merchant?, expense_date?, total_amount?, items?} | null` always present 0..1 confidence hints; `null` when unavailable.
+  - `warning_codes: string[]` always present machine-readable warning metadata for review UX; `[]`
+    when there are no warning codes.
+  - `field_confidence: {merchant?, expense_date?, total_amount?, items?} | null` always present
+    0..1 confidence hints; `null` when unavailable.
 - Contract rules:
   - Backward-compatible additions are allowed only as optional response fields.
   - No image bytes are posted to this endpoint; the contract starts after OCR as normalized text lines.
   - This endpoint never mutates saved receipts.
   - Android local save must not depend on this endpoint being available.
+  - Parser behavior is deterministic and rule-based only; no LLM, prompt, AI endpoint, or
+    generative cleanup path is allowed.
 - Current status:
-  - The route and request/response contract already exist.
-  - Deterministic parser rules are Phase 2 work and are not implemented yet.
-- Scope: Phase 2+ optional fallback.
+  - The route, strict request validation, deterministic parser, warnings, warning codes, and field
+    confidence hints are implemented.
+  - Malformed, blank, unknown-field, overlong-line, and overlong-total-text payloads return
+    explicit validation errors.
+  - Backend fallback remains optional; reviewed Android local save is the primary success path and
+    is local-first.
+- Scope: Phase 2 optional fallback.
 
 ### Categories
 `GET /v1/categories`
