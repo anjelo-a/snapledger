@@ -12,6 +12,8 @@ import com.snapledger.feature.scan.domain.CameraPermissionState
 import com.snapledger.feature.scan.domain.CapturedImageMetadata
 import com.snapledger.feature.scan.domain.OcrExtractionPhase
 import com.snapledger.feature.scan.domain.OcrUiState
+import com.snapledger.feature.scan.domain.ParserPhase
+import com.snapledger.feature.scan.domain.ParserUiState
 import com.snapledger.feature.scan.domain.PendingCapture
 import com.snapledger.feature.scan.domain.ScanCapturePhase
 import com.snapledger.feature.scan.domain.ScanRepository
@@ -19,6 +21,8 @@ import com.snapledger.feature.scan.domain.ScanUiState
 import com.snapledger.feature.scan.ocr.MlKitReceiptOcrService
 import com.snapledger.feature.scan.ocr.ReceiptOcrResult
 import com.snapledger.feature.scan.ocr.ReceiptOcrService
+import com.snapledger.feature.scan.parser.DeterministicReceiptParserService
+import com.snapledger.feature.scan.parser.ReceiptParserService
 import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +32,7 @@ import kotlinx.coroutines.withContext
 class ScanViewModel(
     private val repository: ScanRepository = CameraCaptureRepository(),
     private val ocrService: ReceiptOcrService,
+    private val parserService: ReceiptParserService,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     var uiState: ScanUiState by mutableStateOf(repository.loadInitialState())
@@ -83,6 +88,7 @@ class ScanViewModel(
             captureStatus = "Camera setup failed. Retry to rebind the preview.",
             capturePhase = ScanCapturePhase.CameraFailure,
             ocr = OcrUiState(),
+            parser = ParserUiState(),
             cameraErrorMessage = message,
             capturedImage = null,
         )
@@ -121,6 +127,7 @@ class ScanViewModel(
             captureStatus = "CameraX could not capture the image. Retry to continue.",
             capturePhase = ScanCapturePhase.CameraFailure,
             ocr = OcrUiState(),
+            parser = ParserUiState(),
             cameraErrorMessage = message,
             capturedImage = null,
         )
@@ -149,6 +156,7 @@ class ScanViewModel(
             capturePhase = nextPhase,
             capturedImage = null,
             ocr = OcrUiState(),
+            parser = ParserUiState(),
             cameraErrorMessage = null,
             cameraSessionId = uiState.cameraSessionId + 1,
         )
@@ -170,6 +178,9 @@ class ScanViewModel(
             ocr = OcrUiState(
                 phase = OcrExtractionPhase.Running,
                 status = "Extracting text with ML Kit",
+            ),
+            parser = ParserUiState(
+                status = "Run the deterministic parser after OCR completes",
             ),
         )
 
@@ -224,9 +235,49 @@ class ScanViewModel(
     }
 
     fun onParseRequested() {
+        val ocrLines = uiState.ocr.lines
+        if (ocrLines.isEmpty()) {
+            uiState = uiState.copy(
+                parser = ParserUiState(
+                    phase = ParserPhase.Failure,
+                    status = "Parser unavailable",
+                    errorMessage = "Run OCR successfully before starting deterministic parsing.",
+                ),
+            )
+            return
+        }
+
         uiState = uiState.copy(
-            parserStatus = "Deterministic parser remains intentionally out of scope for this step",
+            parser = ParserUiState(
+                phase = ParserPhase.Running,
+                status = "Running deterministic receipt parser",
+            ),
         )
+
+        viewModelScope.launch {
+            val currentSourcePath = uiState.capturedImage?.absolutePath
+            val candidate = withContext(ioDispatcher) {
+                parserService.parse(ocrLines)
+            }
+            if (uiState.capturedImage?.absolutePath != currentSourcePath) return@launch
+
+            val isComplete = candidate.merchant != null &&
+                candidate.expenseDate != null &&
+                candidate.totalAmount != null &&
+                candidate.warnings.isEmpty()
+
+            uiState = uiState.copy(
+                parser = ParserUiState(
+                    phase = if (isComplete) ParserPhase.Success else ParserPhase.Partial,
+                    status = if (isComplete) {
+                        "Deterministic parser completed successfully"
+                    } else {
+                        "Deterministic parser completed with warnings"
+                    },
+                    candidate = candidate,
+                ),
+            )
+        }
     }
 
     private fun applyCapturedImage(metadata: CapturedImageMetadata) {
@@ -237,6 +288,9 @@ class ScanViewModel(
             capturedImage = metadata,
             ocr = OcrUiState(
                 status = "Run OCR after capturing a receipt image",
+            ),
+            parser = ParserUiState(
+                status = "Run the deterministic parser after OCR completes",
             ),
             cameraErrorMessage = null,
         )
@@ -252,6 +306,7 @@ class ScanViewModel(
                         return ScanViewModel(
                             repository = CameraCaptureRepository(),
                             ocrService = MlKitReceiptOcrService(appContext),
+                            parserService = DeterministicReceiptParserService(),
                         ) as T
                     }
                     throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")

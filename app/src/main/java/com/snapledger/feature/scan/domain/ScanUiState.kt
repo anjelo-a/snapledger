@@ -62,15 +62,48 @@ data class OcrUiState(
     val errorMessage: String? = null,
 )
 
+enum class ParserPhase {
+    Idle,
+    Running,
+    Success,
+    Partial,
+    Failure,
+}
+
+data class ParsedMoneyCandidate(
+    val rawText: String,
+    val amountMinor: Long,
+)
+
+data class ParsedReceiptItemCandidate(
+    val description: String,
+    val amount: ParsedMoneyCandidate?,
+)
+
+data class ParsedReceiptCandidate(
+    val merchant: String?,
+    val expenseDate: String?,
+    val totalAmount: ParsedMoneyCandidate?,
+    val items: List<ParsedReceiptItemCandidate>,
+    val warnings: List<String>,
+)
+
+data class ParserUiState(
+    val phase: ParserPhase = ParserPhase.Idle,
+    val status: String = "Run the deterministic parser after OCR completes",
+    val candidate: ParsedReceiptCandidate? = null,
+    val errorMessage: String? = null,
+)
+
 data class ScanUiState(
     val title: String = "Receipt Scan",
     val status: String = "Waiting for camera permission",
     val captureStatus: String = "Grant camera access to start the Phase 2 capture flow",
-    val parserStatus: String = "Deterministic parser is intentionally not implemented yet",
     val permissionState: CameraPermissionState = CameraPermissionState.Unknown,
     val capturePhase: ScanCapturePhase = ScanCapturePhase.AwaitingPermission,
     val capturedImage: CapturedImageMetadata? = null,
     val ocr: OcrUiState = OcrUiState(),
+    val parser: ParserUiState = ParserUiState(),
     val cameraErrorMessage: String? = null,
     val cameraSessionId: Int = 0,
 ) {
@@ -86,6 +119,9 @@ data class ScanUiState(
 
     val canRunOcr: Boolean
         get() = capturedImage != null && ocr.phase != OcrExtractionPhase.Running
+
+    val canRunParser: Boolean
+        get() = ocr.lines.isNotEmpty() && parser.phase != ParserPhase.Running
 
     val needsCameraPermission: Boolean
         get() = permissionState != CameraPermissionState.Granted

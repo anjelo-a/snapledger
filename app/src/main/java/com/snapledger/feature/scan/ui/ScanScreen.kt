@@ -55,6 +55,8 @@ import androidx.core.content.ContextCompat
 import com.snapledger.feature.scan.domain.CameraPermissionState
 import com.snapledger.feature.scan.domain.OcrExtractionPhase
 import com.snapledger.feature.scan.domain.OcrUiState
+import com.snapledger.feature.scan.domain.ParserPhase
+import com.snapledger.feature.scan.domain.ParserUiState
 import com.snapledger.feature.scan.domain.PendingCapture
 import com.snapledger.feature.scan.domain.ScanCapturePhase
 import com.snapledger.feature.scan.domain.ScanUiState
@@ -167,11 +169,7 @@ fun ScanScreen(
 
             CaptureStatusCard(uiState = uiState)
             OcrStatusCard(ocr = uiState.ocr)
-            PlaceholderStatusCard(
-                title = "Deterministic parser",
-                body = uiState.parserStatus,
-                todo = "TODO: call deterministic parser only after OCR normalization is added.",
-            )
+            ParserStatusCard(parser = uiState.parser)
 
             Button(
                 onClick = {
@@ -217,8 +215,15 @@ fun ScanScreen(
             Button(
                 onClick = onParseRequested,
                 modifier = Modifier.fillMaxWidth(),
+                enabled = uiState.canRunParser,
             ) {
-                Text(text = "Keep Parser Deferred")
+                Text(
+                    text = if (uiState.parser.phase == ParserPhase.Running) {
+                        "Running Parser..."
+                    } else {
+                        "Run Deterministic Parser"
+                    },
+                )
             }
             Button(
                 onClick = onOpenReview,
@@ -482,28 +487,67 @@ private fun OcrStatusCard(ocr: OcrUiState) {
 }
 
 @Composable
-private fun PlaceholderStatusCard(
-    title: String,
-    body: String,
-    todo: String,
-) {
+private fun ParserStatusCard(parser: ParserUiState) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = title,
+                text = "Deterministic parser",
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = body,
+                text = parser.status,
                 style = MaterialTheme.typography.bodyLarge,
             )
-            Text(
-                text = todo,
-                style = MaterialTheme.typography.bodySmall,
-            )
+            parser.errorMessage?.let { errorMessage ->
+                Text(
+                    text = errorMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            parser.candidate?.let { candidate ->
+                Text(
+                    text = "Merchant: ${candidate.merchant ?: "Missing"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = "Expense date: ${candidate.expenseDate ?: "Missing"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = "Total: ${candidate.totalAmount?.rawText ?: "Missing"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (candidate.items.isEmpty()) {
+                    Text(
+                        text = "Items: none parsed",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    candidate.items.forEach { item ->
+                        Text(
+                            text = "Item: ${item.description}${item.amount?.rawText?.let { " (${it})" } ?: ""}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+                candidate.warnings.forEach { warning ->
+                    Text(
+                        text = warning,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+            }
+            if (parser.candidate == null && parser.phase == ParserPhase.Idle) {
+                Text(
+                    text = "Parsed receipt candidate output will appear here after OCR lines are available.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
     }
 }

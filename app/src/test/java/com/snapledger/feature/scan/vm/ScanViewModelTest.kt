@@ -5,12 +5,17 @@ import com.snapledger.feature.scan.domain.CapturedImageMetadata
 import com.snapledger.feature.scan.domain.NormalizedOcrLine
 import com.snapledger.feature.scan.domain.OcrExtractionMetadata
 import com.snapledger.feature.scan.domain.OcrExtractionPhase
+import com.snapledger.feature.scan.domain.ParsedMoneyCandidate
+import com.snapledger.feature.scan.domain.ParsedReceiptCandidate
+import com.snapledger.feature.scan.domain.ParsedReceiptItemCandidate
+import com.snapledger.feature.scan.domain.ParserPhase
 import com.snapledger.feature.scan.domain.PendingCapture
 import com.snapledger.feature.scan.domain.ScanCapturePhase
 import com.snapledger.feature.scan.domain.ScanRepository
 import com.snapledger.feature.scan.domain.ScanUiState
 import com.snapledger.feature.scan.ocr.ReceiptOcrResult
 import com.snapledger.feature.scan.ocr.ReceiptOcrService
+import com.snapledger.feature.scan.parser.ReceiptParserService
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -33,6 +38,7 @@ class ScanViewModelTest {
         val viewModel = ScanViewModel(
             repository = repository,
             ocrService = FakeReceiptOcrService(),
+            parserService = FakeReceiptParserService(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -62,6 +68,7 @@ class ScanViewModelTest {
         val viewModel = ScanViewModel(
             repository = FakeScanRepository(),
             ocrService = FakeReceiptOcrService(),
+            parserService = FakeReceiptParserService(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -98,6 +105,7 @@ class ScanViewModelTest {
                     metadata = fakeOcrMetadata(),
                 ),
             ),
+            parserService = FakeReceiptParserService(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -121,6 +129,7 @@ class ScanViewModelTest {
                     message = "No text was detected in the captured receipt image.",
                 ),
             ),
+            parserService = FakeReceiptParserService(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -142,6 +151,7 @@ class ScanViewModelTest {
                     message = "Captured image is unreadable.",
                 ),
             ),
+            parserService = FakeReceiptParserService(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -165,6 +175,7 @@ class ScanViewModelTest {
                     warningMessages = listOf("Image dimensions were unavailable, so OCR metadata is partial."),
                 ),
             ),
+            parserService = FakeReceiptParserService(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -174,6 +185,79 @@ class ScanViewModelTest {
 
         assertEquals(OcrExtractionPhase.Partial, viewModel.uiState.ocr.phase)
         assertEquals(1, viewModel.uiState.ocr.warningMessages.size)
+    }
+
+    @Test
+    fun `parser success stores structured candidate`() = runTest {
+        val viewModel = ScanViewModel(
+            repository = FakeScanRepository(),
+            ocrService = FakeReceiptOcrService(
+                result = ReceiptOcrResult.Success(
+                    lines = listOf(
+                        NormalizedOcrLine(index = 0, text = "Merchant Example"),
+                        NormalizedOcrLine(index = 1, text = "TOTAL 123.45"),
+                    ),
+                    metadata = fakeOcrMetadata(),
+                ),
+            ),
+            parserService = FakeReceiptParserService(
+                candidate = ParsedReceiptCandidate(
+                    merchant = "Merchant Example",
+                    expenseDate = "2026-04-29",
+                    totalAmount = ParsedMoneyCandidate(rawText = "123.45", amountMinor = 12345),
+                    items = listOf(
+                        ParsedReceiptItemCandidate(
+                            description = "Coffee",
+                            amount = ParsedMoneyCandidate(rawText = "100.00", amountMinor = 10000),
+                        ),
+                    ),
+                    warnings = emptyList(),
+                ),
+            ),
+            ioDispatcher = mainDispatcherRule.dispatcher,
+        )
+
+        seedCapturedImage(viewModel)
+        viewModel.onOcrRequested()
+        advanceUntilIdle()
+        viewModel.onParseRequested()
+        advanceUntilIdle()
+
+        assertEquals(ParserPhase.Success, viewModel.uiState.parser.phase)
+        assertEquals("Merchant Example", viewModel.uiState.parser.candidate?.merchant)
+        assertEquals(12345, viewModel.uiState.parser.candidate?.totalAmount?.amountMinor)
+    }
+
+    @Test
+    fun `parser warnings are represented as partial`() = runTest {
+        val viewModel = ScanViewModel(
+            repository = FakeScanRepository(),
+            ocrService = FakeReceiptOcrService(
+                result = ReceiptOcrResult.Success(
+                    lines = listOf(NormalizedOcrLine(index = 0, text = "TOTAL 123.45")),
+                    metadata = fakeOcrMetadata(),
+                ),
+            ),
+            parserService = FakeReceiptParserService(
+                candidate = ParsedReceiptCandidate(
+                    merchant = null,
+                    expenseDate = null,
+                    totalAmount = ParsedMoneyCandidate(rawText = "123.45", amountMinor = 12345),
+                    items = emptyList(),
+                    warnings = listOf("Merchant could not be determined from the OCR lines."),
+                ),
+            ),
+            ioDispatcher = mainDispatcherRule.dispatcher,
+        )
+
+        seedCapturedImage(viewModel)
+        viewModel.onOcrRequested()
+        advanceUntilIdle()
+        viewModel.onParseRequested()
+        advanceUntilIdle()
+
+        assertEquals(ParserPhase.Partial, viewModel.uiState.parser.phase)
+        assertEquals(1, viewModel.uiState.parser.candidate?.warnings?.size)
     }
 }
 
@@ -211,6 +295,20 @@ private class FakeReceiptOcrService(
 ) : ReceiptOcrService {
     override suspend fun extractReceiptText(capturedImage: CapturedImageMetadata): ReceiptOcrResult {
         return result
+    }
+}
+
+private class FakeReceiptParserService(
+    private val candidate: ParsedReceiptCandidate = ParsedReceiptCandidate(
+        merchant = null,
+        expenseDate = null,
+        totalAmount = null,
+        items = emptyList(),
+        warnings = emptyList(),
+    ),
+) : ReceiptParserService {
+    override fun parse(lines: List<NormalizedOcrLine>): ParsedReceiptCandidate {
+        return candidate
     }
 }
 
