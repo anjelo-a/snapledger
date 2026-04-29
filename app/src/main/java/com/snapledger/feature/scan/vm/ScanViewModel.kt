@@ -1,20 +1,34 @@
 package com.snapledger.feature.scan.vm
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
 import com.snapledger.feature.scan.domain.CameraCaptureRepository
 import com.snapledger.feature.scan.domain.CameraPermissionState
 import com.snapledger.feature.scan.domain.CapturedImageMetadata
+import com.snapledger.feature.scan.domain.OcrExtractionPhase
+import com.snapledger.feature.scan.domain.OcrUiState
 import com.snapledger.feature.scan.domain.PendingCapture
 import com.snapledger.feature.scan.domain.ScanCapturePhase
 import com.snapledger.feature.scan.domain.ScanRepository
 import com.snapledger.feature.scan.domain.ScanUiState
+import com.snapledger.feature.scan.ocr.MlKitReceiptOcrService
+import com.snapledger.feature.scan.ocr.ReceiptOcrResult
+import com.snapledger.feature.scan.ocr.ReceiptOcrService
 import java.io.File
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ScanViewModel(
     private val repository: ScanRepository = CameraCaptureRepository(),
+    private val ocrService: ReceiptOcrService,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     var uiState: ScanUiState by mutableStateOf(repository.loadInitialState())
         private set
@@ -68,6 +82,7 @@ class ScanViewModel(
             status = "Camera unavailable",
             captureStatus = "Camera setup failed. Retry to rebind the preview.",
             capturePhase = ScanCapturePhase.CameraFailure,
+            ocr = OcrUiState(),
             cameraErrorMessage = message,
             capturedImage = null,
         )
@@ -105,6 +120,7 @@ class ScanViewModel(
             status = "Capture failed",
             captureStatus = "CameraX could not capture the image. Retry to continue.",
             capturePhase = ScanCapturePhase.CameraFailure,
+            ocr = OcrUiState(),
             cameraErrorMessage = message,
             capturedImage = null,
         )
@@ -132,15 +148,79 @@ class ScanViewModel(
             captureStatus = nextCaptureStatus,
             capturePhase = nextPhase,
             capturedImage = null,
+            ocr = OcrUiState(),
             cameraErrorMessage = null,
             cameraSessionId = uiState.cameraSessionId + 1,
         )
     }
 
     fun onOcrRequested() {
+        val capturedImage = uiState.capturedImage ?: run {
+            uiState = uiState.copy(
+                ocr = OcrUiState(
+                    phase = OcrExtractionPhase.Failure,
+                    status = "OCR unavailable",
+                    errorMessage = "Capture a receipt image before running OCR.",
+                ),
+            )
+            return
+        }
+
         uiState = uiState.copy(
-            ocrStatus = "ML Kit OCR remains intentionally out of scope for this step",
+            ocr = OcrUiState(
+                phase = OcrExtractionPhase.Running,
+                status = "Extracting text with ML Kit",
+            ),
         )
+
+        viewModelScope.launch {
+            val sourcePath = capturedImage.absolutePath
+            val result = withContext(ioDispatcher) {
+                ocrService.extractReceiptText(capturedImage)
+            }
+            if (uiState.capturedImage?.absolutePath != sourcePath) return@launch
+
+            uiState = uiState.copy(
+                ocr = when (result) {
+                    is ReceiptOcrResult.Success -> {
+                        val isPartial = result.warningMessages.isNotEmpty()
+                        OcrUiState(
+                            phase = if (isPartial) {
+                                OcrExtractionPhase.Partial
+                            } else {
+                                OcrExtractionPhase.Success
+                            },
+                            status = if (isPartial) {
+                                "OCR completed with warnings"
+                            } else {
+                                "OCR completed successfully"
+                            },
+                            lines = result.lines,
+                            metadata = result.metadata,
+                            warningMessages = result.warningMessages,
+                        )
+                    }
+
+                    is ReceiptOcrResult.Empty -> {
+                        OcrUiState(
+                            phase = OcrExtractionPhase.Empty,
+                            status = "OCR found no usable lines",
+                            metadata = result.metadata,
+                            warningMessages = result.warningMessages,
+                            errorMessage = result.message,
+                        )
+                    }
+
+                    is ReceiptOcrResult.Failure -> {
+                        OcrUiState(
+                            phase = OcrExtractionPhase.Failure,
+                            status = "OCR failed",
+                            errorMessage = result.message,
+                        )
+                    }
+                },
+            )
+        }
     }
 
     fun onParseRequested() {
@@ -155,7 +235,28 @@ class ScanViewModel(
             captureStatus = "Captured image metadata is ready for the next scan step",
             capturePhase = ScanCapturePhase.CaptureSucceeded,
             capturedImage = metadata,
+            ocr = OcrUiState(
+                status = "Run OCR after capturing a receipt image",
+            ),
             cameraErrorMessage = null,
         )
+    }
+
+    companion object {
+        fun factory(applicationContext: Context): ViewModelProvider.Factory {
+            val appContext = applicationContext.applicationContext
+            return object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    if (modelClass.isAssignableFrom(ScanViewModel::class.java)) {
+                        return ScanViewModel(
+                            repository = CameraCaptureRepository(),
+                            ocrService = MlKitReceiptOcrService(appContext),
+                        ) as T
+                    }
+                    throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
+                }
+            }
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.snapledger.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -30,7 +31,10 @@ fun SnapLedgerNavHost(
             )
         }
         composable(SnapLedgerDestination.Scan.route) {
-            val scanViewModel: ScanViewModel = viewModel()
+            val context = LocalContext.current
+            val scanViewModel: ScanViewModel = viewModel(
+                factory = ScanViewModel.factory(context.applicationContext),
+            )
             ScanRoute(
                 viewModel = scanViewModel,
                 onBack = { navController.popBackStack() },
