@@ -183,6 +183,8 @@ def test_receipt_process_rejects_blank_ocr_line(client: TestClient) -> None:
     assert response.status_code == 422
     payload = response.json()
     assert payload["error"]["code"] == "validation_error"
+    ctx = payload["error"]["details"][0].get("ctx", {})
+    assert isinstance(ctx.get("error"), str)
 
 
 def test_receipt_process_rejects_malformed_ocr_lines_payload(client: TestClient) -> None:

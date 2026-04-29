@@ -339,7 +339,7 @@ def _select_total_amount(lines: list[_NormalizedLine]) -> _FieldSelection[Decima
     trailing_amounts = [
         (line.index, amount)
         for line in lines[-6:]
-        if (amount := _parse_last_amount(line.text)) is not None
+        if (amount := _parse_standalone_amount(line.text)) is not None
     ]
     if trailing_amounts:
         best_index, inferred = max(trailing_amounts, key=lambda entry: entry[1])
@@ -421,6 +421,12 @@ def _parse_last_amount(text: str) -> Decimal | None:
     if not matches:
         return None
     return _parse_amount(matches[-1].group(0))
+
+
+def _parse_standalone_amount(text: str) -> Decimal | None:
+    if _AMOUNT_RE.fullmatch(text.strip()) is None:
+        return None
+    return _parse_amount(text)
 
 
 def _parse_amount(raw_amount: str) -> Decimal | None:

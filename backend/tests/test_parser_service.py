@@ -70,6 +70,23 @@ def test_parse_receipt_missing_total_returns_warning_only() -> None:
     assert "total_amount_missing" in candidate.warning_codes
 
 
+def test_parse_receipt_can_infer_total_from_trailing_standalone_amount() -> None:
+    candidate = parse_receipt(
+        ReceiptProcessRequest(
+            ocr_lines=[
+                "CORNER SHOP",
+                "04/29/2026",
+                "Bread 2.00",
+                "Milk 1.50",
+                "$3.50",
+            ]
+        )
+    )
+
+    assert candidate.total_amount == Decimal("3.50")
+    assert "total_amount_inferred" in candidate.warning_codes
+
+
 def test_parse_receipt_ambiguous_merchant_propagates_warning() -> None:
     candidate = parse_receipt(
         ReceiptProcessRequest(
