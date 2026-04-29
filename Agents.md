@@ -2,14 +2,14 @@
 
 This document defines how we design and operate agents for SnapLedger, aligned to OpenAI agent and prompting guidance, and tailored to this repository.
 
-Status date: April 23, 2026.
-Current project phase: Phase 0 foundation.
+Status date: April 29, 2026.
+Current project phase: Phase 1 backend complete, Phase 2 contract lock.
 
 ## 1) Scope and Non-Negotiables
 
 - Keep deterministic finance logic deterministic.
 - Never let AI mutate core finance records without explicit API-level validation.
-- Never parse receipts with LLM as primary logic; use deterministic parser rules.
+- Never parse receipts with LLMs at all, including fallback, ranking, or post-processing; use deterministic parser rules only.
 - AI is allowed for narrative insight generation only (Phase 5), not for category math, totals, or budgets.
 - Android remains local-first; backend/agent failures must not block local save flows.
 
@@ -39,6 +39,7 @@ Use a multi-agent topology only when task/tool complexity warrants it; otherwise
 - Job: deterministic OCR normalization fallback (`POST /v1/receipts/process`).
 - Owns: parser rule logic and warning generation.
 - Must return structured candidate fields; no free-form prose output.
+- Must not call any LLM, prompt template, or generative cleanup/parsing path.
 
 ### E. `insight_agent` (Phase 5 only)
 - Job: generate one polished narrative insight from deterministic metrics.
@@ -72,6 +73,7 @@ Forbidden actions:
 Tool policy:
 - Use function calling for internal actions.
 - Require approval for destructive or external side effects.
+- Never use model-generated receipt parsing output as a substitute for deterministic parser rules.
 Output schema: <JSON schema name/version>
 Done criteria:
 - <test/validation checks>

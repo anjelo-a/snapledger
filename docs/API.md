@@ -41,9 +41,27 @@
 
 ### OCR processing
 `POST /v1/receipts/process`
-- Purpose: optional server-side deterministic normalization of OCR text lines.
-- Request summary: OCR lines, locale/currency hints, timestamp.
-- Response summary: candidate merchant/date/total/items and parse warnings.
+- Purpose: optional server-side deterministic normalization of OCR text lines for the scan review flow.
+- Request contract:
+  - `ocr_lines: string[]` required, non-empty, max 500 lines.
+  - `locale: string | null` optional.
+  - `currency_hint: string | null` optional 3-letter currency hint.
+- Response contract:
+  - `merchant: string | null`
+  - `expense_date: string(date) | null`
+  - `total_amount: decimal string | null`
+  - `items: {name, amount}[]`
+  - `warnings: string[]`
+  - `warning_codes: string[]` optional machine-readable warning metadata for review UX.
+  - `field_confidence: {merchant?, expense_date?, total_amount?, items?} | null` optional 0..1 confidence hints.
+- Contract rules:
+  - Backward-compatible additions are allowed only as optional response fields.
+  - No image bytes are posted to this endpoint; the contract starts after OCR as normalized text lines.
+  - This endpoint never mutates saved receipts.
+  - Android local save must not depend on this endpoint being available.
+- Current status:
+  - The route and request/response contract already exist.
+  - Deterministic parser rules are Phase 2 work and are not implemented yet.
 - Scope: Phase 2+ optional fallback.
 
 ### Categories

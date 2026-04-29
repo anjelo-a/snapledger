@@ -2,5 +2,5 @@ from app.schemas.expense import ParsedReceiptCandidate, ReceiptProcessRequest
 
 
 def parse_receipt(_payload: ReceiptProcessRequest) -> ParsedReceiptCandidate:
-    # Deterministic parsing rules are implemented in Phase 2.
+    # Phase 2 parser work remains deterministic-only; no LLM parsing is allowed here.
     return ParsedReceiptCandidate(warnings=["Receipt parsing is not available in Phase 0."])

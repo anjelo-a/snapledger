@@ -39,6 +39,7 @@
 
 ### Domain/service tests
 - Parser rules with known receipt fixtures.
+- Parser output remains deterministic-only and never invokes LLM-based extraction.
 - Budget calculations for weekly/monthly windows and threshold boundaries.
 - Dashboard aggregation correctness with seeded datasets.
 - Sync merge and idempotency behavior.
@@ -47,6 +48,8 @@
 ## OCR and sync smoke tests
 - OCR smoke set with representative receipt images.
 - Assert that extracted fields remain editable and savable even with partial items.
+- Assert `/v1/receipts/process` contract stability for `merchant`, `expense_date`, `total_amount`, `items`, `warnings`, and optional metadata fields.
+- Assert local review/save still works when backend parser fallback is unavailable.
 - Offline create/edit/delete then reconnect sync reconciliation tests.
 
 ## AI-related tests
@@ -57,7 +60,7 @@
 
 ## CI requirements by phase
 - Phase 1: unit + Room tests mandatory.
-- Phase 2: add OCR flow smoke tests.
+- Phase 2: add OCR flow smoke tests plus parser contract regression tests.
 - Phase 3: add dashboard and budget aggregation suites.
 - Phase 4: sync reliability suites mandatory.
 - Phase 5: AI service contract/fallback suites mandatory.

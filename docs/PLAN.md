@@ -86,9 +86,13 @@ Objective:
 
 Deliverables:
 - CameraX capture, ML Kit extraction, deterministic parser, editable structured review.
+- Lock parser contract as `ocr_lines + locale + currency_hint -> candidate fields + warnings`.
+- Keep backend fallback optional so user-confirmed local save remains the primary success path.
 
 Acceptance criteria:
 - Save succeeds when merchant/date/total present even if items incomplete.
+- Review always happens before save; parser output is never auto-persisted.
+- No LLM parsing is introduced for receipts, including fallback behavior.
 
 Must not start:
 - Receipt version management and alias systems.
@@ -156,6 +160,12 @@ Acceptance criteria:
 Backend progress note (April 28, 2026):
 - Phase 1 backend scope is complete.
 - Remaining backend work is Phase 2+ (OCR parser hardening), Phase 3 (budgets/dashboard), Phase 4 (sync), and Phase 5 (insight).
+
+Phase 2 contract lock (April 29, 2026):
+- `ReceiptProcessRequest` is already present with `ocr_lines`, optional `locale`, and optional `currency_hint`.
+- `ParsedReceiptCandidate` already carries `merchant`, `expense_date`, `total_amount`, `items`, and `warnings`.
+- Optional backward-compatible metadata fields are allowed for review UX only; current contract adds `warning_codes` and `field_confidence`.
+- No schema change in this contract may require Android or backend callers to send new required fields.
 
 ## Implementation order
 1. Lock docs and scope boundaries.
