@@ -208,24 +208,11 @@ private fun selectTotalAmount(lines: List<NormalizedOcrLine>): TotalSelection {
         )
     }
 
-    val fallback = lines
-        .takeLast(6)
-        .mapNotNull { line -> parseLastMoneyCandidate(line.text)?.let { line.index to it } }
-        .maxByOrNull { (_, amount) -> amount.amountMinor }
-
-    return if (fallback != null) {
-        TotalSelection(
-            value = fallback.second,
-            lineIndex = fallback.first,
-            warnings = listOf("Total amount was inferred from the largest trailing amount without an explicit total label."),
-        )
-    } else {
-        TotalSelection(
-            value = null,
-            lineIndex = null,
-            warnings = emptyList(),
-        )
-    }
+    return TotalSelection(
+        value = null,
+        lineIndex = null,
+        warnings = emptyList(),
+    )
 }
 
 private fun selectItems(
@@ -391,6 +378,7 @@ private val NON_ITEM_KEYWORDS = listOf(
     "phone",
     "www",
     "http",
+    "savings",
 )
 
 private val AMOUNT_REGEX = Regex("""(?:[$₱]|PHP\s*)?\d+(?:,\d{3})*(?:\.\d{2})""")
