@@ -18,7 +18,7 @@ import com.snapledger.feature.scan.domain.PendingCapture
 import com.snapledger.feature.scan.domain.ScanCapturePhase
 import com.snapledger.feature.scan.domain.ScanRepository
 import com.snapledger.feature.scan.domain.ScanUiState
-import com.snapledger.feature.review.domain.InMemoryReviewRepository
+import com.snapledger.feature.review.domain.LocalFirstReviewRepository
 import com.snapledger.feature.review.domain.ReviewRepository
 import com.snapledger.feature.scan.ocr.MlKitReceiptOcrService
 import com.snapledger.feature.scan.ocr.ReceiptOcrResult
@@ -35,7 +35,7 @@ class ScanViewModel(
     private val repository: ScanRepository = CameraCaptureRepository(),
     private val ocrService: ReceiptOcrService,
     private val parserService: ReceiptParserService,
-    private val reviewRepository: ReviewRepository = InMemoryReviewRepository.instance,
+    private val reviewRepository: ReviewRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     var uiState: ScanUiState by mutableStateOf(repository.loadInitialState())
@@ -316,7 +316,7 @@ class ScanViewModel(
                             repository = CameraCaptureRepository(),
                             ocrService = MlKitReceiptOcrService(appContext),
                             parserService = DeterministicReceiptParserService(),
-                            reviewRepository = InMemoryReviewRepository.instance,
+                            reviewRepository = LocalFirstReviewRepository.getInstance(appContext),
                         ) as T
                     }
                     throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")

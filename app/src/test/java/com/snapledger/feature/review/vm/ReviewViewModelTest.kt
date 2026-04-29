@@ -1,6 +1,7 @@
 package com.snapledger.feature.review.vm
 
 import com.snapledger.feature.review.domain.ReviewRepository
+import com.snapledger.feature.review.domain.ReviewSaveResult
 import com.snapledger.feature.review.domain.ReviewUiState
 import com.snapledger.feature.review.domain.validateReviewState
 import com.snapledger.feature.scan.domain.ParsedMoneyCandidate
@@ -68,7 +69,9 @@ private class FakeReviewRepository(
 
     override fun storeParsedCandidate(candidate: ParsedReceiptCandidate?) = Unit
 
-    override fun saveReviewedReceipt(uiState: ReviewUiState) = Unit
+    override suspend fun saveReviewedReceipt(uiState: ReviewUiState): ReviewSaveResult {
+        return ReviewSaveResult.ValidationFailed(uiState)
+    }
 }
 
 private fun validDraft(

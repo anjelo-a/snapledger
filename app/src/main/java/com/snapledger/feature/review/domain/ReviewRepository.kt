@@ -1,32 +1,161 @@
 package com.snapledger.feature.review.domain
 
+import android.content.Context
+import com.snapledger.feature.review.data.NoOpReviewSyncDispatcher
+import com.snapledger.feature.review.data.ReviewLocalDatabase
+import com.snapledger.feature.review.data.RoomReviewLocalReceiptStore
+import com.snapledger.feature.review.data.RoomReviewSyncQueueStore
 import com.snapledger.feature.scan.domain.ParsedReceiptCandidate
 import java.time.LocalDate
 import java.time.format.DateTimeParseException
+import java.util.UUID
 
 interface ReviewRepository {
     fun loadDraft(): ReviewUiState
 
     fun storeParsedCandidate(candidate: ParsedReceiptCandidate?)
 
-    fun saveReviewedReceipt(uiState: ReviewUiState)
+    suspend fun saveReviewedReceipt(uiState: ReviewUiState): ReviewSaveResult
 }
 
-class InMemoryReviewRepository private constructor() : ReviewRepository {
+sealed interface ReviewSaveResult {
+    data class Success(
+        val receiptId: String,
+        val syncQueueId: String,
+        val dispatchedSyncAttempt: Boolean,
+        val syncDispatchError: String? = null,
+    ) : ReviewSaveResult
+
+    data class ValidationFailed(
+        val uiState: ReviewUiState,
+    ) : ReviewSaveResult
+}
+
+data class LocalReceiptRecord(
+    val receiptId: String,
+    val merchant: String,
+    val expenseDate: String,
+    val totalAmountRaw: String,
+    val totalAmountMinor: Long,
+    val savedAtMillis: Long,
+    val items: List<LocalReceiptItemRecord>,
+)
+
+data class LocalReceiptItemRecord(
+    val position: Int,
+    val description: String,
+    val amountRaw: String?,
+    val amountMinor: Long?,
+)
+
+data class ReceiptSyncQueueRecord(
+    val queueId: String,
+    val receiptId: String,
+    val queuedAtMillis: Long,
+    val operation: String = "receipt_upsert",
+    val status: String = "pending",
+)
+
+interface ReviewLocalReceiptStore {
+    suspend fun saveReceipt(record: LocalReceiptRecord)
+}
+
+interface ReviewSyncQueueStore {
+    suspend fun enqueue(record: ReceiptSyncQueueRecord)
+}
+
+interface ReviewSyncDispatcher {
+    suspend fun dispatch(record: ReceiptSyncQueueRecord)
+}
+
+class LocalFirstReviewRepository(
+    private val localReceiptStore: ReviewLocalReceiptStore,
+    private val syncQueueStore: ReviewSyncQueueStore,
+    private val syncDispatcher: ReviewSyncDispatcher,
+    private val idGenerator: () -> String = { UUID.randomUUID().toString() },
+    private val clock: () -> Long = { System.currentTimeMillis() },
+) : ReviewRepository {
     private var latestCandidate: ParsedReceiptCandidate? = null
+    private var latestDraft: ReviewUiState? = null
 
     override fun loadDraft(): ReviewUiState {
-        return latestCandidate?.toReviewUiState() ?: emptyReviewUiState()
+        return latestDraft ?: latestCandidate?.toReviewUiState() ?: emptyReviewUiState()
     }
 
     override fun storeParsedCandidate(candidate: ParsedReceiptCandidate?) {
         latestCandidate = candidate
+        latestDraft = candidate?.toReviewUiState()
     }
 
-    override fun saveReviewedReceipt(uiState: ReviewUiState) = Unit
+    override suspend fun saveReviewedReceipt(uiState: ReviewUiState): ReviewSaveResult {
+        val validatedState = validateReviewState(uiState)
+        if (!validatedState.saveEnabled) {
+            return ReviewSaveResult.ValidationFailed(validatedState)
+        }
+
+        val now = clock()
+        val receiptRecord = validatedState.toLocalReceiptRecord(
+            receiptId = idGenerator(),
+            savedAtMillis = now,
+        )
+        val syncRecord = ReceiptSyncQueueRecord(
+            queueId = idGenerator(),
+            receiptId = receiptRecord.receiptId,
+            queuedAtMillis = now,
+        )
+
+        localReceiptStore.saveReceipt(receiptRecord)
+        syncQueueStore.enqueue(syncRecord)
+
+        return try {
+            syncDispatcher.dispatch(syncRecord)
+            latestDraft = validateReviewState(
+                validatedState.copy(
+                    isSaving = false,
+                    saveStatusMessage = "Saved locally as ${receiptRecord.receiptId}. Sync metadata queued as ${syncRecord.queueId}.",
+                ),
+            )
+            ReviewSaveResult.Success(
+                receiptId = receiptRecord.receiptId,
+                syncQueueId = syncRecord.queueId,
+                dispatchedSyncAttempt = true,
+            )
+        } catch (error: Exception) {
+            latestDraft = validateReviewState(
+                validatedState.copy(
+                    isSaving = false,
+                    saveStatusMessage = "Saved locally as ${receiptRecord.receiptId}. Sync metadata queued as ${syncRecord.queueId}; background dispatch failed: ${error.message ?: "Sync dispatch failed after local save."}",
+                ),
+            )
+            ReviewSaveResult.Success(
+                receiptId = receiptRecord.receiptId,
+                syncQueueId = syncRecord.queueId,
+                dispatchedSyncAttempt = false,
+                syncDispatchError = error.message ?: "Sync dispatch failed after local save.",
+            )
+        }
+    }
 
     companion object {
-        val instance: InMemoryReviewRepository = InMemoryReviewRepository()
+        @Volatile
+        private var instance: LocalFirstReviewRepository? = null
+
+        fun getInstance(applicationContext: Context): LocalFirstReviewRepository {
+            return instance ?: synchronized(this) {
+                instance ?: buildRepository(applicationContext.applicationContext).also {
+                    instance = it
+                }
+            }
+        }
+
+        private fun buildRepository(applicationContext: Context): LocalFirstReviewRepository {
+            val database = ReviewLocalDatabase.getInstance(applicationContext)
+            return LocalFirstReviewRepository(
+                localReceiptStore = RoomReviewLocalReceiptStore(database),
+                syncQueueStore = RoomReviewSyncQueueStore(database),
+                syncDispatcher = NoOpReviewSyncDispatcher,
+            )
+        }
     }
 }
 
@@ -53,7 +182,9 @@ fun validateReviewState(uiState: ReviewUiState): ReviewUiState {
         merchant = uiState.merchant.copy(errorMessage = merchantError),
         expenseDate = uiState.expenseDate.copy(errorMessage = expenseDateError),
         totalAmount = uiState.totalAmount.copy(errorMessage = totalAmountError),
-        saveEnabled = merchantError == null && expenseDateError == null && totalAmountError == null,
+        saveEnabled = merchantError == null &&
+            expenseDateError == null &&
+            totalAmountError == null,
     )
 }
 
@@ -79,6 +210,7 @@ private fun ParsedReceiptCandidate.toReviewUiState(): ReviewUiState {
             )
         },
         warnings = warnings,
+        saveStatusMessage = "Review parsed fields and save locally when ready.",
     )
     return validateReviewState(uiState)
 }
@@ -91,6 +223,28 @@ private fun emptyReviewUiState(): ReviewUiState {
                 "Run OCR and the deterministic parser before reviewing fields.",
             ),
         ),
+    )
+}
+
+private fun ReviewUiState.toLocalReceiptRecord(
+    receiptId: String,
+    savedAtMillis: Long,
+): LocalReceiptRecord {
+    return LocalReceiptRecord(
+        receiptId = receiptId,
+        merchant = merchant.value.trim(),
+        expenseDate = expenseDate.value.trim(),
+        totalAmountRaw = totalAmount.value.trim(),
+        totalAmountMinor = requireNotNull(parseAmountToMinor(totalAmount.value)),
+        savedAtMillis = savedAtMillis,
+        items = items.mapIndexed { index, item ->
+            LocalReceiptItemRecord(
+                position = index,
+                description = item.description.trim(),
+                amountRaw = item.amount.trim().takeIf { it.isNotBlank() },
+                amountMinor = item.amount.trim().takeIf { it.isNotBlank() }?.let(::parseAmountToMinor),
+            )
+        },
     )
 }
 

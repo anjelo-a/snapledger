@@ -131,9 +131,9 @@ fun ReviewScreen(
             Button(
                 onClick = onSaveRequested,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = uiState.saveEnabled,
+                enabled = uiState.saveEnabled && !uiState.isSaving,
             ) {
-                Text(text = "Save Placeholder")
+                Text(text = if (uiState.isSaving) "Saving..." else "Save Placeholder")
             }
             OutlinedButton(
                 onClick = onBack,
