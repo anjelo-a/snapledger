@@ -69,6 +69,22 @@ class DeterministicReceiptParserServiceTest {
     }
 
     @Test
+    fun `standalone trailing amount without total label is not inferred as total`() {
+        val candidate = parser.parse(
+            lines = fixtureLines(
+                "CORNER SHOP",
+                "04/29/2026",
+                "Bread 2.00",
+                "Milk 1.50",
+                "$3.50",
+            ),
+        )
+
+        assertNull(candidate.totalAmount)
+        assertTrue(candidate.warnings.any { it.contains("Total amount could not be determined") })
+    }
+
+    @Test
     fun `ambiguous merchant adds warning`() {
         val candidate = parser.parse(
             lines = fixtureLines(
