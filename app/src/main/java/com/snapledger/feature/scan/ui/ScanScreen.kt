@@ -568,8 +568,8 @@ private fun capturePhoto(
         object : ImageCapture.OnImageSavedCallback {
             override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                 onCaptureSucceeded(
-                    outputPath = outputFile.absolutePath,
-                    savedUri = outputFileResults.savedUri?.toString(),
+                    outputFile.absolutePath,
+                    outputFileResults.savedUri?.toString(),
                 )
             }
 
