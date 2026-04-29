@@ -4,33 +4,158 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
-import com.snapledger.feature.scan.domain.PlaceholderScanRepository
+import com.snapledger.feature.scan.domain.CameraCaptureRepository
+import com.snapledger.feature.scan.domain.CameraPermissionState
+import com.snapledger.feature.scan.domain.CapturedImageMetadata
+import com.snapledger.feature.scan.domain.PendingCapture
+import com.snapledger.feature.scan.domain.ScanCapturePhase
+import com.snapledger.feature.scan.domain.ScanRepository
 import com.snapledger.feature.scan.domain.ScanUiState
+import java.io.File
 
-class ScanViewModel : ViewModel() {
-    private val repository = PlaceholderScanRepository()
-
-    var uiState: ScanUiState by mutableStateOf(repository.loadPlaceholderState())
+class ScanViewModel(
+    private val repository: ScanRepository = CameraCaptureRepository(),
+) : ViewModel() {
+    var uiState: ScanUiState by mutableStateOf(repository.loadInitialState())
         private set
 
-    fun onCaptureRequested() {
-        repository.requestCapture()
+    fun onPermissionUpdated(
+        granted: Boolean,
+        canRequestPermissionAgain: Boolean,
+    ) {
+        uiState = if (granted) {
+            uiState.copy(
+                status = "Camera preview starting",
+                captureStatus = "Binding the back camera preview",
+                permissionState = CameraPermissionState.Granted,
+                capturePhase = ScanCapturePhase.PreviewLoading,
+                cameraErrorMessage = null,
+                cameraSessionId = uiState.cameraSessionId + 1,
+            )
+        } else {
+            uiState.copy(
+                status = "Camera permission required",
+                captureStatus = if (canRequestPermissionAgain) {
+                    "Camera access was denied. Grant permission to continue scanning."
+                } else {
+                    "Camera access is blocked. Enable the permission in system settings to continue."
+                },
+                permissionState = if (canRequestPermissionAgain) {
+                    CameraPermissionState.Denied
+                } else {
+                    CameraPermissionState.PermanentlyDenied
+                },
+                capturePhase = ScanCapturePhase.AwaitingPermission,
+                cameraErrorMessage = null,
+            )
+        }
+    }
+
+    fun onCameraPreviewReady() {
+        if (uiState.permissionState != CameraPermissionState.Granted) return
+        if (uiState.capturePhase == ScanCapturePhase.CaptureSucceeded) return
+
         uiState = uiState.copy(
-            captureStatus = "Capture TODO boundary reached",
+            status = "Camera ready",
+            captureStatus = "Frame the receipt and capture when ready",
+            capturePhase = ScanCapturePhase.PreviewReady,
+            cameraErrorMessage = null,
+        )
+    }
+
+    fun onCameraFailure(message: String) {
+        uiState = uiState.copy(
+            status = "Camera unavailable",
+            captureStatus = "Camera setup failed. Retry to rebind the preview.",
+            capturePhase = ScanCapturePhase.CameraFailure,
+            cameraErrorMessage = message,
+            capturedImage = null,
+        )
+    }
+
+    fun prepareCapture(cacheDirectory: File): PendingCapture? {
+        if (!uiState.canCapture) return null
+
+        val pendingCapture = repository.createPendingCapture(
+            cacheDirectory = cacheDirectory,
+            timestampMillis = System.currentTimeMillis(),
+        )
+        uiState = uiState.copy(
+            status = "Capturing receipt",
+            captureStatus = "Taking photo with CameraX",
+            capturePhase = ScanCapturePhase.Capturing,
+            cameraErrorMessage = null,
+        )
+        return pendingCapture
+    }
+
+    fun onCaptureSucceeded(
+        outputPath: String,
+        savedUri: String?,
+    ) {
+        val metadata = repository.readCapturedImageMetadata(
+            outputPath = outputPath,
+            savedUri = savedUri,
+        )
+        applyCapturedImage(metadata)
+    }
+
+    fun onCaptureFailed(message: String) {
+        uiState = uiState.copy(
+            status = "Capture failed",
+            captureStatus = "CameraX could not capture the image. Retry to continue.",
+            capturePhase = ScanCapturePhase.CameraFailure,
+            cameraErrorMessage = message,
+            capturedImage = null,
+        )
+    }
+
+    fun onRetryCapture() {
+        val nextPhase = if (uiState.permissionState == CameraPermissionState.Granted) {
+            ScanCapturePhase.PreviewLoading
+        } else {
+            ScanCapturePhase.AwaitingPermission
+        }
+        val nextStatus = if (uiState.permissionState == CameraPermissionState.Granted) {
+            "Camera preview restarting"
+        } else {
+            "Waiting for camera permission"
+        }
+        val nextCaptureStatus = if (uiState.permissionState == CameraPermissionState.Granted) {
+            "Rebinding the camera preview for another attempt"
+        } else {
+            "Grant camera access to start the Phase 2 capture flow"
+        }
+
+        uiState = uiState.copy(
+            status = nextStatus,
+            captureStatus = nextCaptureStatus,
+            capturePhase = nextPhase,
+            capturedImage = null,
+            cameraErrorMessage = null,
+            cameraSessionId = uiState.cameraSessionId + 1,
         )
     }
 
     fun onOcrRequested() {
-        repository.requestOcrExtraction()
         uiState = uiState.copy(
-            ocrStatus = "OCR TODO boundary reached",
+            ocrStatus = "ML Kit OCR remains intentionally out of scope for this step",
         )
     }
 
     fun onParseRequested() {
-        repository.requestDeterministicParse()
         uiState = uiState.copy(
-            parserStatus = "Deterministic parser TODO boundary reached",
+            parserStatus = "Deterministic parser remains intentionally out of scope for this step",
+        )
+    }
+
+    private fun applyCapturedImage(metadata: CapturedImageMetadata) {
+        uiState = uiState.copy(
+            status = "Capture complete",
+            captureStatus = "Captured image metadata is ready for the next scan step",
+            capturePhase = ScanCapturePhase.CaptureSucceeded,
+            capturedImage = metadata,
+            cameraErrorMessage = null,
         )
     }
 }
