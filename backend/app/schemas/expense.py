@@ -84,9 +84,18 @@ class ReceiptProcessRequest(StrictSchema):
     currency_hint: str | None = Field(default=None, min_length=3, max_length=3)
 
 
+class ParsedReceiptFieldConfidence(StrictSchema):
+    merchant: float | None = Field(default=None, ge=0, le=1)
+    expense_date: float | None = Field(default=None, ge=0, le=1)
+    total_amount: float | None = Field(default=None, ge=0, le=1)
+    items: float | None = Field(default=None, ge=0, le=1)
+
+
 class ParsedReceiptCandidate(StrictSchema):
     merchant: str | None = None
     expense_date: date | None = None
     total_amount: Decimal | None = None
     items: list[ExpenseItemWrite] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    warning_codes: list[str] = Field(default_factory=list, max_length=50)
+    field_confidence: ParsedReceiptFieldConfidence | None = None

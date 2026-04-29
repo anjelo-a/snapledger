@@ -8,6 +8,7 @@ from app.schemas.expense import (
     ExpenseRead,
     ExpenseWrite,
     ParsedReceiptCandidate,
+    ParsedReceiptFieldConfidence,
     ReceiptProcessRequest,
 )
 from app.schemas.insight import InsightGenerateRequest, InsightGenerateResponse
@@ -30,6 +31,7 @@ __all__ = [
     "InsightGenerateRequest",
     "InsightGenerateResponse",
     "ParsedReceiptCandidate",
+    "ParsedReceiptFieldConfidence",
     "ReceiptProcessRequest",
     "SyncPullResponse",
     "SyncPushRequest",

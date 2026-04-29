@@ -136,6 +136,43 @@ def test_manual_entries_alias_matches_direct_receipt_shape(client: TestClient) -
         assert alias_json[field] == direct_json[field]
 
 
+def test_receipt_process_returns_locked_phase2_candidate_shape(client: TestClient) -> None:
+    response = client.post(
+        "/v1/receipts/process",
+        json={
+            "ocr_lines": ["ACME MART", "TOTAL 123.45"],
+            "locale": "en-PH",
+            "currency_hint": "PHP",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert {
+        "merchant",
+        "expense_date",
+        "total_amount",
+        "items",
+        "warnings",
+        "warning_codes",
+        "field_confidence",
+    }.issubset(payload.keys())
+    assert isinstance(payload["items"], list)
+    assert isinstance(payload["warnings"], list)
+    assert isinstance(payload["warning_codes"], list)
+    assert payload["field_confidence"] is None or isinstance(payload["field_confidence"], dict)
+
+
+def test_receipt_process_rejects_unknown_request_field(client: TestClient) -> None:
+    response = client.post(
+        "/v1/receipts/process",
+        json={
+            "ocr_lines": ["ACME MART"],
+            "timestamp": "2026-04-29T00:00:00Z",
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_categories_returns_seeded_shape(client: TestClient) -> None:
     response = client.get("/v1/categories")
     assert response.status_code == 200
