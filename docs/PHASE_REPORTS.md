@@ -113,22 +113,57 @@ Last updated: April 30, 2026
 
 ---
 
-## Phase 2 Report (Template)
+## Phase 2 Report (Implemented)
 
 ### Goals
-- _TBD_
+- Deliver scan -> OCR -> deterministic parse -> structured review -> local-first save.
+- Keep backend parser fallback optional.
+- Preserve deterministic-only receipt parsing with no LLM/AI parsing.
 
 ### Delivered
-- _TBD_
+- Android scan/review feature structure exists in the active `:app` module.
+- CameraX capture flow includes permission handling, preview, capture, retry, and failure states.
+- ML Kit OCR extraction returns normalized OCR lines plus capture metadata.
+- Android deterministic parser is aligned with backend missing-total behavior.
+- Structured Compose review/edit screen supports merchant, date, total, and items.
+- Save gate requires merchant, expense date, and total amount.
+- Local-first receipt persistence writes the reviewed receipt locally and queues sync metadata
+  separately.
+- Backend `POST /v1/receipts/process` implements deterministic fallback parsing with strict
+  validation and structured candidate response.
+- Validation exception serialization converts Pydantic/FastAPI validation `ctx.error` exception
+  objects into JSON-safe strings.
+- Android instrumentation smoke test uses mocked OCR input to exercise parse -> review -> save.
 
 ### Evidence
-- _TBD_
+- Android verification passed:
+  - `./gradlew :app:assembleDebug`
+  - `./gradlew :app:assembleDebugAndroidTest`
+  - `./gradlew :app:testDebugUnitTest --tests com.snapledger.feature.scan.parser.DeterministicReceiptParserServiceTest`
+- Backend parser fixture tests exist for:
+  - clean receipt
+  - noisy receipt
+  - missing total
+  - standalone amount without total
+  - ambiguous merchant
+  - multiline total
+- API validation tests cover malformed, blank, unknown-field, overlong-line, and
+  overlong-total-text OCR payloads.
+- `./gradlew :app:connectedDebugAndroidTest` could not execute locally because no connected
+  device/emulator was available.
 
 ### Deferred intentionally
-- _TBD_
+- Real CameraX instrumentation on a device farm or connected emulator.
+- OCR performance benchmark measurements from `docs/PERFORMANCE.md`.
+- Final sync worker implementation and backend sync protocol rollout.
+- Receipt versioning, merchant alias systems, category/budget logic integration, and AI insights.
 
 ### Risks / Notes
-- _TBD_
+- Phase 2 is implementation-complete, but device execution of the instrumentation smoke test still
+  needs a connected emulator/device.
+- Backend parser fallback remains optional; Android local save is the primary success path.
+- Parser output is always reviewable/editable and never auto-persisted.
+- No LLM, prompt, AI endpoint, or generative parsing path is introduced.
 
 ---
 
