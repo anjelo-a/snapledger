@@ -1,6 +1,6 @@
 # SnapLedger Phase Reports
 
-Last updated: April 28, 2026
+Last updated: April 30, 2026
 
 ## How to use this document
 - Keep one section per phase.
@@ -132,22 +132,47 @@ Last updated: April 28, 2026
 
 ---
 
-## Phase 3 Report (Template)
+## Phase 3 Report (Completed: Backend Scope)
+
+Status: Completed on April 30, 2026 for backend scope (`/v1/budgets`, `/v1/dashboard`).
 
 ### Goals
-- _TBD_
+- Implement deterministic backend budgets and dashboard behavior.
+- Replace Phase 0/1 stubs for `GET/POST /v1/budgets` and `GET /v1/dashboard`.
 
 ### Delivered
-- _TBD_
+- Budgets:
+  - Repository-level active list and key-based upsert logic implemented.
+  - Service-level scope/category coherence rules implemented:
+    - `scope=overall` requires `category_id=null`
+    - `scope=category` requires active, non-archived category
+  - Router now uses service/domain flow and no longer returns Phase 0 `501` stub.
+- Dashboard:
+  - Deterministic aggregates implemented for:
+    - `budget_statuses`
+    - `trends`
+    - `category_breakdown`
+    - `recent_activity`
+  - Threshold levels are deterministic and locked to `normal|warning|critical|exceeded` based on 70/90/100 ratio boundaries.
+  - Soft-deleted expenses are excluded from aggregates.
 
 ### Evidence
-- _TBD_
+- Backend test suite includes dedicated Phase 3 API regression coverage:
+  - budget create/list/upsert semantics
+  - scope/category validation behavior
+  - threshold boundary transitions
+  - dashboard aggregate shape and soft-delete exclusion
+- Quality checks passing at Sprint B handoff:
+  - `backend/.venv/bin/ruff check app tests`
+  - `backend/.venv/bin/pytest -q`
 
 ### Deferred intentionally
-- _TBD_
+- Phase 4 sync push/pull conflict policy and reliability hardening.
+- Phase 5 insight generation integration and fallback handling.
 
 ### Risks / Notes
-- _TBD_
+- Dashboard trend windows are deterministic and month-based in current implementation.
+- Additional performance profiling for larger datasets remains part of later hardening work.
 
 ---
 

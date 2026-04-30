@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -343,6 +344,274 @@ def test_receipt_get_patch_delete_flow(client: TestClient) -> None:
 
     get_after_delete = client.get(f"/v1/receipts/{receipt_id}")
     assert get_after_delete.status_code == 404
+
+
+def test_budget_post_and_list_roundtrip(client: TestClient) -> None:
+    create = client.post(
+        "/v1/budgets",
+        json={
+            "scope": "overall",
+            "period": "monthly",
+            "amount_limit": "5000.00",
+            "category_id": None,
+        },
+    )
+    assert create.status_code == 200
+    payload = create.json()
+    assert payload["scope"] == "overall"
+    assert payload["period"] == "monthly"
+    assert payload["amount_limit"] == "5000.00"
+    assert payload["category_id"] is None
+
+    listed = client.get("/v1/budgets")
+    assert listed.status_code == 200
+    items = listed.json()["items"]
+    assert len(items) == 1
+    assert items[0]["id"] == payload["id"]
+
+
+def test_budget_upsert_updates_existing_budget_record(client: TestClient) -> None:
+    first = client.post(
+        "/v1/budgets",
+        json={
+            "scope": "overall",
+            "period": "weekly",
+            "amount_limit": "1000.00",
+            "category_id": None,
+        },
+    )
+    assert first.status_code == 200
+    first_payload = first.json()
+
+    second = client.post(
+        "/v1/budgets",
+        json={
+            "scope": "overall",
+            "period": "weekly",
+            "amount_limit": "1200.00",
+            "category_id": None,
+        },
+    )
+    assert second.status_code == 200
+    second_payload = second.json()
+    assert second_payload["id"] == first_payload["id"]
+    assert second_payload["amount_limit"] == "1200.00"
+
+    listed = client.get("/v1/budgets")
+    items = listed.json()["items"]
+    assert len(items) == 1
+    assert items[0]["amount_limit"] == "1200.00"
+
+
+def test_budget_rejects_scope_category_mismatch(client: TestClient) -> None:
+    mismatch = client.post(
+        "/v1/budgets",
+        json={
+            "scope": "overall",
+            "period": "monthly",
+            "amount_limit": "1000.00",
+            "category_id": "seed-1",
+        },
+    )
+    assert mismatch.status_code == 400
+
+    missing_category = client.post(
+        "/v1/budgets",
+        json={
+            "scope": "category",
+            "period": "monthly",
+            "amount_limit": "1000.00",
+            "category_id": None,
+        },
+    )
+    assert missing_category.status_code == 400
+
+
+def test_budget_rejects_inactive_or_missing_category_scope(client: TestClient) -> None:
+    missing = client.post(
+        "/v1/budgets",
+        json={
+            "scope": "category",
+            "period": "monthly",
+            "amount_limit": "1000.00",
+            "category_id": "missing-cat",
+        },
+    )
+    assert missing.status_code == 400
+
+    archived = client.post("/v1/categories", json={"name": "Dormant"})
+    assert archived.status_code == 200
+    archived_id = archived.json()["id"]
+    archived_patch = client.patch(f"/v1/categories/{archived_id}", json={"is_archived": True})
+    assert archived_patch.status_code == 200
+
+    archived_budget = client.post(
+        "/v1/budgets",
+        json={
+            "scope": "category",
+            "period": "monthly",
+            "amount_limit": "1000.00",
+            "category_id": archived_id,
+        },
+    )
+    assert archived_budget.status_code == 400
+
+
+def test_dashboard_threshold_levels_and_aggregates(client: TestClient) -> None:
+    today = datetime.now(UTC).date()
+    old_date = (today - timedelta(days=75)).isoformat()
+    today_text = today.isoformat()
+
+    groceries = client.post("/v1/categories", json={"name": "Groceries Extra"})
+    assert groceries.status_code == 200
+    groceries_id = groceries.json()["id"]
+
+    client.post(
+        "/v1/receipts",
+        json=_create_receipt_payload(
+            merchant="Recent A",
+            expense_date=today_text,
+            total_amount="50.00",
+            category_id=groceries_id,
+            items=[],
+        ),
+    )
+    client.post(
+        "/v1/receipts",
+        json=_create_receipt_payload(
+            merchant="Recent B",
+            expense_date=today_text,
+            total_amount="40.00",
+            category_id=groceries_id,
+            items=[],
+        ),
+    )
+    client.post(
+        "/v1/receipts",
+        json=_create_receipt_payload(
+            merchant="Old Expense",
+            expense_date=old_date,
+            total_amount="30.00",
+            category_id=None,
+            items=[],
+        ),
+    )
+
+    normal_budget = client.post(
+        "/v1/budgets",
+        json={
+            "scope": "overall",
+            "period": "monthly",
+            "amount_limit": "200.00",
+            "category_id": None,
+        },
+    )
+    assert normal_budget.status_code == 200
+    budget_id = normal_budget.json()["id"]
+
+    def _dashboard_for_budget() -> dict[str, object]:
+        dashboard = client.get("/v1/dashboard")
+        assert dashboard.status_code == 200
+        payload = dashboard.json()
+        status = next(item for item in payload["budget_statuses"] if item["budget_id"] == budget_id)
+        return {"status": status, "payload": payload}
+
+    normal = _dashboard_for_budget()["status"]
+    assert normal["threshold_level"] == "normal"
+
+    warning_upsert = client.post(
+        "/v1/budgets",
+        json={
+            "scope": "overall",
+            "period": "monthly",
+            "amount_limit": "128.57",
+            "category_id": None,
+        },
+    )
+    assert warning_upsert.status_code == 200
+    warning = _dashboard_for_budget()["status"]
+    assert warning["threshold_level"] == "warning"
+
+    critical_upsert = client.post(
+        "/v1/budgets",
+        json={
+            "scope": "overall",
+            "period": "monthly",
+            "amount_limit": "100.00",
+            "category_id": None,
+        },
+    )
+    assert critical_upsert.status_code == 200
+    critical = _dashboard_for_budget()["status"]
+    assert critical["threshold_level"] == "critical"
+
+    exceeded_upsert = client.post(
+        "/v1/budgets",
+        json={
+            "scope": "overall",
+            "period": "monthly",
+            "amount_limit": "90.00",
+            "category_id": None,
+        },
+    )
+    assert exceeded_upsert.status_code == 200
+    dashboard_payload = _dashboard_for_budget()["payload"]
+    exceeded = next(
+        item for item in dashboard_payload["budget_statuses"] if item["budget_id"] == budget_id
+    )
+    assert exceeded["threshold_level"] == "exceeded"
+    assert exceeded["spent"] == "90.00"
+
+    assert any(point["amount"] == "90.00" for point in dashboard_payload["trends"])
+    assert any(
+        row["category_name"] == "Groceries Extra"
+        for row in dashboard_payload["category_breakdown"]
+    )
+    assert dashboard_payload["recent_activity"][0]["merchant"] in {"Recent A", "Recent B"}
+
+
+def test_dashboard_excludes_soft_deleted_expenses(client: TestClient) -> None:
+    today = datetime.now(UTC).date().isoformat()
+    created = client.post(
+        "/v1/receipts",
+        json=_create_receipt_payload(
+            merchant="Delete Me",
+            expense_date=today,
+            total_amount="300.00",
+            items=[],
+        ),
+    )
+    assert created.status_code == 200
+    receipt_id = created.json()["id"]
+
+    budget = client.post(
+        "/v1/budgets",
+        json={
+            "scope": "overall",
+            "period": "monthly",
+            "amount_limit": "500.00",
+            "category_id": None,
+        },
+    )
+    assert budget.status_code == 200
+    budget_id = budget.json()["id"]
+
+    before_delete = client.get("/v1/dashboard")
+    assert before_delete.status_code == 200
+    before_status = next(
+        item for item in before_delete.json()["budget_statuses"] if item["budget_id"] == budget_id
+    )
+    assert before_status["spent"] == "300.00"
+
+    deleted = client.delete(f"/v1/receipts/{receipt_id}")
+    assert deleted.status_code == 200
+
+    after_delete = client.get("/v1/dashboard")
+    assert after_delete.status_code == 200
+    after_status = next(
+        item for item in after_delete.json()["budget_statuses"] if item["budget_id"] == budget_id
+    )
+    assert after_status["spent"] == "0.00"
 
 
 def test_receipt_list_filters_and_cursor_pagination(client: TestClient) -> None:
