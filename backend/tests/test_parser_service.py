@@ -70,7 +70,7 @@ def test_parse_receipt_missing_total_returns_warning_only() -> None:
     assert "total_amount_missing" in candidate.warning_codes
 
 
-def test_parse_receipt_can_infer_total_from_trailing_standalone_amount() -> None:
+def test_parse_receipt_does_not_infer_total_from_trailing_standalone_amount() -> None:
     candidate = parse_receipt(
         ReceiptProcessRequest(
             ocr_lines=[
@@ -83,8 +83,8 @@ def test_parse_receipt_can_infer_total_from_trailing_standalone_amount() -> None
         )
     )
 
-    assert candidate.total_amount == Decimal("3.50")
-    assert "total_amount_inferred" in candidate.warning_codes
+    assert candidate.total_amount is None
+    assert "total_amount_missing" in candidate.warning_codes
 
 
 def test_parse_receipt_ambiguous_merchant_propagates_warning() -> None:

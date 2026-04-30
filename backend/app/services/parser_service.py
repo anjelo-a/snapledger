@@ -336,24 +336,6 @@ def _select_total_amount(lines: list[_NormalizedLine]) -> _FieldSelection[Decima
         confidence = 0.75 if "total_amount_multiline" in warning_codes else 0.95
         return _FieldSelection(best_value, confidence, best_index, warnings, warning_codes)
 
-    trailing_amounts = [
-        (line.index, amount)
-        for line in lines[-6:]
-        if (amount := _parse_standalone_amount(line.text)) is not None
-    ]
-    if trailing_amounts:
-        best_index, inferred = max(trailing_amounts, key=lambda entry: entry[1])
-        return _FieldSelection(
-            inferred,
-            0.6,
-            best_index,
-            [
-                "Total amount was inferred from the largest trailing amount without an "
-                "explicit total label."
-            ],
-            ["total_amount_inferred"],
-        )
-
     return _FieldSelection(None, 0.0, None, [], [])
 
 
@@ -421,12 +403,6 @@ def _parse_last_amount(text: str) -> Decimal | None:
     if not matches:
         return None
     return _parse_amount(matches[-1].group(0))
-
-
-def _parse_standalone_amount(text: str) -> Decimal | None:
-    if _AMOUNT_RE.fullmatch(text.strip()) is None:
-        return None
-    return _parse_amount(text)
 
 
 def _parse_amount(raw_amount: str) -> Decimal | None:
