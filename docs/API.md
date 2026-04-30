@@ -97,16 +97,28 @@
 ### Budgets
 `GET /v1/budgets`
 - Purpose: list budgets by scope/period.
+- Current behavior:
+  - Returns active budgets with deterministic stable ordering.
 - Scope: MVP.
 
 `POST /v1/budgets`
 - Purpose: create or update budget.
 - Request summary: scope, category_id nullable, period, amount_limit.
+- Current behavior:
+  - Upsert by `(scope, period, category_id)` among active budgets.
+  - Validation rules:
+    - `scope=overall` requires `category_id=null`
+    - `scope=category` requires active non-archived category
 - Scope: MVP.
 
 ### Dashboard
 `GET /v1/dashboard`
 - Purpose: return budget status, trends, category breakdown, recent activity.
+- Current behavior:
+  - `budget_statuses` uses deterministic spent/limit/ratio with threshold levels:
+    `normal`, `warning`, `critical`, `exceeded`.
+  - `trends` returns deterministic month buckets.
+  - Soft-deleted expenses are excluded from all aggregates.
 - Scope: MVP.
 
 ### Insight
