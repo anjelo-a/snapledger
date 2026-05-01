@@ -50,11 +50,27 @@ data class LocalReceiptItemRecord(
 
 data class ReceiptSyncQueueRecord(
     val queueId: String,
+    val idempotencyKey: String = queueId,
     val receiptId: String,
+    val operation: String = OPERATION_CREATE,
+    val payloadSnapshot: String,
+    val status: String = STATUS_PENDING,
+    val attemptCount: Int = 0,
+    val lastError: String? = null,
     val queuedAtMillis: Long,
-    val operation: String = "receipt_upsert",
-    val status: String = "pending",
-)
+    val nextRetryAtMillis: Long? = null,
+) {
+    companion object {
+        const val OPERATION_CREATE = "create"
+        const val OPERATION_UPDATE = "update"
+        const val OPERATION_DELETE = "delete"
+
+        const val STATUS_PENDING = "pending"
+        const val STATUS_IN_FLIGHT = "in_flight"
+        const val STATUS_SYNCED = "synced"
+        const val STATUS_FAILED = "failed"
+    }
+}
 
 interface ReviewLocalReceiptStore {
     suspend fun saveReceipt(record: LocalReceiptRecord)
@@ -101,6 +117,7 @@ class LocalFirstReviewRepository(
         val syncRecord = ReceiptSyncQueueRecord(
             queueId = idGenerator(),
             receiptId = receiptRecord.receiptId,
+            payloadSnapshot = receiptRecord.toSyncPayloadSnapshot(),
             queuedAtMillis = now,
         )
 
@@ -112,7 +129,13 @@ class LocalFirstReviewRepository(
             latestDraft = validateReviewState(
                 validatedState.copy(
                     isSaving = false,
-                    saveStatusMessage = "Saved locally as ${receiptRecord.receiptId}. Sync metadata queued as ${syncRecord.queueId}.",
+                    saveStatusMessage = buildString {
+                        append("Saved locally as ")
+                        append(receiptRecord.receiptId)
+                        append(". Sync metadata queued as ")
+                        append(syncRecord.queueId)
+                        append(".")
+                    },
                 ),
             )
             ReviewSaveResult.Success(
@@ -124,7 +147,14 @@ class LocalFirstReviewRepository(
             latestDraft = validateReviewState(
                 validatedState.copy(
                     isSaving = false,
-                    saveStatusMessage = "Saved locally as ${receiptRecord.receiptId}. Sync metadata queued as ${syncRecord.queueId}; background dispatch failed: ${error.message ?: "Sync dispatch failed after local save."}",
+                    saveStatusMessage = buildString {
+                        append("Saved locally as ")
+                        append(receiptRecord.receiptId)
+                        append(". Sync metadata queued as ")
+                        append(syncRecord.queueId)
+                        append("; background dispatch failed: ")
+                        append(error.message ?: "Sync dispatch failed after local save.")
+                    },
                 ),
             )
             ReviewSaveResult.Success(
@@ -174,7 +204,8 @@ fun validateReviewState(uiState: ReviewUiState): ReviewUiState {
     }
     val totalAmountError = when {
         uiState.totalAmount.value.isBlank() -> "Total amount is required."
-        parseAmountToMinor(uiState.totalAmount.value) == null -> "Total amount must be a positive number with up to 2 decimals."
+        parseAmountToMinor(uiState.totalAmount.value) == null ->
+            "Total amount must be a positive number with up to 2 decimals."
         else -> null
     }
 
@@ -242,10 +273,67 @@ private fun ReviewUiState.toLocalReceiptRecord(
                 position = index,
                 description = item.description.trim(),
                 amountRaw = item.amount.trim().takeIf { it.isNotBlank() },
-                amountMinor = item.amount.trim().takeIf { it.isNotBlank() }?.let(::parseAmountToMinor),
+                amountMinor = item.amount
+                    .trim()
+                    .takeIf { it.isNotBlank() }
+                    ?.let(::parseAmountToMinor),
             )
         },
     )
+}
+
+private fun LocalReceiptRecord.toSyncPayloadSnapshot(): String {
+    val itemPayload = items.joinToString(separator = ",") { item ->
+        buildString {
+            append("{")
+            append("\"name\":\"")
+            append(item.description.toJsonString())
+            append("\"")
+            item.amountRaw?.let { amount ->
+                append(",\"amount\":\"")
+                append(amount.toJsonString())
+                append("\"")
+            }
+            append("}")
+        }
+    }
+
+    return buildString {
+        append("{")
+        append("\"id\":\"")
+        append(receiptId.toJsonString())
+        append("\",")
+        append("\"source\":\"scan\",")
+        append("\"merchant\":\"")
+        append(merchant.toJsonString())
+        append("\",")
+        append("\"expense_date\":\"")
+        append(expenseDate.toJsonString())
+        append("\",")
+        append("\"total_amount\":\"")
+        append(totalAmountRaw.toJsonString())
+        append("\",")
+        append("\"currency\":\"PHP\",")
+        append("\"items\":[")
+        append(itemPayload)
+        append("]")
+        append("}")
+    }
+}
+
+private fun String.toJsonString(): String {
+    return buildString(length) {
+        for (character in this@toJsonString) {
+            when (character) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> append(character)
+            }
+        }
+    }
 }
 
 private fun isIsoDate(value: String): Boolean {
