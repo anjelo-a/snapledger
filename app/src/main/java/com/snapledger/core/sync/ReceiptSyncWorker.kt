@@ -22,6 +22,7 @@ import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord
 import com.snapledger.feature.review.domain.ReviewSyncDispatcher
 import java.time.Instant
 import java.util.concurrent.TimeUnit
+import retrofit2.HttpException
 
 const val RECEIPT_SYNC_CURSOR_KEY = "pull_cursor"
 
@@ -36,6 +37,11 @@ interface ReceiptSyncMutationStore {
         queueId: String,
         lastError: String,
         nextRetryAtMillis: Long?,
+    )
+
+    suspend fun markTerminalFailed(
+        queueId: String,
+        lastError: String,
     )
 
     suspend fun hasPendingMutation(receiptId: String): Boolean
@@ -129,19 +135,22 @@ class ReceiptSyncPushProcessor(
                 )
             } catch (error: Exception) {
                 val lastError = error.message ?: "Failed to prepare receipt sync payload."
-                mutationStore.markFailed(
-                    queueId = record.queueId,
-                    lastError = lastError,
-                    nextRetryAtMillis = if (error.isTerminalSyncPayloadFailure()) {
-                        null
-                    } else {
-                        shouldRetry = true
-                        computeNextRetryAtMillis(
+                if (error.isTerminalSyncFailure()) {
+                    mutationStore.markTerminalFailed(
+                        queueId = record.queueId,
+                        lastError = lastError,
+                    )
+                } else {
+                    shouldRetry = true
+                    mutationStore.markFailed(
+                        queueId = record.queueId,
+                        lastError = lastError,
+                        nextRetryAtMillis = computeNextRetryAtMillis(
                             nowMillis = now,
                             attemptCount = record.attemptCount + 1,
-                        )
-                    },
-                )
+                        ),
+                    )
+                }
             }
         }
 
@@ -173,16 +182,11 @@ class ReceiptSyncPushProcessor(
                 } else if (responseResult.status == "accepted") {
                     mutationStore.markSynced(prepared.record.queueId)
                 } else {
-                    shouldRetry = true
-                    mutationStore.markFailed(
+                    mutationStore.markTerminalFailed(
                         queueId = prepared.record.queueId,
                         lastError = responseResult.message
                             ?: responseResult.code
                             ?: "Backend rejected receipt sync mutation.",
-                        nextRetryAtMillis = computeNextRetryAtMillis(
-                            nowMillis = now,
-                            attemptCount = prepared.attemptCount,
-                        ),
                     )
                 }
             }
@@ -193,20 +197,28 @@ class ReceiptSyncPushProcessor(
             )
         } catch (error: Exception) {
             val errorMessage = error.message ?: "Receipt sync push failed."
+            val retryable = error.isRetryableSyncFailure()
             preparedRecordsByIdempotencyKey.values.forEach { prepared ->
-                mutationStore.markFailed(
-                    queueId = prepared.record.queueId,
-                    lastError = errorMessage,
-                    nextRetryAtMillis = computeNextRetryAtMillis(
-                        nowMillis = now,
-                        attemptCount = prepared.attemptCount,
-                    ),
-                )
+                if (retryable) {
+                    mutationStore.markFailed(
+                        queueId = prepared.record.queueId,
+                        lastError = errorMessage,
+                        nextRetryAtMillis = computeNextRetryAtMillis(
+                            nowMillis = now,
+                            attemptCount = prepared.attemptCount,
+                        ),
+                    )
+                } else {
+                    mutationStore.markTerminalFailed(
+                        queueId = prepared.record.queueId,
+                        lastError = errorMessage,
+                    )
+                }
             }
 
             ReceiptSyncPushProcessorResult(
                 processedCount = pushMutations.size,
-                shouldRetry = true,
+                shouldRetry = retryable,
             )
         }
     }
@@ -532,8 +544,12 @@ private fun StoredReceiptSyncUpsertPayload.validate(): StoredReceiptSyncUpsertPa
     currency.requireNotBlank("currency")
 }
 
-private fun Throwable.isTerminalSyncPayloadFailure(): Boolean {
-    return this is InvalidReceiptSyncPayloadException
+private fun Throwable.isTerminalSyncFailure(): Boolean {
+    return this is InvalidReceiptSyncPayloadException || this is HttpException && code() in 400..499
+}
+
+private fun Throwable.isRetryableSyncFailure(): Boolean {
+    return !isTerminalSyncFailure()
 }
 
 private class InvalidReceiptSyncPayloadException(

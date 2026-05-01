@@ -9,6 +9,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlinx.coroutines.test.runTest
+import okhttp3.ResponseBody
+import retrofit2.HttpException
+import retrofit2.Response
 
 class ReceiptSyncPushProcessorTest {
     @Test
@@ -132,7 +135,7 @@ class ReceiptSyncPushProcessorTest {
 
         assertEquals(1, firstResult.processedCount)
         assertEquals(false, firstResult.shouldRetry)
-        assertEquals(ReceiptSyncQueueRecord.STATUS_FAILED, failed.status)
+        assertEquals(ReceiptSyncQueueRecord.STATUS_TERMINAL_FAILED, failed.status)
         assertEquals(1, failed.attemptCount)
         assertNull(failed.nextRetryAtMillis)
         assertTrue(
@@ -140,6 +143,72 @@ class ReceiptSyncPushProcessorTest {
         )
         assertEquals(0, secondResult.processedCount)
         assertEquals(false, secondResult.shouldRetry)
+    }
+
+    @Test
+    fun `worker marks backend rejected mutation as terminal failure`() = runTest {
+        val queueStore = FakeReceiptSyncMutationStore(
+            records = mutableListOf(validQueuedCreateRecord()),
+        )
+        val processor = ReceiptSyncPushProcessor(
+            mutationStore = queueStore,
+            pushGateway = object : ReceiptSyncPushGateway {
+                override suspend fun push(
+                    request: ReceiptSyncPushRequest,
+                ): ReceiptSyncPushResponse {
+                    return ReceiptSyncPushResponse(
+                        accepted = 0,
+                        rejected = 1,
+                        results = listOf(
+                            ReceiptSyncPushResult(
+                                idempotencyKey = request.mutations.single().idempotencyKey,
+                                entity = RECEIPT_SYNC_ENTITY,
+                                operation = ReceiptSyncPushOperation.Create,
+                                status = "rejected",
+                                code = "unsupported_entity_phase4",
+                                message = "Only expense sync is supported.",
+                            ),
+                        ),
+                    )
+                }
+            },
+            clock = { 2_000L },
+        )
+
+        val result = processor.pushDueMutations()
+        val failed = queueStore.records.single()
+
+        assertEquals(1, result.processedCount)
+        assertEquals(false, result.shouldRetry)
+        assertEquals(ReceiptSyncQueueRecord.STATUS_TERMINAL_FAILED, failed.status)
+        assertNull(failed.nextRetryAtMillis)
+        assertEquals("Only expense sync is supported.", failed.lastError)
+    }
+
+    @Test
+    fun `worker marks validation http failure as terminal`() = runTest {
+        val queueStore = FakeReceiptSyncMutationStore(
+            records = mutableListOf(validQueuedCreateRecord()),
+        )
+        val processor = ReceiptSyncPushProcessor(
+            mutationStore = queueStore,
+            pushGateway = object : ReceiptSyncPushGateway {
+                override suspend fun push(
+                    request: ReceiptSyncPushRequest,
+                ): ReceiptSyncPushResponse {
+                    throw httpException(422)
+                }
+            },
+            clock = { 2_000L },
+        )
+
+        val result = processor.pushDueMutations()
+        val failed = queueStore.records.single()
+
+        assertEquals(1, result.processedCount)
+        assertEquals(false, result.shouldRetry)
+        assertEquals(ReceiptSyncQueueRecord.STATUS_TERMINAL_FAILED, failed.status)
+        assertNull(failed.nextRetryAtMillis)
     }
 }
 
@@ -210,6 +279,23 @@ private class FakeReceiptSyncMutationStore(
         }
     }
 
+    override suspend fun markTerminalFailed(
+        queueId: String,
+        lastError: String,
+    ) {
+        records.replaceAll { record ->
+            if (record.queueId == queueId) {
+                record.copy(
+                    status = ReceiptSyncQueueRecord.STATUS_TERMINAL_FAILED,
+                    lastError = lastError,
+                    nextRetryAtMillis = null,
+                )
+            } else {
+                record
+            }
+        }
+    }
+
     override suspend fun hasPendingMutation(receiptId: String): Boolean {
         return records.any { record ->
             record.receiptId == receiptId &&
@@ -223,6 +309,15 @@ private class FakeReceiptSyncMutationStore(
                     )
         }
     }
+}
+
+private fun httpException(statusCode: Int): HttpException {
+    return HttpException(
+        Response.error<String>(
+            statusCode,
+            ResponseBody.create(null, """{"error":{"code":"validation_error"}}"""),
+        ),
+    )
 }
 
 private fun validQueuedCreateRecord(): ReceiptSyncQueueRecord {

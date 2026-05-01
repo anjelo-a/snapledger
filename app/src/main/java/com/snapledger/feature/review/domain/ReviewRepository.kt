@@ -68,6 +68,7 @@ data class ReceiptSyncQueueRecord(
         const val STATUS_IN_FLIGHT = "in_flight"
         const val STATUS_SYNCED = "synced"
         const val STATUS_FAILED = "failed"
+        const val STATUS_TERMINAL_FAILED = "terminal_failed"
     }
 }
 
