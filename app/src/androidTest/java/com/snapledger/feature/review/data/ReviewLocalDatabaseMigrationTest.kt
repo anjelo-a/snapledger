@@ -160,4 +160,106 @@ class ReviewLocalDatabaseMigrationTest {
             context.deleteDatabase(databaseName)
         }
     }
+
+    @Test
+    fun migrate2To3_creates_sync_cursor_state_table() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val databaseName = "review-local-migration-v3-test.db"
+        context.deleteDatabase(databaseName)
+
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(databaseName)
+                .callback(object : SupportSQLiteOpenHelper.Callback(2) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(
+                            """
+                            CREATE TABLE IF NOT EXISTS `local_receipts` (
+                                `receiptId` TEXT NOT NULL,
+                                `merchant` TEXT NOT NULL,
+                                `expenseDate` TEXT NOT NULL,
+                                `totalAmountRaw` TEXT NOT NULL,
+                                `totalAmountMinor` INTEGER NOT NULL,
+                                `savedAtMillis` INTEGER NOT NULL,
+                                PRIMARY KEY(`receiptId`)
+                            )
+                            """.trimIndent(),
+                        )
+                        db.execSQL(
+                            """
+                            CREATE TABLE IF NOT EXISTS `local_receipt_items` (
+                                `receiptId` TEXT NOT NULL,
+                                `position` INTEGER NOT NULL,
+                                `description` TEXT NOT NULL,
+                                `amountRaw` TEXT,
+                                `amountMinor` INTEGER,
+                                PRIMARY KEY(`receiptId`, `position`)
+                            )
+                            """.trimIndent(),
+                        )
+                        db.execSQL(
+                            """
+                            CREATE TABLE IF NOT EXISTS `receipt_sync_queue` (
+                                `queueId` TEXT NOT NULL,
+                                `idempotencyKey` TEXT NOT NULL,
+                                `receiptId` TEXT NOT NULL,
+                                `operation` TEXT NOT NULL,
+                                `payloadSnapshot` TEXT NOT NULL,
+                                `status` TEXT NOT NULL,
+                                `attemptCount` INTEGER NOT NULL,
+                                `lastError` TEXT,
+                                `queuedAtMillis` INTEGER NOT NULL,
+                                `nextRetryAtMillis` INTEGER,
+                                PRIMARY KEY(`queueId`)
+                            )
+                            """.trimIndent(),
+                        )
+                    }
+
+                    override fun onUpgrade(
+                        db: SupportSQLiteDatabase,
+                        oldVersion: Int,
+                        newVersion: Int,
+                    ) = Unit
+                })
+                .build(),
+        )
+
+        try {
+            helper.writableDatabase.use { database ->
+                MIGRATION_2_3.migrate(database)
+
+                val columns = mutableSetOf<String>()
+                database.query("PRAGMA table_info(`receipt_sync_state`)").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        columns += cursor.getString(cursor.getColumnIndexOrThrow("name"))
+                    }
+                }
+
+                assertTrue(columns.contains("stateKey"))
+                assertTrue(columns.contains("stateValue"))
+
+                database.query(
+                    """
+                    SELECT `stateKey`, `stateValue`
+                    FROM `receipt_sync_state`
+                    WHERE `stateKey` = 'pull_cursor'
+                    """.trimIndent(),
+                ).use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    assertEquals(
+                        "pull_cursor",
+                        cursor.getString(cursor.getColumnIndexOrThrow("stateKey")),
+                    )
+                    assertEquals(
+                        "0",
+                        cursor.getString(cursor.getColumnIndexOrThrow("stateValue")),
+                    )
+                }
+            }
+        } finally {
+            helper.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
 }

@@ -15,7 +15,12 @@ import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.snapledger.core.sync.ReceiptSyncCursorStore
+import com.snapledger.core.sync.ReceiptSyncLocalStore
 import com.snapledger.core.sync.ReceiptSyncMutationStore
+import com.snapledger.core.sync.ReceiptSyncPendingMutationStore
+import com.snapledger.core.sync.RECEIPT_SYNC_CURSOR_KEY
+import com.snapledger.core.sync.INITIAL_RECEIPT_SYNC_CURSOR
 import com.snapledger.feature.review.domain.LocalReceiptItemRecord
 import com.snapledger.feature.review.domain.LocalReceiptRecord
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord
@@ -78,6 +83,12 @@ data class ReceiptSyncQueueEntity(
     val nextRetryAtMillis: Long?,
 )
 
+@Entity(tableName = "receipt_sync_state")
+data class ReceiptSyncStateEntity(
+    @PrimaryKey val stateKey: String,
+    val stateValue: String,
+)
+
 @Dao
 interface LocalReceiptDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -89,6 +100,9 @@ interface LocalReceiptDao {
     @Query("DELETE FROM local_receipt_items WHERE receiptId = :receiptId")
     suspend fun deleteItems(receiptId: String)
 
+    @Query("DELETE FROM local_receipts WHERE receiptId = :receiptId")
+    suspend fun deleteReceipt(receiptId: String)
+
     @Transaction
     suspend fun replaceReceiptWithItems(
         receipt: LocalReceiptEntity,
@@ -99,6 +113,12 @@ interface LocalReceiptDao {
         if (items.isNotEmpty()) {
             insertItems(items)
         }
+    }
+
+    @Transaction
+    suspend fun deleteReceiptWithItems(receiptId: String) {
+        deleteItems(receiptId)
+        deleteReceipt(receiptId)
     }
 }
 
@@ -166,6 +186,26 @@ interface ReceiptSyncQueueDao {
         nextRetryAtMillis: Long?,
         status: String = STATUS_FAILED,
     )
+
+    @Query(
+        """
+        SELECT COUNT(*) > 0 FROM receipt_sync_queue
+        WHERE receiptId = :receiptId AND status IN (:activeStatuses)
+        """
+    )
+    suspend fun hasPendingMutation(
+        receiptId: String,
+        activeStatuses: List<String>,
+    ): Boolean
+}
+
+@Dao
+interface ReceiptSyncStateDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertState(entity: ReceiptSyncStateEntity)
+
+    @Query("SELECT stateValue FROM receipt_sync_state WHERE stateKey = :stateKey LIMIT 1")
+    suspend fun loadStateValue(stateKey: String): String?
 }
 
 @Database(
@@ -173,13 +213,15 @@ interface ReceiptSyncQueueDao {
         LocalReceiptEntity::class,
         LocalReceiptItemEntity::class,
         ReceiptSyncQueueEntity::class,
+        ReceiptSyncStateEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class ReviewLocalDatabase : RoomDatabase() {
     abstract fun localReceiptDao(): LocalReceiptDao
     abstract fun receiptSyncQueueDao(): ReceiptSyncQueueDao
+    abstract fun receiptSyncStateDao(): ReceiptSyncStateDao
 
     companion object {
         @Volatile
@@ -191,7 +233,7 @@ abstract class ReviewLocalDatabase : RoomDatabase() {
                     context,
                     ReviewLocalDatabase::class.java,
                     "snapledger-review.db",
-                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
             }
         }
     }
@@ -199,8 +241,12 @@ abstract class ReviewLocalDatabase : RoomDatabase() {
 
 class RoomReviewLocalReceiptStore(
     private val database: ReviewLocalDatabase,
-) : ReviewLocalReceiptStore {
+) : ReviewLocalReceiptStore, ReceiptSyncLocalStore {
     override suspend fun saveReceipt(record: LocalReceiptRecord) {
+        upsertReceipt(record)
+    }
+
+    override suspend fun upsertReceipt(record: LocalReceiptRecord) {
         database.localReceiptDao().replaceReceiptWithItems(
             receipt = LocalReceiptEntity(
                 receiptId = record.receiptId,
@@ -215,11 +261,15 @@ class RoomReviewLocalReceiptStore(
             },
         )
     }
+
+    override suspend fun deleteReceipt(receiptId: String) {
+        database.localReceiptDao().deleteReceiptWithItems(receiptId)
+    }
 }
 
 class RoomReviewSyncQueueStore(
     private val database: ReviewLocalDatabase,
-) : ReviewSyncQueueStore, ReceiptSyncMutationStore {
+) : ReviewSyncQueueStore, ReceiptSyncMutationStore, ReceiptSyncPendingMutationStore {
     override suspend fun enqueue(record: ReceiptSyncQueueRecord) {
         database.receiptSyncQueueDao().insertQueueRecord(
             ReceiptSyncQueueEntity(
@@ -270,6 +320,32 @@ class RoomReviewSyncQueueStore(
             queueId = queueId,
             lastError = lastError,
             nextRetryAtMillis = nextRetryAtMillis,
+        )
+    }
+
+    override suspend fun hasPendingMutation(receiptId: String): Boolean {
+        return database.receiptSyncQueueDao().hasPendingMutation(
+            receiptId = receiptId,
+            activeStatuses = listOf(STATUS_PENDING, STATUS_FAILED, STATUS_IN_FLIGHT),
+        )
+    }
+}
+
+class RoomReceiptSyncCursorStore(
+    private val database: ReviewLocalDatabase,
+) : ReceiptSyncCursorStore {
+    override suspend fun readCursor(): String {
+        return database.receiptSyncStateDao()
+            .loadStateValue(RECEIPT_SYNC_CURSOR_KEY)
+            ?: INITIAL_RECEIPT_SYNC_CURSOR
+    }
+
+    override suspend fun writeCursor(cursor: String) {
+        database.receiptSyncStateDao().upsertState(
+            ReceiptSyncStateEntity(
+                stateKey = RECEIPT_SYNC_CURSOR_KEY,
+                stateValue = cursor,
+            ),
         )
     }
 }
@@ -367,6 +443,26 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
             """
             CREATE INDEX IF NOT EXISTS `index_receipt_sync_queue_nextRetryAtMillis`
             ON `receipt_sync_queue` (`nextRetryAtMillis`)
+            """.trimIndent(),
+        )
+    }
+}
+
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `receipt_sync_state` (
+                `stateKey` TEXT NOT NULL,
+                `stateValue` TEXT NOT NULL,
+                PRIMARY KEY(`stateKey`)
+            )
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
+            INSERT OR IGNORE INTO `receipt_sync_state` (`stateKey`, `stateValue`)
+            VALUES ('$RECEIPT_SYNC_CURSOR_KEY', '$INITIAL_RECEIPT_SYNC_CURSOR')
             """.trimIndent(),
         )
     }

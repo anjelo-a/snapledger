@@ -13,10 +13,17 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.snapledger.feature.review.data.ReviewLocalDatabase
+import com.snapledger.feature.review.data.RoomReceiptSyncCursorStore
+import com.snapledger.feature.review.data.RoomReviewLocalReceiptStore
 import com.snapledger.feature.review.data.RoomReviewSyncQueueStore
+import com.snapledger.feature.review.domain.LocalReceiptItemRecord
+import com.snapledger.feature.review.domain.LocalReceiptRecord
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord
 import com.snapledger.feature.review.domain.ReviewSyncDispatcher
+import java.time.Instant
 import java.util.concurrent.TimeUnit
+
+const val RECEIPT_SYNC_CURSOR_KEY = "pull_cursor"
 
 interface ReceiptSyncMutationStore {
     suspend fun loadDueMutations(nowMillis: Long, limit: Int): List<ReceiptSyncQueueRecord>
@@ -30,10 +37,32 @@ interface ReceiptSyncMutationStore {
         lastError: String,
         nextRetryAtMillis: Long?,
     )
+
+    suspend fun hasPendingMutation(receiptId: String): Boolean
 }
 
 interface ReceiptSyncPushGateway {
     suspend fun push(request: ReceiptSyncPushRequest): ReceiptSyncPushResponse
+}
+
+interface ReceiptSyncPullGateway {
+    suspend fun pull(cursor: String): ReceiptSyncPullResponse
+}
+
+interface ReceiptSyncLocalStore {
+    suspend fun upsertReceipt(record: LocalReceiptRecord)
+
+    suspend fun deleteReceipt(receiptId: String)
+}
+
+interface ReceiptSyncCursorStore {
+    suspend fun readCursor(): String
+
+    suspend fun writeCursor(cursor: String)
+}
+
+interface ReceiptSyncPendingMutationStore {
+    suspend fun hasPendingMutation(receiptId: String): Boolean
 }
 
 class NetworkReceiptSyncPushGateway(
@@ -44,8 +73,22 @@ class NetworkReceiptSyncPushGateway(
     }
 }
 
+class NetworkReceiptSyncPullGateway(
+    private val remoteDataSource: ReceiptSyncRemoteDataSource,
+) : ReceiptSyncPullGateway {
+    override suspend fun pull(cursor: String): ReceiptSyncPullResponse {
+        return remoteDataSource.pull(cursor)
+    }
+}
+
 data class ReceiptSyncPushProcessorResult(
     val processedCount: Int,
+    val shouldRetry: Boolean,
+)
+
+data class ReceiptSyncPullProcessorResult(
+    val appliedCount: Int,
+    val skippedCount: Int,
     val shouldRetry: Boolean,
 )
 
@@ -169,6 +212,65 @@ class ReceiptSyncPushProcessor(
     )
 }
 
+class ReceiptSyncPullProcessor(
+    private val pullGateway: ReceiptSyncPullGateway,
+    private val localStore: ReceiptSyncLocalStore,
+    private val cursorStore: ReceiptSyncCursorStore,
+    private val pendingMutationStore: ReceiptSyncPendingMutationStore,
+) {
+    suspend fun pullAndApplyChanges(): ReceiptSyncPullProcessorResult {
+        var cursor = cursorStore.readCursor()
+        var appliedCount = 0
+        var skippedCount = 0
+        var pageCount = 0
+        var hasMore = false
+
+        return try {
+            do {
+                val response = pullGateway.pull(cursor)
+                response.changes.forEach { change ->
+                    if (pendingMutationStore.hasPendingMutation(change.id)) {
+                        skippedCount += 1
+                    } else {
+                        when (change.operation) {
+                            ReceiptSyncPullOperation.Upsert -> {
+                                val payload = requireNotNull(change.payload) {
+                                    "Receipt sync pull change payload is required for upsert."
+                                }
+                                localStore.upsertReceipt(
+                                    payload.toLocalReceiptRecord(change.updatedAt),
+                                )
+                            }
+
+                            ReceiptSyncPullOperation.Delete -> {
+                                localStore.deleteReceipt(change.id)
+                            }
+                        }
+                        appliedCount += 1
+                    }
+                }
+
+                cursorStore.writeCursor(response.cursor)
+                cursor = response.cursor
+                hasMore = response.hasMore
+                pageCount += 1
+            } while (hasMore && pageCount < RECEIPT_SYNC_PULL_MAX_PAGES)
+
+            ReceiptSyncPullProcessorResult(
+                appliedCount = appliedCount,
+                skippedCount = skippedCount,
+                shouldRetry = hasMore,
+            )
+        } catch (_: Exception) {
+            ReceiptSyncPullProcessorResult(
+                appliedCount = appliedCount,
+                skippedCount = skippedCount,
+                shouldRetry = true,
+            )
+        }
+    }
+}
+
 class WorkManagerReviewSyncDispatcher(
     context: Context,
     private val workManager: WorkManager = WorkManager.getInstance(context.applicationContext),
@@ -200,17 +302,30 @@ class ReceiptSyncWorker(
     override suspend fun doWork(): Result {
         val dependencies = dependencyFactory?.invoke(applicationContext)
             ?: buildDefaultDependencies(applicationContext)
-        val result = ReceiptSyncPushProcessor(
+        val pushResult = ReceiptSyncPushProcessor(
             mutationStore = dependencies.mutationStore,
             pushGateway = dependencies.pushGateway,
             clock = dependencies.clock,
         ).pushDueMutations()
 
-        return if (result.shouldRetry) {
-            Result.retry()
-        } else {
-            Result.success()
+        if (pushResult.shouldRetry) {
+            return Result.retry()
         }
+
+        if (pushResult.processedCount > 0) {
+            val pullResult = ReceiptSyncPullProcessor(
+                pullGateway = dependencies.pullGateway,
+                localStore = dependencies.localStore,
+                cursorStore = dependencies.cursorStore,
+                pendingMutationStore = dependencies.pendingMutationStore,
+            ).pullAndApplyChanges()
+
+            if (pullResult.shouldRetry) {
+                return Result.retry()
+            }
+        }
+
+        return Result.success()
     }
 
     companion object {
@@ -222,11 +337,18 @@ class ReceiptSyncWorker(
             context: Context,
         ): ReceiptSyncWorkerDependencies {
             val database = ReviewLocalDatabase.getInstance(context.applicationContext)
+            val queueStore = RoomReviewSyncQueueStore(database)
             return ReceiptSyncWorkerDependencies(
-                mutationStore = RoomReviewSyncQueueStore(database),
+                mutationStore = queueStore,
                 pushGateway = NetworkReceiptSyncPushGateway(
                     ReceiptSyncRemoteDataSource.create(),
                 ),
+                pullGateway = NetworkReceiptSyncPullGateway(
+                    ReceiptSyncRemoteDataSource.create(),
+                ),
+                localStore = RoomReviewLocalReceiptStore(database),
+                cursorStore = RoomReceiptSyncCursorStore(database),
+                pendingMutationStore = queueStore,
             )
         }
     }
@@ -235,6 +357,10 @@ class ReceiptSyncWorker(
 data class ReceiptSyncWorkerDependencies(
     val mutationStore: ReceiptSyncMutationStore,
     val pushGateway: ReceiptSyncPushGateway,
+    val pullGateway: ReceiptSyncPullGateway,
+    val localStore: ReceiptSyncLocalStore,
+    val cursorStore: ReceiptSyncCursorStore,
+    val pendingMutationStore: ReceiptSyncPendingMutationStore,
     val clock: () -> Long = { System.currentTimeMillis() },
 )
 
@@ -277,6 +403,27 @@ private fun ReceiptSyncQueueRecord.toPushMutation(): ReceiptSyncPushMutation {
 
         else -> error("Unsupported receipt sync operation: $operation")
     }
+}
+
+private fun ReceiptSyncUpsertPayload.toLocalReceiptRecord(
+    updatedAt: String,
+): LocalReceiptRecord {
+    return LocalReceiptRecord(
+        receiptId = id,
+        merchant = merchant,
+        expenseDate = expenseDate,
+        totalAmountRaw = totalAmount,
+        totalAmountMinor = totalAmount.toMinorAmount(),
+        savedAtMillis = updatedAt.toEpochMillisOrNow(),
+        items = items.mapIndexed { index, item ->
+            LocalReceiptItemRecord(
+                position = index,
+                description = item.name,
+                amountRaw = item.amount,
+                amountMinor = item.amount.toMinorAmount(),
+            )
+        },
+    )
 }
 
 private fun String.toStoredUpsertPayload(): StoredReceiptSyncUpsertPayload {
@@ -363,7 +510,26 @@ private fun StoredReceiptSyncUpsertPayload.validate(): StoredReceiptSyncUpsertPa
 }
 
 private fun Long.toIsoInstantString(): String {
-    return java.time.Instant.ofEpochMilli(this).toString()
+    return Instant.ofEpochMilli(this).toString()
+}
+
+private fun String.toEpochMillisOrNow(): Long {
+    return try {
+        Instant.parse(this).toEpochMilli()
+    } catch (_: Exception) {
+        System.currentTimeMillis()
+    }
+}
+
+private fun String.toMinorAmount(): Long {
+    val normalized = trim()
+    require(amountPattern.matches(normalized)) {
+        "Receipt sync amount must be a positive number with up to 2 decimals."
+    }
+    val parts = normalized.split('.')
+    val wholePart = parts.first().toLong()
+    val fractionalPart = parts.getOrElse(1) { "" }.padEnd(2, '0')
+    return wholePart * 100 + fractionalPart.toLong()
 }
 
 private fun computeNextRetryAtMillis(
@@ -377,5 +543,7 @@ private fun computeNextRetryAtMillis(
     return nowMillis + backoffMillis
 }
 
+private val amountPattern = Regex("""\d+(?:\.\d{1,2})?""")
 private const val RECEIPT_SYNC_PUSH_BATCH_LIMIT = 20
+private const val RECEIPT_SYNC_PULL_MAX_PAGES = 5
 private const val RECEIPT_SYNC_WORK_BACKOFF_MILLIS = 30_000L
