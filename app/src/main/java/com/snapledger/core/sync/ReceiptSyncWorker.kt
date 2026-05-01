@@ -128,14 +128,19 @@ class ReceiptSyncPushProcessor(
                     attemptCount = attemptCount,
                 )
             } catch (error: Exception) {
-                shouldRetry = true
+                val lastError = error.message ?: "Failed to prepare receipt sync payload."
                 mutationStore.markFailed(
                     queueId = record.queueId,
-                    lastError = error.message ?: "Failed to prepare receipt sync payload.",
-                    nextRetryAtMillis = computeNextRetryAtMillis(
-                        nowMillis = now,
-                        attemptCount = record.attemptCount + 1,
-                    ),
+                    lastError = lastError,
+                    nextRetryAtMillis = if (error.isTerminalSyncPayloadFailure()) {
+                        null
+                    } else {
+                        shouldRetry = true
+                        computeNextRetryAtMillis(
+                            nowMillis = now,
+                            attemptCount = record.attemptCount + 1,
+                        )
+                    },
                 )
             }
         }
@@ -427,14 +432,30 @@ private fun ReceiptSyncUpsertPayload.toLocalReceiptRecord(
 }
 
 private fun String.toStoredUpsertPayload(): StoredReceiptSyncUpsertPayload {
-    return requireNotNull(storedUpsertPayloadAdapter.fromJson(this)) {
-        "Receipt sync payload snapshot is missing required upsert fields."
+    try {
+        return requireNotNull(storedUpsertPayloadAdapter.fromJson(this)) {
+            "Legacy receipt sync payload is incomplete and cannot be pushed. " +
+                "Clear the stale queue entry and resave the receipt if sync is still needed."
+        }
+    } catch (error: Exception) {
+        throw InvalidReceiptSyncPayloadException(
+            message = "Legacy receipt sync payload is incomplete and cannot be pushed. " +
+                "Clear the stale queue entry and resave the receipt if sync is still needed.",
+            cause = error,
+        )
     }
 }
 
 private fun String.toStoredDeletePayload(): StoredReceiptSyncDeletePayload {
-    return requireNotNull(storedDeletePayloadAdapter.fromJson(this)) {
-        "Receipt sync payload snapshot is missing required delete fields."
+    try {
+        return requireNotNull(storedDeletePayloadAdapter.fromJson(this)) {
+            "Receipt sync delete payload is incomplete and cannot be pushed."
+        }
+    } catch (error: Exception) {
+        throw InvalidReceiptSyncPayloadException(
+            message = "Receipt sync delete payload is incomplete and cannot be pushed.",
+            cause = error,
+        )
     }
 }
 
@@ -495,7 +516,9 @@ private val storedDeletePayloadAdapter = storedPayloadMoshi.adapter(
 
 private fun String.requireNotBlank(fieldName: String): String {
     return if (isBlank()) {
-        error("Receipt sync payload snapshot field $fieldName must not be blank.")
+        throw InvalidReceiptSyncPayloadException(
+            "Receipt sync payload snapshot field $fieldName must not be blank.",
+        )
     } else {
         this
     }
@@ -508,6 +531,15 @@ private fun StoredReceiptSyncUpsertPayload.validate(): StoredReceiptSyncUpsertPa
     totalAmount.requireNotBlank("total_amount")
     currency.requireNotBlank("currency")
 }
+
+private fun Throwable.isTerminalSyncPayloadFailure(): Boolean {
+    return this is InvalidReceiptSyncPayloadException
+}
+
+private class InvalidReceiptSyncPayloadException(
+    message: String,
+    cause: Throwable? = null,
+) : IllegalStateException(message, cause)
 
 private fun Long.toIsoInstantString(): String {
     return Instant.ofEpochMilli(this).toString()

@@ -5,6 +5,7 @@ import com.snapledger.feature.review.domain.LocalReceiptRecord
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlinx.coroutines.test.runTest
@@ -98,6 +99,48 @@ class ReceiptSyncPushProcessorTest {
         assertEquals(1, localReceipts.size)
         assertEquals("receipt-1", localReceipts.single().receiptId)
     }
+
+    @Test
+    fun `worker terminal-fails legacy queue payload without retry loop`() = runTest {
+        val queueStore = FakeReceiptSyncMutationStore(
+            records = mutableListOf(
+                ReceiptSyncQueueRecord(
+                    queueId = "legacy-queue-1",
+                    idempotencyKey = "legacy-idem-1",
+                    receiptId = "legacy-receipt-1",
+                    operation = ReceiptSyncQueueRecord.OPERATION_CREATE,
+                    payloadSnapshot = """{"id":"legacy-receipt-1"}""",
+                    queuedAtMillis = 1_000L,
+                ),
+            ),
+        )
+        val processor = ReceiptSyncPushProcessor(
+            mutationStore = queueStore,
+            pushGateway = object : ReceiptSyncPushGateway {
+                override suspend fun push(
+                    request: ReceiptSyncPushRequest,
+                ): ReceiptSyncPushResponse {
+                    error("push should not be attempted for invalid legacy payloads")
+                }
+            },
+            clock = { 2_000L },
+        )
+
+        val firstResult = processor.pushDueMutations()
+        val failed = queueStore.records.single()
+        val secondResult = processor.pushDueMutations()
+
+        assertEquals(1, firstResult.processedCount)
+        assertEquals(false, firstResult.shouldRetry)
+        assertEquals(ReceiptSyncQueueRecord.STATUS_FAILED, failed.status)
+        assertEquals(1, failed.attemptCount)
+        assertNull(failed.nextRetryAtMillis)
+        assertTrue(
+            failed.lastError?.contains("incomplete and cannot be pushed") == true,
+        )
+        assertEquals(0, secondResult.processedCount)
+        assertEquals(false, secondResult.shouldRetry)
+    }
 }
 
 private class FakeReceiptSyncMutationStore(
@@ -112,10 +155,8 @@ private class FakeReceiptSyncMutationStore(
                 record.status == ReceiptSyncQueueRecord.STATUS_PENDING ||
                     (
                         record.status == ReceiptSyncQueueRecord.STATUS_FAILED &&
-                            (
-                                record.nextRetryAtMillis == null ||
-                                    record.nextRetryAtMillis <= nowMillis
-                                )
+                            record.nextRetryAtMillis != null &&
+                            record.nextRetryAtMillis <= nowMillis
                         )
             }
             .sortedBy { it.queuedAtMillis }
@@ -172,7 +213,14 @@ private class FakeReceiptSyncMutationStore(
     override suspend fun hasPendingMutation(receiptId: String): Boolean {
         return records.any { record ->
             record.receiptId == receiptId &&
-                record.status != ReceiptSyncQueueRecord.STATUS_SYNCED
+                (
+                    record.status == ReceiptSyncQueueRecord.STATUS_PENDING ||
+                        record.status == ReceiptSyncQueueRecord.STATUS_IN_FLIGHT ||
+                        (
+                            record.status == ReceiptSyncQueueRecord.STATUS_FAILED &&
+                                record.nextRetryAtMillis != null
+                            )
+                    )
         }
     }
 }
