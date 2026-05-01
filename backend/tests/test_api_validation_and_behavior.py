@@ -224,6 +224,245 @@ def test_receipt_process_rejects_overlong_total_text(client: TestClient) -> None
     assert payload["error"]["code"] == "validation_error"
 
 
+def _sync_expense_create_mutation(
+    *,
+    idempotency_key: str = "sync-create-001",
+    receipt_id: str = "client-receipt-001",
+    merchant: str = "Synced Cafe",
+) -> dict[str, object]:
+    return {
+        "idempotency_key": idempotency_key,
+        "entity": "expense",
+        "operation": "create",
+        "occurred_at": "2026-05-01T00:00:00Z",
+        "payload": {
+            "id": receipt_id,
+            "source": "scan",
+            "merchant": merchant,
+            "expense_date": "2026-05-01",
+            "total_amount": "42.50",
+            "currency": "PHP",
+            "items": [
+                {
+                    "name": "Coffee",
+                    "amount": "42.50",
+                }
+            ],
+        },
+    }
+
+
+def test_sync_push_creates_receipt_with_client_id(client: TestClient) -> None:
+    receipt_id = "client-receipt-create"
+    response = client.post(
+        "/v1/sync/push",
+        json={
+            "mutations": [
+                _sync_expense_create_mutation(
+                    idempotency_key="sync-create-client-id",
+                    receipt_id=receipt_id,
+                )
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] == 1
+    assert payload["rejected"] == 0
+    assert payload["results"][0]["status"] == "accepted"
+    assert payload["results"][0]["entity_id"] == receipt_id
+
+    created = client.get(f"/v1/receipts/{receipt_id}")
+    assert created.status_code == 200
+    assert created.json()["id"] == receipt_id
+    assert created.json()["merchant"] == "Synced Cafe"
+
+
+def test_sync_push_duplicate_idempotency_key_returns_original_result(
+    client: TestClient,
+) -> None:
+    first = client.post(
+        "/v1/sync/push",
+        json={
+            "mutations": [
+                _sync_expense_create_mutation(
+                    idempotency_key="sync-duplicate-001",
+                    receipt_id="client-receipt-original",
+                    merchant="Original Merchant",
+                )
+            ],
+        },
+    )
+    assert first.status_code == 200
+
+    duplicate = client.post(
+        "/v1/sync/push",
+        json={
+            "mutations": [
+                _sync_expense_create_mutation(
+                    idempotency_key="sync-duplicate-001",
+                    receipt_id="client-receipt-second",
+                    merchant="Second Merchant",
+                )
+            ],
+        },
+    )
+
+    assert duplicate.status_code == 200
+    assert duplicate.json()["results"] == first.json()["results"]
+    original = client.get("/v1/receipts/client-receipt-original")
+    second = client.get("/v1/receipts/client-receipt-second")
+    assert original.status_code == 200
+    assert second.status_code == 404
+
+
+def test_sync_push_updates_receipt_fields_and_items(client: TestClient) -> None:
+    receipt_id = "client-receipt-update"
+    create = client.post(
+        "/v1/sync/push",
+        json={
+            "mutations": [
+                _sync_expense_create_mutation(
+                    idempotency_key="sync-update-create",
+                    receipt_id=receipt_id,
+                )
+            ],
+        },
+    )
+    assert create.status_code == 200
+
+    update = client.post(
+        "/v1/sync/push",
+        json={
+            "mutations": [
+                {
+                    "idempotency_key": "sync-update-001",
+                    "entity": "expense",
+                    "operation": "update",
+                    "occurred_at": "2026-05-01T00:00:00Z",
+                    "payload": {
+                        "id": receipt_id,
+                        "source": "scan",
+                        "merchant": "Updated Cafe",
+                        "expense_date": "2026-05-02",
+                        "total_amount": "88.00",
+                        "currency": "PHP",
+                        "items": [{"name": "Brunch", "amount": "88.00"}],
+                    },
+                }
+            ],
+        },
+    )
+
+    assert update.status_code == 200
+    assert update.json()["accepted"] == 1
+    updated = client.get(f"/v1/receipts/{receipt_id}")
+    assert updated.status_code == 200
+    payload = updated.json()
+    assert payload["merchant"] == "Updated Cafe"
+    assert payload["expense_date"] == "2026-05-02"
+    assert payload["total_amount"] == "88.00"
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["name"] == "Brunch"
+    assert payload["items"][0]["amount"] == "88.00"
+
+
+def test_sync_push_rejects_unsupported_budget_and_category_per_mutation(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/v1/sync/push",
+        json={
+            "mutations": [
+                {
+                    "idempotency_key": "sync-budget-001",
+                    "entity": "budget",
+                    "operation": "create",
+                    "occurred_at": "2026-05-01T00:00:00Z",
+                    "payload": {"id": "budget-1"},
+                },
+                {
+                    "idempotency_key": "sync-category-001",
+                    "entity": "category",
+                    "operation": "update",
+                    "occurred_at": "2026-05-01T00:00:00Z",
+                    "payload": {"id": "category-1"},
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] == 0
+    assert payload["rejected"] == 2
+    assert {result["code"] for result in payload["results"]} == {
+        "unsupported_entity_phase4"
+    }
+
+
+def test_sync_push_delete_uses_soft_delete_behavior(client: TestClient) -> None:
+    receipt_id = "client-receipt-delete"
+    create = client.post(
+        "/v1/sync/push",
+        json={
+            "mutations": [
+                _sync_expense_create_mutation(
+                    idempotency_key="sync-delete-create",
+                    receipt_id=receipt_id,
+                )
+            ],
+        },
+    )
+    assert create.status_code == 200
+
+    delete = client.post(
+        "/v1/sync/push",
+        json={
+            "mutations": [
+                {
+                    "idempotency_key": "sync-delete-001",
+                    "entity": "expense",
+                    "operation": "delete",
+                    "occurred_at": "2026-05-01T00:00:00Z",
+                    "payload": {"id": receipt_id},
+                }
+            ],
+        },
+    )
+
+    assert delete.status_code == 200
+    assert delete.json()["accepted"] == 1
+    assert delete.json()["results"][0]["status"] == "accepted"
+    assert client.get(f"/v1/receipts/{receipt_id}").status_code == 404
+
+
+def test_sync_push_invalid_expense_payload_returns_4xx(client: TestClient) -> None:
+    response = client.post(
+        "/v1/sync/push",
+        json={
+            "mutations": [
+                {
+                    "idempotency_key": "sync-invalid-001",
+                    "entity": "expense",
+                    "operation": "create",
+                    "occurred_at": "2026-05-01T00:00:00Z",
+                    "payload": {
+                        "id": "client-invalid",
+                        "source": "scan",
+                        "expense_date": "2026-05-01",
+                        "total_amount": "42.50",
+                    },
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
 def test_categories_returns_seeded_shape(client: TestClient) -> None:
     response = client.get("/v1/categories")
     assert response.status_code == 200
