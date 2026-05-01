@@ -76,6 +76,11 @@ Must not couple:
 - Push local mutation queue with idempotency keys.
 - Pull server deltas and merge deterministically.
 - Retries with exponential backoff.
+- Phase 4 starts receipts-first: only `expense` mutations are supported end-to-end.
+- `budget` and `category` sync mutations are rejected per mutation with
+  `unsupported_entity_phase4` until their local Android stores are ready.
+- Pull cursors are opaque to clients; server cursors are base64 JSON containing `updated_at` and
+  `id`.
 
 Conflict policy (initial):
 - Local-first for unsynced local edits.
@@ -85,6 +90,8 @@ Conflict policy (initial):
 Must not couple:
 - Core CRUD flow depending on sync completion.
 - Sync errors blocking local save.
+- Sync implementation depending on event sourcing, message brokers, AI parsing, or Phase 5 insight
+  workflows.
 
 ## AI architecture
 - InsightService on backend receives deterministic metrics.

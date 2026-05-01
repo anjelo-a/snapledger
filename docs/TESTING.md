@@ -57,6 +57,13 @@
 - Assert local review/save still works when backend parser fallback is unavailable.
 - Assert local receipt persistence and sync metadata queueing are separate outcomes.
 - Offline create/edit/delete then reconnect sync reconciliation tests.
+- Phase 4 sync contract tests must cover receipts-first push/pull shapes before sync logic ships.
+- Push contract tests should assert `accepted`, `rejected`, and per-mutation `results[]`.
+- Unsupported `budget` and `category` mutations should produce per-mutation
+  `unsupported_entity_phase4` results once sync logic is implemented.
+- Pull contract tests should assert opaque cursor handling and `expense` changes with
+  `upsert`/`delete` operations.
+- Android sync tests must continue proving sync failure does not block valid local receipt save.
 
 ## AI-related tests
 - Test prompt-builder inputs from deterministic metrics.

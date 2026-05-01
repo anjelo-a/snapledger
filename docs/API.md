@@ -130,12 +130,46 @@
 
 ### Sync
 `POST /v1/sync/push`
-- Purpose: upload local mutation batch.
-- Scope: Phase 4.
+- Purpose: upload a local mutation batch without blocking local-first Android saves.
+- Scope: Phase 4 receipts-first contract.
+- Request contract:
+  - `mutations: SyncMutation[]` required, 1..200 entries.
+  - `idempotency_key: string` required per mutation, 8..128 chars.
+  - `entity: "expense" | "budget" | "category"`.
+  - `operation: "create" | "update" | "delete"`.
+  - `payload: object` carries the mutation body.
+  - `occurred_at: string(date-time)` records the local mutation time.
+- Phase 4 entity support:
+  - Only `entity="expense"` is supported in this receipts-first slice.
+  - `budget` and `category` mutations are syntactically valid but must be rejected per mutation
+    with `code="unsupported_entity_phase4"`.
+- Response contract:
+  - `accepted: number`.
+  - `rejected: number`.
+  - `results: {idempotency_key, entity, operation, status, code?, message?, entity_id?}[]`.
+- Contract rules:
+  - Duplicate idempotency keys must not create duplicate remote records once sync logic is added.
+  - Sync failures must never roll back or block a valid reviewed receipt save on Android.
+  - No event sourcing, message brokers, AI parsing, or Phase 5 insight behavior belongs here.
 
 `GET /v1/sync/pull`
-- Purpose: fetch remote deltas by cursor.
-- Scope: Phase 4.
+- Purpose: fetch remote receipt deltas by opaque cursor.
+- Scope: Phase 4 receipts-first contract.
+- Request contract:
+  - `cursor: string` optional query value; clients must treat it as opaque.
+  - Cursor encoding is base64 JSON containing `updated_at` and `id`.
+- Response contract:
+  - `cursor: string`.
+  - `has_more: boolean`.
+  - `changes: {entity, operation, id, updated_at, payload?}[]`.
+- Change rules:
+  - `entity` is always `"expense"` for this Phase 4 slice.
+  - `operation` is `"upsert"` or `"delete"`.
+  - `payload` is present for `upsert` and may be omitted/null for `delete`.
+- Contract rules:
+  - Android applies remote receipt changes only when doing so does not override pending local
+    receipt mutations.
+  - Pull is deterministic cursor pagination, not an event stream.
 
 ## Not exposed yet
 - Event-stream endpoints.
