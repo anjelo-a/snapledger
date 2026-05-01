@@ -12,7 +12,13 @@ from app.schemas.expense import (
     ReceiptProcessRequest,
 )
 from app.schemas.insight import InsightGenerateRequest, InsightGenerateResponse
-from app.schemas.sync import SyncPullResponse, SyncPushRequest, SyncPushResponse
+from app.schemas.sync import (
+    SyncMutationResult,
+    SyncPullChange,
+    SyncPullResponse,
+    SyncPushRequest,
+    SyncPushResponse,
+)
 
 __all__ = [
     "BudgetListResponse",
@@ -33,6 +39,8 @@ __all__ = [
     "ParsedReceiptCandidate",
     "ParsedReceiptFieldConfidence",
     "ReceiptProcessRequest",
+    "SyncMutationResult",
+    "SyncPullChange",
     "SyncPullResponse",
     "SyncPushRequest",
     "SyncPushResponse",
