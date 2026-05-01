@@ -73,7 +73,7 @@ class LocalFirstReviewRepositoryTest {
     }
 
     @Test
-    fun `sync metadata is queued separately`() = runTest {
+    fun `queue record is created separately from local receipt`() = runTest {
         val localStore = FakeLocalReceiptStore()
         val syncQueueStore = FakeSyncQueueStore()
         val repository = LocalFirstReviewRepository(
@@ -90,8 +90,16 @@ class LocalFirstReviewRepositoryTest {
 
         val savedReceipt = localStore.savedReceipts.single()
         val syncRecord = syncQueueStore.queuedRecords.single()
+        assertEquals("id-2", syncRecord.queueId)
+        assertEquals("id-2", syncRecord.idempotencyKey)
         assertEquals(savedReceipt.receiptId, syncRecord.receiptId)
-        assertEquals("receipt_upsert", syncRecord.operation)
+        assertEquals(ReceiptSyncQueueRecord.OPERATION_CREATE, syncRecord.operation)
+        assertEquals(ReceiptSyncQueueRecord.STATUS_PENDING, syncRecord.status)
+        assertEquals(0, syncRecord.attemptCount)
+        assertEquals(1000L, syncRecord.queuedAtMillis)
+        assertEquals(null, syncRecord.nextRetryAtMillis)
+        assertTrue(syncRecord.payloadSnapshot.contains("\"id\":\"${savedReceipt.receiptId}\""))
+        assertTrue(syncRecord.payloadSnapshot.contains("\"merchant\":\"Bean Barn\""))
     }
 
     @Test

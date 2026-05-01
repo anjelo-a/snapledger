@@ -13,6 +13,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.snapledger.feature.review.domain.LocalReceiptItemRecord
 import com.snapledger.feature.review.domain.LocalReceiptRecord
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord
@@ -53,14 +55,23 @@ data class LocalReceiptItemEntity(
 
 @Entity(
     tableName = "receipt_sync_queue",
-    indices = [Index("receiptId")],
+    indices = [
+        Index("receiptId"),
+        Index("status"),
+        Index("nextRetryAtMillis"),
+    ],
 )
 data class ReceiptSyncQueueEntity(
     @PrimaryKey val queueId: String,
+    val idempotencyKey: String,
     val receiptId: String,
-    val queuedAtMillis: Long,
     val operation: String,
+    val payloadSnapshot: String,
     val status: String,
+    val attemptCount: Int,
+    val lastError: String?,
+    val queuedAtMillis: Long,
+    val nextRetryAtMillis: Long?,
 )
 
 @Dao
@@ -99,7 +110,7 @@ interface ReceiptSyncQueueDao {
         LocalReceiptItemEntity::class,
         ReceiptSyncQueueEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class ReviewLocalDatabase : RoomDatabase() {
@@ -116,7 +127,7 @@ abstract class ReviewLocalDatabase : RoomDatabase() {
                     context,
                     ReviewLocalDatabase::class.java,
                     "snapledger-review.db",
-                ).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
             }
         }
     }
@@ -149,10 +160,15 @@ class RoomReviewSyncQueueStore(
         database.receiptSyncQueueDao().insertQueueRecord(
             ReceiptSyncQueueEntity(
                 queueId = record.queueId,
+                idempotencyKey = record.idempotencyKey,
                 receiptId = record.receiptId,
-                queuedAtMillis = record.queuedAtMillis,
                 operation = record.operation,
+                payloadSnapshot = record.payloadSnapshot,
                 status = record.status,
+                attemptCount = record.attemptCount,
+                lastError = record.lastError,
+                queuedAtMillis = record.queuedAtMillis,
+                nextRetryAtMillis = record.nextRetryAtMillis,
             ),
         )
     }
@@ -170,4 +186,77 @@ private fun LocalReceiptItemRecord.toEntity(receiptId: String): LocalReceiptItem
         amountRaw = amountRaw,
         amountMinor = amountMinor,
     )
+}
+
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `receipt_sync_queue_new` (
+                `queueId` TEXT NOT NULL,
+                `idempotencyKey` TEXT NOT NULL,
+                `receiptId` TEXT NOT NULL,
+                `operation` TEXT NOT NULL,
+                `payloadSnapshot` TEXT NOT NULL,
+                `status` TEXT NOT NULL,
+                `attemptCount` INTEGER NOT NULL,
+                `lastError` TEXT,
+                `queuedAtMillis` INTEGER NOT NULL,
+                `nextRetryAtMillis` INTEGER,
+                PRIMARY KEY(`queueId`)
+            )
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
+            INSERT INTO `receipt_sync_queue_new` (
+                `queueId`,
+                `idempotencyKey`,
+                `receiptId`,
+                `operation`,
+                `payloadSnapshot`,
+                `status`,
+                `attemptCount`,
+                `lastError`,
+                `queuedAtMillis`,
+                `nextRetryAtMillis`
+            )
+            SELECT
+                `queueId`,
+                `queueId`,
+                `receiptId`,
+                CASE
+                    WHEN `operation` = 'receipt_upsert' THEN 'create'
+                    ELSE `operation`
+                END,
+                '{"id":"' || `receiptId` || '"}',
+                `status`,
+                0,
+                NULL,
+                `queuedAtMillis`,
+                NULL
+            FROM `receipt_sync_queue`
+            """.trimIndent(),
+        )
+        database.execSQL("DROP TABLE `receipt_sync_queue`")
+        database.execSQL("ALTER TABLE `receipt_sync_queue_new` RENAME TO `receipt_sync_queue`")
+        database.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS `index_receipt_sync_queue_receiptId`
+            ON `receipt_sync_queue` (`receiptId`)
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS `index_receipt_sync_queue_status`
+            ON `receipt_sync_queue` (`status`)
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS `index_receipt_sync_queue_nextRetryAtMillis`
+            ON `receipt_sync_queue` (`nextRetryAtMillis`)
+            """.trimIndent(),
+        )
+    }
 }
