@@ -20,8 +20,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "BACKEND_BASE_URL", "\"http://10.0.2.2:8000/\"")
+        }
+
         release {
             isMinifyEnabled = false
+            buildConfigField("String", "BACKEND_BASE_URL", "\"http://10.0.2.2:8000/\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -40,6 +45,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -62,8 +68,10 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("com.squareup.moshi:moshi:1.15.1")
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-moshi:2.11.0")
+    ksp("com.squareup.moshi:moshi-kotlin-codegen:1.15.1")
 
     implementation("androidx.camera:camera-core:1.4.0")
     implementation("androidx.camera:camera-camera2:1.4.0")

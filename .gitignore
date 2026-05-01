@@ -3,6 +3,7 @@
 
 # Android / IntelliJ
 .gradle/
+.gradle-local/
 .idea/
 /local.properties
 **/build/
@@ -26,4 +27,3 @@ __pycache__/
 
 # Logs
 *.log
-snapledger/
