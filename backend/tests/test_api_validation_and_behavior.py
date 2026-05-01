@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -13,6 +15,7 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models.category import Category
+from app.models.expense import Expense
 
 
 @pytest.fixture
@@ -45,10 +48,12 @@ def client(tmp_path: Path) -> TestClient:
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    app.state.testing_session_local = TestingSessionLocal
     try:
         yield TestClient(app)
     finally:
         app.dependency_overrides.clear()
+        del app.state.testing_session_local
         Base.metadata.drop_all(bind=engine)
         engine.dispose()
 
@@ -69,6 +74,34 @@ def _create_receipt_payload(**overrides: object) -> dict[str, object]:
     }
     payload.update(overrides)
     return payload
+
+
+def _test_db_session(client: TestClient) -> Session:
+    return client.app.state.testing_session_local()
+
+
+def _sync_pull_cursor(updated_at: datetime, receipt_id: str) -> str:
+    payload = {
+        "updated_at": updated_at.astimezone(UTC).isoformat(),
+        "id": receipt_id,
+    }
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("utf-8")
+
+
+def _set_expense_updated_at(
+    client: TestClient,
+    receipt_id: str,
+    updated_at: datetime,
+) -> None:
+    db = _test_db_session(client)
+    try:
+        expense = db.get(Expense, receipt_id)
+        assert expense is not None
+        expense.updated_at = updated_at.astimezone(UTC)
+        db.commit()
+    finally:
+        db.close()
 
 
 def test_receipt_create_rejects_unknown_field(client: TestClient) -> None:
@@ -458,6 +491,152 @@ def test_sync_push_invalid_expense_payload_returns_4xx(client: TestClient) -> No
             ],
         },
     )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_sync_pull_returns_upsert_changes_after_cursor(client: TestClient) -> None:
+    first_id = "pull-upsert-001"
+    second_id = "pull-upsert-002"
+    created = client.post(
+        "/v1/sync/push",
+        json={
+            "mutations": [
+                _sync_expense_create_mutation(
+                    idempotency_key="pull-upsert-create-001",
+                    receipt_id=first_id,
+                    merchant="First Pull Merchant",
+                ),
+                _sync_expense_create_mutation(
+                    idempotency_key="pull-upsert-create-002",
+                    receipt_id=second_id,
+                    merchant="Second Pull Merchant",
+                ),
+            ],
+        },
+    )
+    assert created.status_code == 200
+
+    first_updated_at = datetime(2026, 5, 1, 0, 0, tzinfo=UTC)
+    second_updated_at = datetime(2026, 5, 1, 0, 5, tzinfo=UTC)
+    _set_expense_updated_at(client, first_id, first_updated_at)
+    _set_expense_updated_at(client, second_id, second_updated_at)
+
+    response = client.get(
+        "/v1/sync/pull",
+        params={"cursor": _sync_pull_cursor(first_updated_at, first_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["has_more"] is False
+    assert len(payload["changes"]) == 1
+    change = payload["changes"][0]
+    assert change["entity"] == "expense"
+    assert change["operation"] == "upsert"
+    assert change["id"] == second_id
+    assert change["payload"]["merchant"] == "Second Pull Merchant"
+    assert change["payload"]["items"][0]["name"] == "Coffee"
+
+
+def test_sync_pull_returns_delete_tombstones_after_cursor(client: TestClient) -> None:
+    receipt_id = "pull-delete-001"
+    created = client.post(
+        "/v1/sync/push",
+        json={
+            "mutations": [
+                _sync_expense_create_mutation(
+                    idempotency_key="pull-delete-create",
+                    receipt_id=receipt_id,
+                )
+            ],
+        },
+    )
+    assert created.status_code == 200
+
+    created_updated_at = datetime(2026, 5, 1, 1, 0, tzinfo=UTC)
+    deleted_updated_at = datetime(2026, 5, 1, 1, 5, tzinfo=UTC)
+    _set_expense_updated_at(client, receipt_id, created_updated_at)
+
+    deleted = client.post(
+        "/v1/sync/push",
+        json={
+            "mutations": [
+                {
+                    "idempotency_key": "pull-delete-mutation",
+                    "entity": "expense",
+                    "operation": "delete",
+                    "occurred_at": "2026-05-01T01:05:00Z",
+                    "payload": {"id": receipt_id},
+                }
+            ],
+        },
+    )
+    assert deleted.status_code == 200
+    _set_expense_updated_at(client, receipt_id, deleted_updated_at)
+
+    response = client.get(
+        "/v1/sync/pull",
+        params={"cursor": _sync_pull_cursor(created_updated_at, receipt_id)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["has_more"] is False
+    assert len(payload["changes"]) == 1
+    change = payload["changes"][0]
+    assert change["entity"] == "expense"
+    assert change["operation"] == "delete"
+    assert change["id"] == receipt_id
+    assert change["payload"] is None
+
+
+def test_sync_pull_cursor_pagination_is_deterministic(client: TestClient) -> None:
+    mutations = [
+        _sync_expense_create_mutation(
+            idempotency_key=f"pull-page-create-{idx:03d}",
+            receipt_id=f"pull-page-{idx:03d}",
+            merchant=f"Pull Page {idx:03d}",
+        )
+        for idx in range(105)
+    ]
+    created = client.post("/v1/sync/push", json={"mutations": mutations})
+    assert created.status_code == 200
+
+    shared_updated_at = datetime(2026, 5, 1, 2, 0, tzinfo=UTC)
+    db = _test_db_session(client)
+    try:
+        for idx in range(105):
+            expense = db.get(Expense, f"pull-page-{idx:03d}")
+            assert expense is not None
+            expense.updated_at = shared_updated_at
+        db.commit()
+    finally:
+        db.close()
+
+    first_page = client.get("/v1/sync/pull")
+    assert first_page.status_code == 200
+    first_payload = first_page.json()
+    first_ids = [change["id"] for change in first_payload["changes"]]
+    assert first_payload["has_more"] is True
+    assert len(first_ids) == 100
+    assert first_ids == [f"pull-page-{idx:03d}" for idx in range(100)]
+
+    second_page = client.get(
+        "/v1/sync/pull",
+        params={"cursor": first_payload["cursor"]},
+    )
+    assert second_page.status_code == 200
+    second_payload = second_page.json()
+    second_ids = [change["id"] for change in second_payload["changes"]]
+    assert second_payload["has_more"] is False
+    assert second_ids == [f"pull-page-{idx:03d}" for idx in range(100, 105)]
+    assert set(first_ids).isdisjoint(second_ids)
+
+
+def test_sync_pull_invalid_cursor_returns_4xx(client: TestClient) -> None:
+    response = client.get("/v1/sync/pull", params={"cursor": "not-a-real-cursor"})
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
