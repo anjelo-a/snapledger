@@ -2,8 +2,7 @@ package com.snapledger.feature.review.domain
 
 import android.content.Context
 import com.snapledger.feature.review.data.ReviewLocalDatabase
-import com.snapledger.feature.review.data.RoomReviewLocalReceiptStore
-import com.snapledger.feature.review.data.RoomReviewSyncQueueStore
+import com.snapledger.feature.review.data.RoomReviewAtomicSaveStore
 import com.snapledger.core.sync.WorkManagerReviewSyncDispatcher
 import com.snapledger.feature.scan.domain.ParsedReceiptCandidate
 import java.time.LocalDate
@@ -80,13 +79,19 @@ interface ReviewSyncQueueStore {
     suspend fun enqueue(record: ReceiptSyncQueueRecord)
 }
 
+interface ReviewAtomicSaveStore {
+    suspend fun saveReceiptAndQueue(
+        receiptRecord: LocalReceiptRecord,
+        syncRecord: ReceiptSyncQueueRecord,
+    )
+}
+
 interface ReviewSyncDispatcher {
     suspend fun dispatch(record: ReceiptSyncQueueRecord)
 }
 
 class LocalFirstReviewRepository(
-    private val localReceiptStore: ReviewLocalReceiptStore,
-    private val syncQueueStore: ReviewSyncQueueStore,
+    private val atomicSaveStore: ReviewAtomicSaveStore,
     private val syncDispatcher: ReviewSyncDispatcher,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
     private val clock: () -> Long = { System.currentTimeMillis() },
@@ -121,8 +126,10 @@ class LocalFirstReviewRepository(
             queuedAtMillis = now,
         )
 
-        localReceiptStore.saveReceipt(receiptRecord)
-        syncQueueStore.enqueue(syncRecord)
+        atomicSaveStore.saveReceiptAndQueue(
+            receiptRecord = receiptRecord,
+            syncRecord = syncRecord,
+        )
 
         return try {
             syncDispatcher.dispatch(syncRecord)
@@ -181,8 +188,7 @@ class LocalFirstReviewRepository(
         private fun buildRepository(applicationContext: Context): LocalFirstReviewRepository {
             val database = ReviewLocalDatabase.getInstance(applicationContext)
             return LocalFirstReviewRepository(
-                localReceiptStore = RoomReviewLocalReceiptStore(database),
-                syncQueueStore = RoomReviewSyncQueueStore(database),
+                atomicSaveStore = RoomReviewAtomicSaveStore(database),
                 syncDispatcher = WorkManagerReviewSyncDispatcher(applicationContext),
             )
         }

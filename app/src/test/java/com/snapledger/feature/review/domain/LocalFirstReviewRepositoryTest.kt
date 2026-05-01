@@ -6,17 +6,16 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LocalFirstReviewRepositoryTest {
     @Test
     fun `save succeeds without backend`() = runTest {
-        val localStore = FakeLocalReceiptStore()
-        val syncQueueStore = FakeSyncQueueStore()
+        val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
-            localReceiptStore = localStore,
-            syncQueueStore = syncQueueStore,
+            atomicSaveStore = atomicSaveStore,
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
             },
@@ -27,17 +26,15 @@ class LocalFirstReviewRepositoryTest {
         val result = repository.saveReviewedReceipt(validReviewState())
 
         assertTrue(result is ReviewSaveResult.Success)
-        assertEquals(1, localStore.savedReceipts.size)
-        assertEquals(1, syncQueueStore.queuedRecords.size)
+        assertEquals(1, atomicSaveStore.savedReceipts.size)
+        assertEquals(1, atomicSaveStore.queuedRecords.size)
     }
 
     @Test
     fun `save succeeds with partial or empty items`() = runTest {
-        val localStore = FakeLocalReceiptStore()
-        val syncQueueStore = FakeSyncQueueStore()
+        val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
-            localReceiptStore = localStore,
-            syncQueueStore = syncQueueStore,
+            atomicSaveStore = atomicSaveStore,
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
             },
@@ -48,16 +45,14 @@ class LocalFirstReviewRepositoryTest {
         val result = repository.saveReviewedReceipt(validReviewState(includeItems = false))
 
         assertTrue(result is ReviewSaveResult.Success)
-        assertEquals(0, localStore.savedReceipts.single().items.size)
+        assertEquals(0, atomicSaveStore.savedReceipts.single().items.size)
     }
 
     @Test
     fun `invalid required fields do not save`() = runTest {
-        val localStore = FakeLocalReceiptStore()
-        val syncQueueStore = FakeSyncQueueStore()
+        val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
-            localReceiptStore = localStore,
-            syncQueueStore = syncQueueStore,
+            atomicSaveStore = atomicSaveStore,
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
             },
@@ -68,17 +63,15 @@ class LocalFirstReviewRepositoryTest {
         val result = repository.saveReviewedReceipt(validReviewState(merchant = ""))
 
         assertTrue(result is ReviewSaveResult.ValidationFailed)
-        assertEquals(0, localStore.savedReceipts.size)
-        assertEquals(0, syncQueueStore.queuedRecords.size)
+        assertEquals(0, atomicSaveStore.savedReceipts.size)
+        assertEquals(0, atomicSaveStore.queuedRecords.size)
     }
 
     @Test
     fun `queue record is created separately from local receipt`() = runTest {
-        val localStore = FakeLocalReceiptStore()
-        val syncQueueStore = FakeSyncQueueStore()
+        val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
-            localReceiptStore = localStore,
-            syncQueueStore = syncQueueStore,
+            atomicSaveStore = atomicSaveStore,
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
             },
@@ -88,8 +81,8 @@ class LocalFirstReviewRepositoryTest {
 
         repository.saveReviewedReceipt(validReviewState())
 
-        val savedReceipt = localStore.savedReceipts.single()
-        val syncRecord = syncQueueStore.queuedRecords.single()
+        val savedReceipt = atomicSaveStore.savedReceipts.single()
+        val syncRecord = atomicSaveStore.queuedRecords.single()
         assertEquals("id-2", syncRecord.queueId)
         assertEquals("id-2", syncRecord.idempotencyKey)
         assertEquals(savedReceipt.receiptId, syncRecord.receiptId)
@@ -104,11 +97,9 @@ class LocalFirstReviewRepositoryTest {
 
     @Test
     fun `save still succeeds when sync api fails`() = runTest {
-        val localStore = FakeLocalReceiptStore()
-        val syncQueueStore = FakeSyncQueueStore()
+        val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
-            localReceiptStore = localStore,
-            syncQueueStore = syncQueueStore,
+            atomicSaveStore = atomicSaveStore,
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) {
                     error("backend unavailable")
@@ -124,24 +115,54 @@ class LocalFirstReviewRepositoryTest {
         val success = result as ReviewSaveResult.Success
         assertFalse(success.dispatchedSyncAttempt)
         assertNotNull(success.syncDispatchError)
-        assertEquals(1, localStore.savedReceipts.size)
-        assertEquals(1, syncQueueStore.queuedRecords.size)
+        assertEquals(1, atomicSaveStore.savedReceipts.size)
+        assertEquals(1, atomicSaveStore.queuedRecords.size)
+    }
+
+    @Test
+    fun `atomic save failure leaves no receipt or queue record`() = runTest {
+        val atomicSaveStore = FakeAtomicSaveStore(
+            onSave = { _, _ -> error("database write failed") },
+        )
+        val repository = LocalFirstReviewRepository(
+            atomicSaveStore = atomicSaveStore,
+            syncDispatcher = object : ReviewSyncDispatcher {
+                override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
+            },
+            idGenerator = sequentialIds(),
+            clock = { 1000L },
+        )
+
+        try {
+            repository.saveReviewedReceipt(validReviewState())
+            fail("Expected atomic save failure to be thrown.")
+        } catch (error: IllegalStateException) {
+            assertEquals("database write failed", error.message)
+        }
+
+        assertEquals(0, atomicSaveStore.savedReceipts.size)
+        assertEquals(0, atomicSaveStore.queuedRecords.size)
     }
 }
 
-private class FakeLocalReceiptStore : ReviewLocalReceiptStore {
+private class FakeAtomicSaveStore(
+    private val onSave: (suspend (LocalReceiptRecord, ReceiptSyncQueueRecord) -> Unit)? = null,
+) : ReviewAtomicSaveStore {
     val savedReceipts = mutableListOf<LocalReceiptRecord>()
-
-    override suspend fun saveReceipt(record: LocalReceiptRecord) {
-        savedReceipts += record
-    }
-}
-
-private class FakeSyncQueueStore : ReviewSyncQueueStore {
     val queuedRecords = mutableListOf<ReceiptSyncQueueRecord>()
 
-    override suspend fun enqueue(record: ReceiptSyncQueueRecord) {
-        queuedRecords += record
+    override suspend fun saveReceiptAndQueue(
+        receiptRecord: LocalReceiptRecord,
+        syncRecord: ReceiptSyncQueueRecord,
+    ) {
+        val handler = onSave
+        if (handler != null) {
+            handler(receiptRecord, syncRecord)
+            return
+        }
+
+        savedReceipts += receiptRecord
+        queuedRecords += syncRecord
     }
 }
 

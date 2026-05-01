@@ -13,6 +13,7 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.withTransaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.snapledger.core.sync.ReceiptSyncCursorStore
@@ -23,6 +24,7 @@ import com.snapledger.core.sync.RECEIPT_SYNC_CURSOR_KEY
 import com.snapledger.core.sync.INITIAL_RECEIPT_SYNC_CURSOR
 import com.snapledger.feature.review.domain.LocalReceiptItemRecord
 import com.snapledger.feature.review.domain.LocalReceiptRecord
+import com.snapledger.feature.review.domain.ReviewAtomicSaveStore
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord
 import com.snapledger.feature.review.domain.ReviewLocalReceiptStore
 import com.snapledger.feature.review.domain.ReviewSyncQueueStore
@@ -267,6 +269,25 @@ class RoomReviewLocalReceiptStore(
     }
 }
 
+class RoomReviewAtomicSaveStore(
+    private val database: ReviewLocalDatabase,
+) : ReviewAtomicSaveStore {
+    override suspend fun saveReceiptAndQueue(
+        receiptRecord: LocalReceiptRecord,
+        syncRecord: ReceiptSyncQueueRecord,
+    ) {
+        database.withTransaction {
+            database.localReceiptDao().replaceReceiptWithItems(
+                receipt = receiptRecord.toEntity(),
+                items = receiptRecord.items.map { item ->
+                    item.toEntity(receiptRecord.receiptId)
+                },
+            )
+            database.receiptSyncQueueDao().insertQueueRecord(syncRecord.toEntity())
+        }
+    }
+}
+
 class RoomReviewSyncQueueStore(
     private val database: ReviewLocalDatabase,
 ) : ReviewSyncQueueStore, ReceiptSyncMutationStore, ReceiptSyncPendingMutationStore {
@@ -357,6 +378,32 @@ private fun LocalReceiptItemRecord.toEntity(receiptId: String): LocalReceiptItem
         description = description,
         amountRaw = amountRaw,
         amountMinor = amountMinor,
+    )
+}
+
+private fun LocalReceiptRecord.toEntity(): LocalReceiptEntity {
+    return LocalReceiptEntity(
+        receiptId = receiptId,
+        merchant = merchant,
+        expenseDate = expenseDate,
+        totalAmountRaw = totalAmountRaw,
+        totalAmountMinor = totalAmountMinor,
+        savedAtMillis = savedAtMillis,
+    )
+}
+
+private fun ReceiptSyncQueueRecord.toEntity(): ReceiptSyncQueueEntity {
+    return ReceiptSyncQueueEntity(
+        queueId = queueId,
+        idempotencyKey = idempotencyKey,
+        receiptId = receiptId,
+        operation = operation,
+        payloadSnapshot = payloadSnapshot,
+        status = status,
+        attemptCount = attemptCount,
+        lastError = lastError,
+        queuedAtMillis = queuedAtMillis,
+        nextRetryAtMillis = nextRetryAtMillis,
     )
 }
 
