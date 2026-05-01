@@ -15,12 +15,16 @@ import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.snapledger.core.sync.ReceiptSyncMutationStore
 import com.snapledger.feature.review.domain.LocalReceiptItemRecord
 import com.snapledger.feature.review.domain.LocalReceiptRecord
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord
 import com.snapledger.feature.review.domain.ReviewLocalReceiptStore
-import com.snapledger.feature.review.domain.ReviewSyncDispatcher
 import com.snapledger.feature.review.domain.ReviewSyncQueueStore
+import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STATUS_FAILED
+import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STATUS_IN_FLIGHT
+import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STATUS_PENDING
+import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STATUS_SYNCED
 
 @Entity(tableName = "local_receipts")
 data class LocalReceiptEntity(
@@ -102,6 +106,66 @@ interface LocalReceiptDao {
 interface ReceiptSyncQueueDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertQueueRecord(entity: ReceiptSyncQueueEntity)
+
+    @Query(
+        """
+        SELECT * FROM receipt_sync_queue
+        WHERE status IN (:eligibleStatuses)
+            AND (nextRetryAtMillis IS NULL OR nextRetryAtMillis <= :nowMillis)
+        ORDER BY queuedAtMillis ASC, queueId ASC
+        LIMIT :limit
+        """
+    )
+    suspend fun loadDueQueueRecords(
+        eligibleStatuses: List<String>,
+        nowMillis: Long,
+        limit: Int,
+    ): List<ReceiptSyncQueueEntity>
+
+    @Query(
+        """
+        UPDATE receipt_sync_queue
+        SET status = :status,
+            attemptCount = attemptCount + 1,
+            lastError = NULL,
+            nextRetryAtMillis = NULL
+        WHERE queueId IN (:queueIds)
+        """
+    )
+    suspend fun markInFlight(
+        queueIds: List<String>,
+        status: String = STATUS_IN_FLIGHT,
+    )
+
+    @Query(
+        """
+        UPDATE receipt_sync_queue
+        SET status = :status,
+            lastError = NULL,
+            nextRetryAtMillis = NULL
+        WHERE queueId = :queueId
+        """
+    )
+    suspend fun markSynced(
+        queueId: String,
+        status: String = STATUS_SYNCED,
+    )
+
+    @Query(
+        """
+        UPDATE receipt_sync_queue
+        SET status = :status,
+            lastError = :lastError,
+            nextRetryAtMillis = :nextRetryAtMillis
+        WHERE queueId = :queueId
+        """
+    )
+    suspend fun markFailed(
+        queueId: String,
+        lastError: String,
+        nextRetryAtMillis: Long?,
+        status: String = STATUS_FAILED,
+    )
 }
 
 @Database(
@@ -155,7 +219,7 @@ class RoomReviewLocalReceiptStore(
 
 class RoomReviewSyncQueueStore(
     private val database: ReviewLocalDatabase,
-) : ReviewSyncQueueStore {
+) : ReviewSyncQueueStore, ReceiptSyncMutationStore {
     override suspend fun enqueue(record: ReceiptSyncQueueRecord) {
         database.receiptSyncQueueDao().insertQueueRecord(
             ReceiptSyncQueueEntity(
@@ -172,10 +236,42 @@ class RoomReviewSyncQueueStore(
             ),
         )
     }
-}
 
-object NoOpReviewSyncDispatcher : ReviewSyncDispatcher {
-    override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
+    override suspend fun loadDueMutations(
+        nowMillis: Long,
+        limit: Int,
+    ): List<ReceiptSyncQueueRecord> {
+        return database.receiptSyncQueueDao()
+            .loadDueQueueRecords(
+                eligibleStatuses = listOf(STATUS_PENDING, STATUS_FAILED),
+                nowMillis = nowMillis,
+                limit = limit,
+            )
+            .map(ReceiptSyncQueueEntity::toDomain)
+    }
+
+    override suspend fun markInFlight(queueIds: List<String>) {
+        if (queueIds.isEmpty()) {
+            return
+        }
+        database.receiptSyncQueueDao().markInFlight(queueIds)
+    }
+
+    override suspend fun markSynced(queueId: String) {
+        database.receiptSyncQueueDao().markSynced(queueId)
+    }
+
+    override suspend fun markFailed(
+        queueId: String,
+        lastError: String,
+        nextRetryAtMillis: Long?,
+    ) {
+        database.receiptSyncQueueDao().markFailed(
+            queueId = queueId,
+            lastError = lastError,
+            nextRetryAtMillis = nextRetryAtMillis,
+        )
+    }
 }
 
 private fun LocalReceiptItemRecord.toEntity(receiptId: String): LocalReceiptItemEntity {
@@ -185,6 +281,21 @@ private fun LocalReceiptItemRecord.toEntity(receiptId: String): LocalReceiptItem
         description = description,
         amountRaw = amountRaw,
         amountMinor = amountMinor,
+    )
+}
+
+private fun ReceiptSyncQueueEntity.toDomain(): ReceiptSyncQueueRecord {
+    return ReceiptSyncQueueRecord(
+        queueId = queueId,
+        idempotencyKey = idempotencyKey,
+        receiptId = receiptId,
+        operation = operation,
+        payloadSnapshot = payloadSnapshot,
+        status = status,
+        attemptCount = attemptCount,
+        lastError = lastError,
+        queuedAtMillis = queuedAtMillis,
+        nextRetryAtMillis = nextRetryAtMillis,
     )
 }
 

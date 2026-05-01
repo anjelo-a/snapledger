@@ -1,10 +1,10 @@
 package com.snapledger.feature.review.domain
 
 import android.content.Context
-import com.snapledger.feature.review.data.NoOpReviewSyncDispatcher
 import com.snapledger.feature.review.data.ReviewLocalDatabase
 import com.snapledger.feature.review.data.RoomReviewLocalReceiptStore
 import com.snapledger.feature.review.data.RoomReviewSyncQueueStore
+import com.snapledger.core.sync.WorkManagerReviewSyncDispatcher
 import com.snapledger.feature.scan.domain.ParsedReceiptCandidate
 import java.time.LocalDate
 import java.time.format.DateTimeParseException
@@ -183,7 +183,7 @@ class LocalFirstReviewRepository(
             return LocalFirstReviewRepository(
                 localReceiptStore = RoomReviewLocalReceiptStore(database),
                 syncQueueStore = RoomReviewSyncQueueStore(database),
-                syncDispatcher = NoOpReviewSyncDispatcher,
+                syncDispatcher = WorkManagerReviewSyncDispatcher(applicationContext),
             )
         }
     }

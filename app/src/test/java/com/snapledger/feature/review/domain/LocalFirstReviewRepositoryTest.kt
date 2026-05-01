@@ -103,7 +103,7 @@ class LocalFirstReviewRepositoryTest {
     }
 
     @Test
-    fun `backend failure does not block local save`() = runTest {
+    fun `save still succeeds when sync api fails`() = runTest {
         val localStore = FakeLocalReceiptStore()
         val syncQueueStore = FakeSyncQueueStore()
         val repository = LocalFirstReviewRepository(
