@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import base64
 import json
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
 from pydantic import Field, ValidationError
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.errors import ServiceUnavailableError
 from app.core.security import StrictSchema
@@ -16,7 +18,16 @@ from app.models.expense_item import ExpenseItem
 from app.models.sync_mutation_log import SyncMutationLog
 from app.repositories.expense_repo import ExpenseRepository
 from app.schemas.expense import ExpenseItemWrite, ExpenseWrite
-from app.schemas.sync import SyncMutation, SyncMutationResult, SyncPushRequest, SyncPushResponse
+from app.schemas.sync import (
+    SyncMutation,
+    SyncMutationResult,
+    SyncPullChange,
+    SyncPullResponse,
+    SyncPushRequest,
+    SyncPushResponse,
+)
+
+SYNC_PULL_PAGE_SIZE = 100
 
 
 class SyncPayloadValidationError(Exception):
@@ -78,6 +89,48 @@ class SyncService:
             accepted=sum(1 for result in results if result.status == "accepted"),
             rejected=sum(1 for result in results if result.status == "rejected"),
             results=results,
+        )
+
+    @staticmethod
+    def pull(db: Session, cursor: str) -> SyncPullResponse:
+        try:
+            cursor_key = _decode_pull_cursor(cursor)
+            stmt = select(Expense).options(selectinload(Expense.items))
+            if cursor_key is not None:
+                updated_at, expense_id = cursor_key
+                stmt = stmt.where(
+                    or_(
+                        Expense.updated_at > updated_at,
+                        and_(
+                            Expense.updated_at == updated_at,
+                            Expense.id > expense_id,
+                        ),
+                    )
+                )
+
+            stmt = stmt.order_by(Expense.updated_at.asc(), Expense.id.asc()).limit(
+                SYNC_PULL_PAGE_SIZE + 1
+            )
+            expenses = list(db.scalars(stmt).all())
+        except SyncPayloadValidationError:
+            raise
+        except SQLAlchemyError as exc:
+            raise ServiceUnavailableError(
+                "Database operation failed while pulling sync changes."
+            ) from exc
+
+        has_more = len(expenses) > SYNC_PULL_PAGE_SIZE
+        page = expenses[:SYNC_PULL_PAGE_SIZE]
+        changes = [_to_pull_change(expense) for expense in page]
+        next_cursor = cursor
+        if page:
+            last = page[-1]
+            next_cursor = _encode_pull_cursor(last.updated_at, last.id)
+
+        return SyncPullResponse(
+            cursor=next_cursor,
+            has_more=has_more,
+            changes=changes,
         )
 
 
@@ -275,3 +328,76 @@ def _result_from_log(log: SyncMutationLog) -> SyncMutationResult:
         status=log.status,  # type: ignore[arg-type]
         entity_id=log.entity_id,
     )
+
+
+def _to_pull_change(expense: Expense) -> SyncPullChange:
+    operation = "delete" if expense.deleted_at is not None else "upsert"
+    payload = None
+    if operation == "upsert":
+        payload = {
+            "source": expense.source,
+            "merchant": expense.merchant,
+            "expense_date": expense.expense_date.isoformat(),
+            "total_amount": f"{expense.total_amount:.2f}",
+            "currency": expense.currency,
+            "category_id": expense.category_id,
+            "notes": expense.notes,
+            "items": [
+                {
+                    "name": item.name,
+                    "amount": f"{item.amount:.2f}",
+                }
+                for item in _active_items(expense)
+            ],
+        }
+
+    return SyncPullChange(
+        entity="expense",
+        operation=operation,
+        id=expense.id,
+        updated_at=_normalize_datetime(expense.updated_at),
+        payload=payload,
+    )
+
+
+def _active_items(expense: Expense) -> list[ExpenseItem]:
+    return sorted(
+        (item for item in expense.items if item.deleted_at is None),
+        key=lambda item: (_normalize_datetime(item.created_at), item.id),
+    )
+
+
+def _encode_pull_cursor(updated_at: datetime, expense_id: str) -> str:
+    payload = {
+        "updated_at": _normalize_datetime(updated_at).isoformat(),
+        "id": expense_id,
+    }
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("utf-8")
+
+
+def _decode_pull_cursor(cursor: str) -> tuple[datetime, str] | None:
+    if cursor == "0":
+        return None
+
+    try:
+        decoded = base64.urlsafe_b64decode(cursor.encode("utf-8"))
+        payload = json.loads(decoded.decode("utf-8"))
+        updated_at = payload["updated_at"]
+        expense_id = payload["id"]
+    except Exception as exc:
+        raise SyncPayloadValidationError("Invalid sync cursor.") from exc
+
+    if not isinstance(updated_at, str) or not isinstance(expense_id, str) or not expense_id:
+        raise SyncPayloadValidationError("Invalid sync cursor.")
+
+    try:
+        return _normalize_datetime(datetime.fromisoformat(updated_at)), expense_id
+    except ValueError as exc:
+        raise SyncPayloadValidationError("Invalid sync cursor.") from exc
+
+
+def _normalize_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
