@@ -32,6 +32,7 @@ import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STA
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STATUS_IN_FLIGHT
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STATUS_PENDING
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STATUS_SYNCED
+import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STATUS_TERMINAL_FAILED
 
 @Entity(tableName = "local_receipts")
 data class LocalReceiptEntity(
@@ -196,6 +197,21 @@ interface ReceiptSyncQueueDao {
 
     @Query(
         """
+        UPDATE receipt_sync_queue
+        SET status = :status,
+            lastError = :lastError,
+            nextRetryAtMillis = NULL
+        WHERE queueId = :queueId
+        """
+    )
+    suspend fun markTerminalFailed(
+        queueId: String,
+        lastError: String,
+        status: String = STATUS_TERMINAL_FAILED,
+    )
+
+    @Query(
+        """
         SELECT COUNT(*) > 0 FROM receipt_sync_queue
         WHERE receiptId = :receiptId
             AND (
@@ -350,6 +366,16 @@ class RoomReviewSyncQueueStore(
             queueId = queueId,
             lastError = lastError,
             nextRetryAtMillis = nextRetryAtMillis,
+        )
+    }
+
+    override suspend fun markTerminalFailed(
+        queueId: String,
+        lastError: String,
+    ) {
+        database.receiptSyncQueueDao().markTerminalFailed(
+            queueId = queueId,
+            lastError = lastError,
         )
     }
 
