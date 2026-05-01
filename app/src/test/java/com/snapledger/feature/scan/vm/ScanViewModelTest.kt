@@ -234,7 +234,7 @@ class ScanViewModelTest {
 
         assertEquals(ParserPhase.Success, viewModel.uiState.parser.phase)
         assertEquals("Merchant Example", viewModel.uiState.parser.candidate?.merchant)
-        assertEquals(12345, viewModel.uiState.parser.candidate?.totalAmount?.amountMinor)
+        assertEquals(12345L, viewModel.uiState.parser.candidate?.totalAmount?.amountMinor)
         assertTrue(viewModel.uiState.canContinueToReview)
     }
 
