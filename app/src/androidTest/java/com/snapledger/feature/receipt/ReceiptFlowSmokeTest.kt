@@ -19,11 +19,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.snapledger.feature.review.domain.LocalFirstReviewRepository
+import com.snapledger.feature.review.domain.ReviewAtomicSaveStore
 import com.snapledger.feature.review.domain.LocalReceiptRecord
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord
-import com.snapledger.feature.review.domain.ReviewLocalReceiptStore
 import com.snapledger.feature.review.domain.ReviewSyncDispatcher
-import com.snapledger.feature.review.domain.ReviewSyncQueueStore
 import com.snapledger.feature.review.ui.ReviewRoute
 import com.snapledger.feature.review.vm.ReviewViewModel
 import com.snapledger.feature.scan.domain.NormalizedOcrLine
@@ -41,11 +40,9 @@ class ReceiptFlowSmokeTest {
 
     @Test
     fun mockScanParseReviewAndSaveFlow() {
-        val localStore = RecordingLocalReceiptStore()
-        val syncQueueStore = RecordingSyncQueueStore()
+        val atomicSaveStore = RecordingAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
-            localReceiptStore = localStore,
-            syncQueueStore = syncQueueStore,
+            atomicSaveStore = atomicSaveStore,
             syncDispatcher = NoOpSyncDispatcher,
             idGenerator = sequentialIds(),
             clock = { 1_777_000_000_000L },
@@ -68,15 +65,19 @@ class ReceiptFlowSmokeTest {
 
         composeRule.onNodeWithText("Save Placeholder").performScrollTo().performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            localStore.savedReceipts.isNotEmpty() && syncQueueStore.queuedRecords.isNotEmpty()
+            atomicSaveStore.savedReceipts.isNotEmpty() &&
+                atomicSaveStore.queuedRecords.isNotEmpty()
         }
 
-        val savedReceipt = localStore.savedReceipts.single()
+        val savedReceipt = atomicSaveStore.savedReceipts.single()
         assertEquals("BEAN BARN CAFE", savedReceipt.merchant)
         assertEquals("2026-04-29", savedReceipt.expenseDate)
         assertEquals(775L, savedReceipt.totalAmountMinor)
         assertTrue(savedReceipt.items.isNotEmpty())
-        assertEquals(savedReceipt.receiptId, syncQueueStore.queuedRecords.single().receiptId)
+        assertEquals(
+            savedReceipt.receiptId,
+            atomicSaveStore.queuedRecords.single().receiptId,
+        )
 
         composeRule.onNodeWithText("Saved locally as receipt-1. Sync metadata queued as sync-2.")
             .performScrollTo()
@@ -131,19 +132,16 @@ private fun ReceiptFlowSmokeHarness(
     }
 }
 
-private class RecordingLocalReceiptStore : ReviewLocalReceiptStore {
+private class RecordingAtomicSaveStore : ReviewAtomicSaveStore {
     val savedReceipts = mutableListOf<LocalReceiptRecord>()
-
-    override suspend fun saveReceipt(record: LocalReceiptRecord) {
-        savedReceipts += record
-    }
-}
-
-private class RecordingSyncQueueStore : ReviewSyncQueueStore {
     val queuedRecords = mutableListOf<ReceiptSyncQueueRecord>()
 
-    override suspend fun enqueue(record: ReceiptSyncQueueRecord) {
-        queuedRecords += record
+    override suspend fun saveReceiptAndQueue(
+        receiptRecord: LocalReceiptRecord,
+        syncRecord: ReceiptSyncQueueRecord,
+    ) {
+        savedReceipts += receiptRecord
+        queuedRecords += syncRecord
     }
 }
 
