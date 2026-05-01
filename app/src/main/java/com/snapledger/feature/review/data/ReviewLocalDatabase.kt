@@ -132,14 +132,19 @@ interface ReceiptSyncQueueDao {
     @Query(
         """
         SELECT * FROM receipt_sync_queue
-        WHERE status IN (:eligibleStatuses)
-            AND (nextRetryAtMillis IS NULL OR nextRetryAtMillis <= :nowMillis)
+        WHERE status = :pendingStatus
+            OR (
+                status = :failedStatus
+                AND nextRetryAtMillis IS NOT NULL
+                AND nextRetryAtMillis <= :nowMillis
+            )
         ORDER BY queuedAtMillis ASC, queueId ASC
         LIMIT :limit
         """
     )
     suspend fun loadDueQueueRecords(
-        eligibleStatuses: List<String>,
+        pendingStatus: String = STATUS_PENDING,
+        failedStatus: String = STATUS_FAILED,
         nowMillis: Long,
         limit: Int,
     ): List<ReceiptSyncQueueEntity>
@@ -192,12 +197,17 @@ interface ReceiptSyncQueueDao {
     @Query(
         """
         SELECT COUNT(*) > 0 FROM receipt_sync_queue
-        WHERE receiptId = :receiptId AND status IN (:activeStatuses)
+        WHERE receiptId = :receiptId
+            AND (
+                status IN (:blockingStatuses)
+                OR (status = :failedStatus AND nextRetryAtMillis IS NOT NULL)
+            )
         """
     )
     suspend fun hasPendingMutation(
         receiptId: String,
-        activeStatuses: List<String>,
+        blockingStatuses: List<String>,
+        failedStatus: String = STATUS_FAILED,
     ): Boolean
 }
 
@@ -314,7 +324,6 @@ class RoomReviewSyncQueueStore(
     ): List<ReceiptSyncQueueRecord> {
         return database.receiptSyncQueueDao()
             .loadDueQueueRecords(
-                eligibleStatuses = listOf(STATUS_PENDING, STATUS_FAILED),
                 nowMillis = nowMillis,
                 limit = limit,
             )
@@ -347,7 +356,7 @@ class RoomReviewSyncQueueStore(
     override suspend fun hasPendingMutation(receiptId: String): Boolean {
         return database.receiptSyncQueueDao().hasPendingMutation(
             receiptId = receiptId,
-            activeStatuses = listOf(STATUS_PENDING, STATUS_FAILED, STATUS_IN_FLIGHT),
+            blockingStatuses = listOf(STATUS_PENDING, STATUS_IN_FLIGHT),
         )
     }
 }
