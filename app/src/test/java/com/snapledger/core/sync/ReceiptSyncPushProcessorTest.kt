@@ -168,6 +168,13 @@ private class FakeReceiptSyncMutationStore(
             }
         }
     }
+
+    override suspend fun hasPendingMutation(receiptId: String): Boolean {
+        return records.any { record ->
+            record.receiptId == receiptId &&
+                record.status != ReceiptSyncQueueRecord.STATUS_SYNCED
+        }
+    }
 }
 
 private fun validQueuedCreateRecord(): ReceiptSyncQueueRecord {
