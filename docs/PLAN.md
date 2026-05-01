@@ -118,13 +118,19 @@ Objective:
 
 Deliverables:
 - Sync queue, WorkManager workers, retry/backoff, idempotency, conflict policy.
+- Receipts-first sync contract for `expense` mutations before category/budget sync rollout.
+- Push results report accepted/rejected per mutation while preserving accepted/rejected counts.
+- Pull returns deterministic receipt changes with opaque cursor pagination.
 
 Acceptance criteria:
 - Offline mutations reconcile correctly on reconnect.
 - Sync failures do not block local save.
+- Unsupported `budget` and `category` mutations are rejected per mutation with
+  `unsupported_entity_phase4`.
 
 Must not start:
 - Event-driven or event-sourced sync architectures.
+- Message brokers, AI parsing, or Phase 5 insight behavior.
 
 ### Phase 5: AI insight
 Objective:
