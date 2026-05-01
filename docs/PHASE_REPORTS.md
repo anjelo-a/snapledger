@@ -1,6 +1,6 @@
 # SnapLedger Phase Reports
 
-Last updated: April 30, 2026
+Last updated: May 1, 2026
 
 ## How to use this document
 - Keep one section per phase.
@@ -211,22 +211,110 @@ Status: Completed on April 30, 2026 for backend scope (`/v1/budgets`, `/v1/dashb
 
 ---
 
-## Phase 4 Report (Template)
+## Phase 4 Report (Implemented)
 
 ### Goals
-- _TBD_
+- Deliver receipts-first offline sync hardening without breaking Android local-first save.
+- Implement deterministic backend push/pull sync contracts for `expense` mutations only.
+- Add durable Android queueing, WorkManager-based dispatch, retry/backoff, and safe remote
+  apply behavior.
+- Keep categories/budgets out of Phase 4 mutation dispatch and avoid event-sourcing, message
+  brokers, or AI parsing.
 
 ### Delivered
-- _TBD_
+- Backend `POST /v1/sync/push` implemented for receipts/expenses only.
+- Backend `GET /v1/sync/pull` implemented for receipts/expenses only.
+- Backend sync supports:
+  - `entity="expense"`
+  - push operations `create | update | delete`
+  - pull operations `upsert | delete`
+  - per-mutation rejection for unsupported `budget` and `category` with
+    `unsupported_entity_phase4`
+  - duplicate `idempotency_key` replay using stored mutation results
+  - soft-delete tombstones in pull responses
+  - opaque cursor pagination using base64-encoded cursor state
+- Backend sync mutation log added via Alembic migration `0003_sync_mutation_log`, keyed by
+  `idempotency_key`.
+- Android network sync layer added with:
+  - `android.permission.INTERNET`
+  - Retrofit/Moshi receipts-only sync client
+  - debug backend URL defaulting to `http://10.0.2.2:8000/`
+- Android durable receipt sync queue added in Room with:
+  - idempotency key
+  - receipt id
+  - operation
+  - payload snapshot
+  - status
+  - attempt count
+  - last error
+  - queued time
+  - next retry time
+- Android Room migrations added for:
+  - queue durability schema
+  - sync cursor state persistence
+- Review save path remains local-first and is now atomic for:
+  - local receipt write
+  - sync queue enqueue
+- WorkManager push worker implemented:
+  - schedules one-time work after local save
+  - pushes bounded due mutations
+  - marks accepted records as synced
+  - records retryable failures with backoff metadata
+  - performs pull after successful push
+- Android pull/apply behavior implemented:
+  - applies remote receipt upserts when no pending local mutation exists
+  - skips remote changes for receipts with pending local mutations
+  - applies safe tombstone deletes
+  - persists pull cursor
+- Terminal failure handling added:
+  - validation errors are terminal
+  - malformed payloads are terminal
+  - unsupported entities are terminal
+  - network/server failures remain retryable
+- Legacy queue compatibility hardened:
+  - incomplete migrated payload snapshots do not crash sync
+  - invalid legacy rows are marked terminal with clear debug errors
+  - invalid rows do not retry forever
 
 ### Evidence
-- _TBD_
+- Android verification currently passed:
+  - `./gradlew -g /Users/aa./snapledger/.gradle-local :app:testDebugUnitTest --tests com.snapledger.core.sync.ReceiptSyncMapperTest --tests com.snapledger.core.sync.ReceiptSyncPushProcessorTest --tests com.snapledger.core.sync.ReceiptSyncPullProcessorTest --tests com.snapledger.feature.review.domain.LocalFirstReviewRepositoryTest`
+- Android instrumentation/migration evidence present in repo:
+  - Room migration tests for queue schema and sync cursor state
+  - receipt flow smoke test still exists from Phase 2
+- Backend evidence present in repo:
+  - migration tests verify `sync_mutation_log` table, indexes, and `idempotency_key` primary key
+  - API tests cover:
+    - push create/update/delete
+    - duplicate idempotency replay
+    - unsupported entity rejection
+    - invalid payload `4xx`
+    - pull upserts
+    - pull tombstones
+    - deterministic cursor pagination
+    - invalid cursor `4xx`
+- backend pytest could not be executed in the current local environment because `pytest` is not
+  installed.
+- Connected Android instrumentation execution remains unverified locally unless a
+  device/emulator is attached.
 
 ### Deferred intentionally
-- _TBD_
+- Category and budget sync mutations on Android and backend.
+- Conflict resolution UI beyond skip-local-pending behavior.
+- Cross-entity sync policies outside receipts/expenses.
+- Device-farm or connected-emulator execution of Android instrumentation sync coverage.
+- Phase 5 insight generation and any AI-assisted behavior.
+- Event-sourced sync architecture, message brokers, and non-deterministic merge logic.
 
 ### Risks / Notes
-- _TBD_
+- Phase 4 is implemented as a receipts-first slice, not full cross-entity sync.
+- Android local save remains the source-of-truth path and does not depend on backend
+  availability.
+- Sync failures remain visible via persisted queue state and `lastError`.
+- Unsupported entities are intentionally rejected rather than silently ignored.
+- No AI, prompt-based parsing, or generative merge behavior is introduced in Phase 4.
+- Local connected instrumentation for sync behavior is still an environment-dependent
+  verification gap if no emulator/device is attached.
 
 ---
 
