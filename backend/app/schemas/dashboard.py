@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Literal
 
 from app.core.security import StrictSchema
 
@@ -8,7 +9,7 @@ class BudgetStatus(StrictSchema):
     spent: Decimal
     limit: Decimal
     ratio: float
-    threshold_level: str
+    threshold_level: Literal["normal", "warning", "critical", "exceeded"]
 
 
 class TrendPoint(StrictSchema):

@@ -1,14 +1,17 @@
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.api.error_handlers import to_http_exception
+from app.core.errors import DomainError
 from app.db.session import get_db
 from app.repositories.category_repo import list_categories as list_categories_from_db
 from app.repositories.category_repo import list_seed_categories
 from app.schemas.category import CategoryCreate, CategoryListResponse, CategoryRead, CategoryUpdate
+from app.services.category_service import CategoryService
 
 router = APIRouter(prefix="/categories", tags=["categories"])
 
@@ -44,13 +47,23 @@ def list_categories(db: Annotated[Session, Depends(get_db)]) -> CategoryListResp
 
 
 @router.post("", response_model=CategoryRead)
-def create_category(_payload: CategoryCreate) -> CategoryRead:
-    raise HTTPException(status_code=501, detail="Custom categories are scheduled for Phase 1.")
+def create_category(
+    payload: CategoryCreate,
+    db: Annotated[Session, Depends(get_db)],
+) -> CategoryRead:
+    try:
+        return CategoryService.create(db, payload)
+    except DomainError as exc:
+        raise to_http_exception(exc) from exc
 
 
 @router.patch("/{category_id}", response_model=CategoryRead)
-def patch_category(category_id: str, _payload: CategoryUpdate) -> CategoryRead:
-    raise HTTPException(
-        status_code=501,
-        detail=f"Category patch not implemented for id={category_id}.",
-    )
+def patch_category(
+    category_id: str,
+    payload: CategoryUpdate,
+    db: Annotated[Session, Depends(get_db)],
+) -> CategoryRead:
+    try:
+        return CategoryService.patch(db, category_id, payload)
+    except DomainError as exc:
+        raise to_http_exception(exc) from exc

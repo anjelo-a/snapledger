@@ -1,19 +1,32 @@
 # SnapLedger Backend
 
-FastAPI + PostgreSQL backend scaffold.
+FastAPI + PostgreSQL backend service.
 
-## Phase 0 status
+## Status (Phase 1 Backend Complete)
 
-Implemented in this scaffold:
-- API contract-first routes under `/v1`.
-- Pydantic request/response schemas with strict validation defaults.
-- SQLAlchemy model skeleton for core entities.
-- Alembic migration wiring + Phase 0 foundational schema migration.
-- Default category seeds persisted through migration and exposed via `GET /v1/categories`.
-- Baseline tests for health and API contract path presence.
+Implemented:
+- API routes under `/v1` for receipts and categories (CRUD/mutation scope for Phase 1).
+- Manual entries alias as a real create proxy via `POST /v1/manual-entries`.
+- Cursor-based receipt listing with stable sort and opaque `next_cursor`.
+- Soft-delete behavior for receipts and receipt items.
+- Category mutation rules:
+  - default categories immutable for rename/archive
+  - case-insensitive, trimmed uniqueness for active categories
+- Pydantic strict validation defaults (`extra="forbid"`).
+- Service/repository layering with standardized domain error to HTTP mapping.
+- Global error envelope handlers.
+- Optional exposure hardening toggles:
+  - API key gate
+  - CORS allowlist
+  - in-memory rate limiting
+  - HTTPS enforcement
+- Alembic migrations:
+  - `0001_phase0_schema`
+  - `0002_category_normalized_name_unique`
+- Test suite coverage for API contracts, validation, receipts/categories behavior, repository semantics, service errors, and security middleware.
 
 Deferred intentionally to later phases:
-- Receipt CRUD business logic and persistence (Phase 1+).
+- Budget write flows and dashboard aggregates (Phase 3).
 - Sync workflows (Phase 4).
 - AI insight generation integration (Phase 5).
 
@@ -28,7 +41,7 @@ python -m uvicorn app.main:app --reload
 
 ```bash
 cd backend
-pytest
+pytest -q
 ```
 
 ## Run migrations

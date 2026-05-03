@@ -8,7 +8,14 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import get_settings
 from app.db.base import Base
-from app.models import Budget, Category, Expense, ExpenseItem, Insight  # noqa: F401
+from app.models import (  # noqa: F401
+    Budget,
+    Category,
+    Expense,
+    ExpenseItem,
+    Insight,
+    SyncMutationLog,
+)
 
 config = context.config
 

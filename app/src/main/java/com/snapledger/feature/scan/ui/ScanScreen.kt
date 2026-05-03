@@ -1,0 +1,606 @@
+package com.snapledger.feature.scan.ui
+
+import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import com.snapledger.feature.scan.domain.CameraPermissionState
+import com.snapledger.feature.scan.domain.OcrExtractionPhase
+import com.snapledger.feature.scan.domain.OcrUiState
+import com.snapledger.feature.scan.domain.ParserPhase
+import com.snapledger.feature.scan.domain.ParserUiState
+import com.snapledger.feature.scan.domain.PendingCapture
+import com.snapledger.feature.scan.domain.ScanCapturePhase
+import com.snapledger.feature.scan.domain.ScanUiState
+import com.snapledger.feature.scan.vm.ScanViewModel
+import java.io.File
+
+@Composable
+fun ScanRoute(
+    viewModel: ScanViewModel,
+    onBack: () -> Unit,
+    onOpenReview: () -> Unit,
+) {
+    val context = LocalContext.current
+    val activity = context.findActivity()
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val canRequestAgain = activity?.shouldShowCameraPermissionRationale() == true
+        viewModel.onPermissionUpdated(
+            granted = granted,
+            canRequestPermissionAgain = canRequestAgain,
+        )
+    }
+    var hasRequestedPermission by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(viewModel.uiState.permissionState) {
+        if (viewModel.uiState.permissionState == CameraPermissionState.Unknown && !hasRequestedPermission) {
+            if (context.hasCameraPermission()) {
+                viewModel.onPermissionUpdated(
+                    granted = true,
+                    canRequestPermissionAgain = true,
+                )
+            } else {
+                hasRequestedPermission = true
+                permissionLauncher.launch(Manifest.permission.CAMERA)
+            }
+        }
+    }
+
+    ScanScreen(
+        uiState = viewModel.uiState,
+        onBack = onBack,
+        onRequestPermission = {
+            hasRequestedPermission = true
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        },
+        onOpenAppSettings = { context.openAppSettings() },
+        onCaptureRequested = {
+            viewModel.prepareCapture(context.cacheDir)
+        },
+        onCaptureSucceeded = viewModel::onCaptureSucceeded,
+        onCaptureFailed = viewModel::onCaptureFailed,
+        onCameraPreviewReady = viewModel::onCameraPreviewReady,
+        onCameraFailure = viewModel::onCameraFailure,
+        onRetryCapture = viewModel::onRetryCapture,
+        onOcrRequested = viewModel::onOcrRequested,
+        onParseRequested = viewModel::onParseRequested,
+        onOpenReview = onOpenReview,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScanScreen(
+    uiState: ScanUiState,
+    onBack: () -> Unit,
+    onRequestPermission: () -> Unit,
+    onOpenAppSettings: () -> Unit,
+    onCaptureRequested: () -> PendingCapture?,
+    onCaptureSucceeded: (String, String?) -> Unit,
+    onCaptureFailed: (String) -> Unit,
+    onCameraPreviewReady: () -> Unit,
+    onCameraFailure: (String) -> Unit,
+    onRetryCapture: () -> Unit,
+    onOcrRequested: () -> Unit,
+    onParseRequested: () -> Unit,
+    onOpenReview: () -> Unit,
+) {
+    val context = LocalContext.current
+    var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(text = uiState.title) },
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(24.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                text = uiState.status,
+                style = MaterialTheme.typography.headlineSmall,
+            )
+
+            CameraPreviewCard(
+                uiState = uiState,
+                onCameraPreviewReady = onCameraPreviewReady,
+                onCameraFailure = onCameraFailure,
+                onImageCaptureReady = { imageCapture = it },
+                onRequestPermission = onRequestPermission,
+                onOpenAppSettings = onOpenAppSettings,
+            )
+
+            CaptureStatusCard(uiState = uiState)
+            OcrStatusCard(ocr = uiState.ocr)
+            ParserStatusCard(parser = uiState.parser)
+
+            Button(
+                onClick = {
+                    val pendingCapture = onCaptureRequested() ?: return@Button
+                    val currentImageCapture = imageCapture
+                    if (currentImageCapture == null) {
+                        onCaptureFailed("ImageCapture is not ready yet.")
+                        return@Button
+                    }
+                    capturePhoto(
+                        context = context,
+                        imageCapture = currentImageCapture,
+                        pendingCapture = pendingCapture,
+                        onCaptureSucceeded = onCaptureSucceeded,
+                        onCaptureFailed = onCaptureFailed,
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = uiState.canCapture,
+            ) {
+                Text(text = if (uiState.capturePhase == ScanCapturePhase.Capturing) "Capturing..." else "Capture Receipt")
+            }
+            OutlinedButton(
+                onClick = onRetryCapture,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = uiState.canRetry,
+            ) {
+                Text(text = "Retry Capture")
+            }
+            Button(
+                onClick = onOcrRequested,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = uiState.canRunOcr,
+            ) {
+                Text(
+                    text = if (uiState.ocr.phase == OcrExtractionPhase.Running) {
+                        "Running OCR..."
+                    } else {
+                        "Run OCR Extraction"
+                    },
+                )
+            }
+            Button(
+                onClick = onParseRequested,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = uiState.canRunParser,
+            ) {
+                Text(
+                    text = if (uiState.parser.phase == ParserPhase.Running) {
+                        "Running Parser..."
+                    } else {
+                        "Run Deterministic Parser"
+                    },
+                )
+            }
+            Button(
+                onClick = onOpenReview,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = uiState.canContinueToReview,
+            ) {
+                Text(text = "Open Review Placeholder")
+            }
+            OutlinedButton(
+                onClick = onBack,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(text = "Back")
+            }
+        }
+    }
+}
+
+@Composable
+private fun CameraPreviewCard(
+    uiState: ScanUiState,
+    onCameraPreviewReady: () -> Unit,
+    onCameraFailure: (String) -> Unit,
+    onImageCaptureReady: (ImageCapture?) -> Unit,
+    onRequestPermission: () -> Unit,
+    onOpenAppSettings: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "CameraX capture",
+                style = MaterialTheme.typography.titleMedium,
+            )
+
+            when (uiState.permissionState) {
+                CameraPermissionState.Unknown,
+                CameraPermissionState.Denied -> {
+                    Text(
+                        text = uiState.captureStatus,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Button(
+                        onClick = onRequestPermission,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(text = "Grant Camera Permission")
+                    }
+                }
+
+                CameraPermissionState.PermanentlyDenied -> {
+                    Text(
+                        text = uiState.captureStatus,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Button(
+                        onClick = onOpenAppSettings,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(text = "Open App Settings")
+                    }
+                }
+
+                CameraPermissionState.Granted -> {
+                    CameraPreviewSurface(
+                        sessionId = uiState.cameraSessionId,
+                        showLoading = uiState.capturePhase == ScanCapturePhase.PreviewLoading,
+                        onCameraPreviewReady = onCameraPreviewReady,
+                        onCameraFailure = onCameraFailure,
+                        onImageCaptureReady = onImageCaptureReady,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CameraPreviewSurface(
+    sessionId: Int,
+    showLoading: Boolean,
+    onCameraPreviewReady: () -> Unit,
+    onCameraFailure: (String) -> Unit,
+    onImageCaptureReady: (ImageCapture?) -> Unit,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val previewView = remember {
+        PreviewView(context).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+        }
+    }
+    val executor = remember(context) { ContextCompat.getMainExecutor(context) }
+
+    DisposableEffect(lifecycleOwner, sessionId) {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+        var cameraProvider: ProcessCameraProvider? = null
+
+        val listener = Runnable {
+            try {
+                cameraProvider = cameraProviderFuture.get()
+                val previewUseCase = Preview.Builder().build().also { useCase ->
+                    useCase.surfaceProvider = previewView.surfaceProvider
+                }
+                val imageCaptureUseCase = ImageCapture.Builder()
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    .build()
+                cameraProvider?.unbindAll()
+                cameraProvider?.bindToLifecycle(
+                    lifecycleOwner,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    previewUseCase,
+                    imageCaptureUseCase,
+                )
+                onImageCaptureReady(imageCaptureUseCase)
+                onCameraPreviewReady()
+            } catch (error: Exception) {
+                onImageCaptureReady(null)
+                onCameraFailure(error.message ?: "Unable to open the camera.")
+            }
+        }
+
+        cameraProviderFuture.addListener(listener, executor)
+
+        onDispose {
+            onImageCaptureReady(null)
+            cameraProvider?.unbindAll()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(320.dp)
+            .background(Color.Black),
+    ) {
+        AndroidView(
+            factory = { previewView },
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (showLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
+    }
+}
+
+@Composable
+private fun CaptureStatusCard(uiState: ScanUiState) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "Capture status",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = uiState.captureStatus,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            uiState.cameraErrorMessage?.let { errorMessage ->
+                Text(
+                    text = errorMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            uiState.capturedImage?.let { metadata ->
+                Text(
+                    text = "File: ${metadata.fileName}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = "Path: ${metadata.absolutePath}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    text = "URI: ${metadata.contentUri}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    text = "Size: ${metadata.fileSizeBytes} bytes",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                val dimensions = if (metadata.widthPx != null && metadata.heightPx != null) {
+                    "${metadata.widthPx} x ${metadata.heightPx}"
+                } else {
+                    "Unknown"
+                }
+                Text(
+                    text = "Dimensions: $dimensions",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OcrStatusCard(ocr: OcrUiState) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "OCR extraction",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = ocr.status,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            ocr.errorMessage?.let { errorMessage ->
+                Text(
+                    text = errorMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            ocr.warningMessages.forEach { warning ->
+                Text(
+                    text = warning,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
+            ocr.metadata?.let { metadata ->
+                Text(
+                    text = "Captured at: ${metadata.capturedAtMillis}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    text = "Dimensions: ${metadata.widthPx ?: "Unknown"} x ${metadata.heightPx ?: "Unknown"}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    text = "Image size: ${metadata.fileSizeBytes} bytes",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            ocr.lines.forEach { line ->
+                Text(
+                    text = "${line.index + 1}. ${line.text}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            if (ocr.lines.isEmpty() && ocr.phase == OcrExtractionPhase.Idle) {
+                Text(
+                    text = "Normalized OCR lines will appear here after a capture is processed.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ParserStatusCard(parser: ParserUiState) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "Deterministic parser",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = parser.status,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            parser.errorMessage?.let { errorMessage ->
+                Text(
+                    text = errorMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            parser.candidate?.let { candidate ->
+                Text(
+                    text = "Merchant: ${candidate.merchant ?: "Missing"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = "Expense date: ${candidate.expenseDate ?: "Missing"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = "Total: ${candidate.totalAmount?.rawText ?: "Missing"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (candidate.items.isEmpty()) {
+                    Text(
+                        text = "Items: none parsed",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    candidate.items.forEach { item ->
+                        Text(
+                            text = "Item: ${item.description}${item.amount?.rawText?.let { " (${it})" } ?: ""}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+                candidate.warnings.forEach { warning ->
+                    Text(
+                        text = warning,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+            }
+            if (parser.candidate == null && parser.phase == ParserPhase.Idle) {
+                Text(
+                    text = "Parsed receipt candidate output will appear here after OCR lines are available.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
+
+private fun capturePhoto(
+    context: Context,
+    imageCapture: ImageCapture,
+    pendingCapture: PendingCapture,
+    onCaptureSucceeded: (String, String?) -> Unit,
+    onCaptureFailed: (String) -> Unit,
+) {
+    val outputFile = File(pendingCapture.outputPath)
+    val outputOptions = ImageCapture.OutputFileOptions.Builder(outputFile).build()
+
+    imageCapture.takePicture(
+        outputOptions,
+        ContextCompat.getMainExecutor(context),
+        object : ImageCapture.OnImageSavedCallback {
+            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                onCaptureSucceeded(
+                    outputFile.absolutePath,
+                    outputFileResults.savedUri?.toString(),
+                )
+            }
+
+            override fun onError(exception: ImageCaptureException) {
+                onCaptureFailed(exception.message ?: "CameraX capture failed.")
+            }
+        },
+    )
+}
+
+private fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+private fun Activity.shouldShowCameraPermissionRationale(): Boolean {
+    return ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CAMERA)
+}
+
+private fun Context.hasCameraPermission(): Boolean {
+    return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+        PackageManager.PERMISSION_GRANTED
+}
+
+private fun Context.openAppSettings() {
+    val intent = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.fromParts("package", packageName, null),
+    ).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    startActivity(intent)
+}

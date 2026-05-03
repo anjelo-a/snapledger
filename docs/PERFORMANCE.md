@@ -50,3 +50,7 @@ Backend:
 ## Minimum acceptable release bar
 - No target misses above 10% on two consecutive benchmark runs.
 - No regressions in startup, OCR latency, or dashboard responsiveness before phase sign-off.
+
+## Current backend note (April 28, 2026)
+- Phase 1 backend feature scope is complete.
+- Dedicated backend performance hardening and benchmark gate enforcement remain planned follow-up work.

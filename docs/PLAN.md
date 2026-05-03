@@ -22,7 +22,7 @@ Why:
 - Dashboard priority: budget status, trends, insights slot, categories, recent activity.
 - History filters: date, merchant, category, amount range.
 - Offline-first Room source of truth.
-- Minimal FastAPI backend contracts for later sync.
+- FastAPI backend Phase 1 implemented for receipts/categories + contracts for later sync phases.
 
 ### Should-have after MVP
 - WorkManager-based sync push/pull with retry and idempotency.
@@ -71,9 +71,11 @@ Objective:
 
 Deliverables:
 - Manual entry UI, validation, Room persistence, recent activity, basic filters.
+- Backend Phase 1: receipts CRUD, manual-entries create proxy, category create/patch rules, cursor pagination, and test coverage.
 
 Acceptance criteria:
 - Offline create/edit/delete works end-to-end.
+- Backend receipts/categories endpoints behave per API contracts and pass CI checks.
 
 Must not start:
 - OCR pipeline complexity and advanced backend features.
@@ -84,9 +86,15 @@ Objective:
 
 Deliverables:
 - CameraX capture, ML Kit extraction, deterministic parser, editable structured review.
+- Lock parser contract as `ocr_lines + locale + currency_hint -> candidate fields + warnings`.
+- Keep backend fallback optional so user-confirmed local save remains the primary success path.
 
 Acceptance criteria:
 - Save succeeds when merchant/date/total present even if items incomplete.
+- Review always happens before save; parser output is never auto-persisted.
+- Reviewed receipts are persisted locally first, with sync metadata queued separately.
+- Backend parser fallback is optional and must not block a valid local save.
+- No LLM parsing is introduced for receipts, including fallback behavior.
 
 Must not start:
 - Receipt version management and alias systems.
@@ -110,13 +118,19 @@ Objective:
 
 Deliverables:
 - Sync queue, WorkManager workers, retry/backoff, idempotency, conflict policy.
+- Receipts-first sync contract for `expense` mutations before category/budget sync rollout.
+- Push results report accepted/rejected per mutation while preserving accepted/rejected counts.
+- Pull returns deterministic receipt changes with opaque cursor pagination.
 
 Acceptance criteria:
 - Offline mutations reconcile correctly on reconnect.
 - Sync failures do not block local save.
+- Unsupported `budget` and `category` mutations are rejected per mutation with
+  `unsupported_entity_phase4`.
 
 Must not start:
 - Event-driven or event-sourced sync architectures.
+- Message brokers, AI parsing, or Phase 5 insight behavior.
 
 ### Phase 5: AI insight
 Objective:
@@ -150,6 +164,24 @@ Acceptance criteria:
 - Phase 3 gate: dashboard and budgets reflect real data.
 - Phase 4 gate: offline create/edit/delete syncs correctly.
 - Phase 5 gate: Gemini insight added only after base numbers are proven correct.
+
+Backend progress note (April 28, 2026):
+- Phase 1 backend scope is complete.
+- Phase 2 backend fallback parser is implemented as deterministic rule-based parsing only.
+- Remaining backend work is Phase 3 (budgets/dashboard), Phase 4 (sync), and Phase 5 (insight).
+
+Phase 2 contract lock (April 29, 2026):
+- `ReceiptProcessRequest` is already present with `ocr_lines`, optional `locale`, and optional `currency_hint`.
+- `ParsedReceiptCandidate` already carries `merchant`, `expense_date`, `total_amount`, `items`, and `warnings`.
+- Optional backward-compatible metadata fields are allowed for review UX only; current contract adds
+  `warning_codes` and `field_confidence`.
+- No schema change in this contract may require Android or backend callers to send new required fields.
+
+Phase 2 implementation note (April 30, 2026):
+- Android scan/review/save is local-first: a valid reviewed receipt saves locally even when
+  backend fallback is unavailable.
+- The backend fallback parser remains optional and deterministic-only.
+- Sync metadata is queued separately from the local receipt record.
 
 ## Implementation order
 1. Lock docs and scope boundaries.

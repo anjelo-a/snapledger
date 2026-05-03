@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.core.security import PaginationQuery, StrictSchema
 
@@ -83,6 +83,32 @@ class ReceiptProcessRequest(StrictSchema):
     locale: str | None = Field(default=None, max_length=20)
     currency_hint: str | None = Field(default=None, min_length=3, max_length=3)
 
+    @field_validator("ocr_lines")
+    @classmethod
+    def validate_ocr_lines(cls, value: list[str]) -> list[str]:
+        total_chars = 0
+        for line in value:
+            if not line:
+                raise ValueError("ocr_lines entries must not be blank.")
+            if len(line) > 500:
+                raise ValueError("ocr_lines entries must be at most 500 characters long.")
+            total_chars += len(line)
+        if total_chars > 20000:
+            raise ValueError("ocr_lines total text length must be at most 20000 characters.")
+        return value
+
+    @field_validator("currency_hint")
+    @classmethod
+    def normalize_currency_hint(cls, value: str | None) -> str | None:
+        return value.upper() if value is not None else None
+
+
+class ParsedReceiptFieldConfidence(StrictSchema):
+    merchant: float | None = Field(default=None, ge=0, le=1)
+    expense_date: float | None = Field(default=None, ge=0, le=1)
+    total_amount: float | None = Field(default=None, ge=0, le=1)
+    items: float | None = Field(default=None, ge=0, le=1)
+
 
 class ParsedReceiptCandidate(StrictSchema):
     merchant: str | None = None
@@ -90,3 +116,5 @@ class ParsedReceiptCandidate(StrictSchema):
     total_amount: Decimal | None = None
     items: list[ExpenseItemWrite] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    warning_codes: list[str] = Field(default_factory=list, max_length=50)
+    field_confidence: ParsedReceiptFieldConfidence | None = None

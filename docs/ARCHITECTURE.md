@@ -8,7 +8,7 @@
 ## Android frontend architecture
 Responsibilities:
 - Capture receipt image and OCR text.
-- Provide structured review/edit experience.
+- Provide structured review/edit experience before any save.
 - Persist all user actions locally first.
 - Render dashboard/history from local data.
 
@@ -17,11 +17,14 @@ Boundaries:
 - ViewModels orchestrate intents and state.
 - Repositories encapsulate data source access.
 - Domain logic lives outside Composables.
+- Scan flow is `capture -> OCR -> deterministic parse candidate -> user review -> local save`.
+- Review is the approval boundary: parser output is always editable and never saved directly.
 
 Must not couple:
 - Business rules in Compose UI.
 - Direct Gemini calls from Android.
 - OCR pipeline writing directly to UI-only models without repository/domain boundary.
+- Backend parser availability blocking local save after user review.
 
 ## Backend architecture
 Responsibilities:
@@ -35,17 +38,30 @@ Boundaries:
 - Routers: HTTP mapping + validation only.
 - Services: business rules.
 - Repositories: DB access only.
+- Domain errors are mapped consistently to HTTP responses.
 
 Must not couple:
 - SQL in API routers.
 - Budget logic with AI pipeline.
 - AI outputs with deterministic finance logic.
+- Receipt parsing with any LLM, prompt, or generative cleanup path.
+
+Current backend implementation notes:
+- Receipts and category mutation endpoints are implemented through service/repository layers.
+- Receipts list uses opaque cursor pagination with stable ordering.
+- Global error envelope handlers are registered for HTTP/validation/unhandled exceptions.
+- Optional security middleware gates are available via env config: API key, CORS allowlist, in-memory rate limiting, HTTPS enforcement.
+- `POST /v1/receipts/process` implements the Phase 2 deterministic parser fallback with strict
+  OCR input validation and structured candidate output.
+- Backend fallback parsing is optional; Android review/save persists locally first and never waits
+  on backend availability.
 
 ## Data/storage architecture
 Local:
 - Room is source of truth for UX.
 - Local writes always happen immediately.
 - Local sync queue tracks pending mutations.
+- Reviewed receipt save writes the local receipt first, then queues sync metadata separately.
 
 Remote:
 - PostgreSQL is canonical for synced state.
@@ -60,6 +76,11 @@ Must not couple:
 - Push local mutation queue with idempotency keys.
 - Pull server deltas and merge deterministically.
 - Retries with exponential backoff.
+- Phase 4 starts receipts-first: only `expense` mutations are supported end-to-end.
+- `budget` and `category` sync mutations are rejected per mutation with
+  `unsupported_entity_phase4` until their local Android stores are ready.
+- Pull cursors are opaque to clients; server cursors are base64 JSON containing `updated_at` and
+  `id`.
 
 Conflict policy (initial):
 - Local-first for unsynced local edits.
@@ -69,12 +90,15 @@ Conflict policy (initial):
 Must not couple:
 - Core CRUD flow depending on sync completion.
 - Sync errors blocking local save.
+- Sync implementation depending on event sourcing, message brokers, AI parsing, or Phase 5 insight
+  workflows.
 
 ## AI architecture
 - InsightService on backend receives deterministic metrics.
 - Prompt is template-based and minimal.
 - Response is one polished insight text + optional short action tip.
 - Insight failures return fallback response; never block dashboard.
+- Receipt OCR parsing is outside AI scope and must remain deterministic-only.
 
 Must not couple:
 - AI to parsing, totals, budget thresholds, or category math.
