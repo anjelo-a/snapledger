@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import com.snapledger.feature.dashboard.ui.DashboardScreen
 
 @Composable
 fun SnapLedgerNavHost(
@@ -22,12 +23,12 @@ fun SnapLedgerNavHost(
     ) {
         composable(SnapLedgerDestination.Home.route) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Home Screen")
+                DashboardScreen()
             }
         }
         composable(SnapLedgerDestination.Scan.route) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Scan Screen")
+                Text("Scan Screen") //replace like the one above
             }
         }
         composable(SnapLedgerDestination.History.route) {

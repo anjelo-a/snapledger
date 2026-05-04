@@ -37,7 +37,7 @@ fun AppHomeScreen(navController: NavHostController) {
 
     val activeGreen = Color(0xFF00A86B)
     val inactiveGray = Color(0xFF757575)
-    val lightGreenPill = activeGreen.copy(alpha = 0.15f)
+    //val lightGreenPill = activeGreen.copy(alpha = 0.15f)
 
     Scaffold(
         bottomBar = {
@@ -78,6 +78,7 @@ fun AppHomeScreen(navController: NavHostController) {
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = activeGreen,
                             selectedTextColor = activeGreen,
+                            //indicatorColor = lightGreenPill,
                             unselectedIconColor = inactiveGray,
                             unselectedTextColor = inactiveGray
                         )
