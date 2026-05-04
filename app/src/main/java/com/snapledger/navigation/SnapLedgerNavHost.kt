@@ -10,6 +10,10 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.snapledger.feature.dashboard.ui.DashboardScreen
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.snapledger.feature.scan.ui.ScanRoute
+import com.snapledger.feature.scan.vm.ScanViewModel
+import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun SnapLedgerNavHost(
@@ -27,9 +31,21 @@ fun SnapLedgerNavHost(
             }
         }
         composable(SnapLedgerDestination.Scan.route) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Scan Screen") //replace like the one above
-            }
+            val context = LocalContext.current
+
+            val scanViewModel: ScanViewModel = viewModel(
+                factory = ScanViewModel.factory(context)
+            )
+
+            ScanRoute(
+                viewModel = scanViewModel,
+                onBack = {
+                    navController.popBackStack()
+                },
+                onOpenReview = {
+                    // navController.navigate("review_route_placeholder")
+                }
+            )
         }
         composable(SnapLedgerDestination.History.route) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

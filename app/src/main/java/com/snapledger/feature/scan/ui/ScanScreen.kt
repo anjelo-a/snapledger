@@ -17,24 +17,31 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -45,24 +52,30 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.snapledger.R
 import com.snapledger.feature.scan.domain.CameraPermissionState
 import com.snapledger.feature.scan.domain.OcrExtractionPhase
-import com.snapledger.feature.scan.domain.OcrUiState
 import com.snapledger.feature.scan.domain.ParserPhase
-import com.snapledger.feature.scan.domain.ParserUiState
 import com.snapledger.feature.scan.domain.PendingCapture
 import com.snapledger.feature.scan.domain.ScanCapturePhase
 import com.snapledger.feature.scan.domain.ScanUiState
 import com.snapledger.feature.scan.vm.ScanViewModel
 import java.io.File
 
+// --- ScanRoute remains unchanged as it handles the ViewModel connections ---
 @Composable
 fun ScanRoute(
     viewModel: ScanViewModel,
@@ -98,15 +111,14 @@ fun ScanRoute(
 
     ScanScreen(
         uiState = viewModel.uiState,
+        onToggleCamera = viewModel::toggleCameraActiveState,
         onBack = onBack,
         onRequestPermission = {
             hasRequestedPermission = true
             permissionLauncher.launch(Manifest.permission.CAMERA)
         },
         onOpenAppSettings = { context.openAppSettings() },
-        onCaptureRequested = {
-            viewModel.prepareCapture(context.cacheDir)
-        },
+        onCaptureRequested = { viewModel.prepareCapture(context.cacheDir) },
         onCaptureSucceeded = viewModel::onCaptureSucceeded,
         onCaptureFailed = viewModel::onCaptureFailed,
         onCameraPreviewReady = viewModel::onCameraPreviewReady,
@@ -118,10 +130,11 @@ fun ScanRoute(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// --- The Redesigned ScanScreen ---
 @Composable
 fun ScanScreen(
     uiState: ScanUiState,
+    onToggleCamera: () -> Unit,
     onBack: () -> Unit,
     onRequestPermission: () -> Unit,
     onOpenAppSettings: () -> Unit,
@@ -138,170 +151,262 @@ fun ScanScreen(
     val context = LocalContext.current
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(text = uiState.title) },
-            )
-        }
-    ) { innerPadding ->
-        Column(
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF8F9FA))
+            .padding(top = 24.dp) // Status bar padding
+    ) {
+        // 1. Top Bar (Close button & Title)
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(24.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .border(1.dp, Color(0xFFE0E0E0), CircleShape)
+                    .clickable { onBack() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = "Close",
+                    tint = Color(0xFF424242),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
             Text(
-                text = uiState.status,
-                style = MaterialTheme.typography.headlineSmall,
+                text = "Scan Receipt",
+                color = Color(0xFF1F1F1F),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center
             )
 
-            CameraPreviewCard(
+            // Spacer to balance the layout so title stays perfectly centered
+            Spacer(modifier = Modifier.width(40.dp))
+        }
+
+        // 2. Camera Preview Area
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(24.dp)
+        ) {
+            CameraCardDesign(
                 uiState = uiState,
+                onToggleCamera = onToggleCamera,
                 onCameraPreviewReady = onCameraPreviewReady,
                 onCameraFailure = onCameraFailure,
                 onImageCaptureReady = { imageCapture = it },
                 onRequestPermission = onRequestPermission,
-                onOpenAppSettings = onOpenAppSettings,
+                onOpenAppSettings = onOpenAppSettings
+            )
+        }
+
+        // 3. Dynamic Footer Button
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Determine button state based on backend flow
+            val buttonText = when {
+                uiState.canContinueToReview -> "Review Receipt"
+                uiState.parser.phase == ParserPhase.Running -> "Parsing Data..."
+                uiState.canRunParser -> "Analyze Receipt"
+                uiState.ocr.phase == OcrExtractionPhase.Running -> "Extracting Text..."
+                uiState.canRunOcr -> "Extract Text"
+                uiState.capturePhase == ScanCapturePhase.Capturing -> "Capturing..."
+                else -> "Capture Receipt"
+            }
+
+            val isButtonEnabled = uiState.canCapture || uiState.canRunOcr || uiState.canRunParser || uiState.canContinueToReview
+
+            androidx.compose.material3.Button(
+                onClick = {
+                    when {
+                        uiState.canContinueToReview -> onOpenReview()
+                        uiState.canRunParser -> onParseRequested()
+                        uiState.canRunOcr -> onOcrRequested()
+                        uiState.canCapture -> {
+                            val pendingCapture = onCaptureRequested() ?: return@Button
+                            if (imageCapture != null) {
+                                capturePhoto(context, imageCapture!!, pendingCapture, onCaptureSucceeded, onCaptureFailed)
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(60.dp)
+                    .shadow(8.dp, RoundedCornerShape(16.dp), spotColor = Color(0xFF00C875)),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF00C875),
+                    disabledContainerColor = Color(0xFF81C784)
+                ),
+                shape = RoundedCornerShape(16.dp),
+                enabled = isButtonEnabled
+            ) {
+                Text(
+                    text = buttonText,
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Text(
+                text = "Tap to extract merchant, items and total automatically",
+                color = Color(0xFF9E9E9E),
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 12.dp)
             )
 
-            CaptureStatusCard(uiState = uiState)
-            OcrStatusCard(ocr = uiState.ocr)
-            ParserStatusCard(parser = uiState.parser)
-
-            Button(
-                onClick = {
-                    val pendingCapture = onCaptureRequested() ?: return@Button
-                    val currentImageCapture = imageCapture
-                    if (currentImageCapture == null) {
-                        onCaptureFailed("ImageCapture is not ready yet.")
-                        return@Button
-                    }
-                    capturePhoto(
-                        context = context,
-                        imageCapture = currentImageCapture,
-                        pendingCapture = pendingCapture,
-                        onCaptureSucceeded = onCaptureSucceeded,
-                        onCaptureFailed = onCaptureFailed,
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = uiState.canCapture,
-            ) {
-                Text(text = if (uiState.capturePhase == ScanCapturePhase.Capturing) "Capturing..." else "Capture Receipt")
-            }
-            OutlinedButton(
-                onClick = onRetryCapture,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = uiState.canRetry,
-            ) {
-                Text(text = "Retry Capture")
-            }
-            Button(
-                onClick = onOcrRequested,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = uiState.canRunOcr,
-            ) {
+            // Optional: Error display if something fails
+            val errorText = uiState.cameraErrorMessage ?: uiState.ocr.errorMessage ?: uiState.parser.errorMessage
+            if (errorText != null) {
                 Text(
-                    text = if (uiState.ocr.phase == OcrExtractionPhase.Running) {
-                        "Running OCR..."
-                    } else {
-                        "Run OCR Extraction"
-                    },
+                    text = errorText,
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 8.dp)
                 )
-            }
-            Button(
-                onClick = onParseRequested,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = uiState.canRunParser,
-            ) {
-                Text(
-                    text = if (uiState.parser.phase == ParserPhase.Running) {
-                        "Running Parser..."
-                    } else {
-                        "Run Deterministic Parser"
-                    },
-                )
-            }
-            Button(
-                onClick = onOpenReview,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = uiState.canContinueToReview,
-            ) {
-                Text(text = "Open Review Placeholder")
-            }
-            OutlinedButton(
-                onClick = onBack,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(text = "Back")
             }
         }
     }
 }
 
 @Composable
-private fun CameraPreviewCard(
+private fun CameraCardDesign(
     uiState: ScanUiState,
+    onToggleCamera: () -> Unit,
     onCameraPreviewReady: () -> Unit,
     onCameraFailure: (String) -> Unit,
     onImageCaptureReady: (ImageCapture?) -> Unit,
     onRequestPermission: () -> Unit,
     onOpenAppSettings: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = "CameraX capture",
-                style = MaterialTheme.typography.titleMedium,
+    Card(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(24.dp))
+            .clickable { onToggleCamera() }, // This makes the whole card a toggle switch!
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C1A)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+
+            // 1. Camera Stream OR Inactive Placeholder Layer
+            if (uiState.isCameraActive) {
+                when (uiState.permissionState) {
+                    CameraPermissionState.Granted -> {
+                        CameraPreviewSurface(
+                            sessionId = uiState.cameraSessionId,
+                            showLoading = uiState.capturePhase == ScanCapturePhase.PreviewLoading,
+                            onCameraPreviewReady = onCameraPreviewReady,
+                            onCameraFailure = onCameraFailure,
+                            onImageCaptureReady = onImageCaptureReady,
+                        )
+                    }
+                    CameraPermissionState.Denied -> {
+                        Column(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("Camera access required", color = Color.White)
+                            androidx.compose.material3.Button(
+                                onClick = onRequestPermission,
+                                modifier = Modifier.padding(top = 8.dp)
+                            ) {
+                                Text("Grant Permission")
+                            }
+                        }
+                    }
+                    CameraPermissionState.PermanentlyDenied -> {
+                        Column(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("Camera disabled in settings", color = Color.White)
+                            androidx.compose.material3.Button(
+                                onClick = onOpenAppSettings,
+                                modifier = Modifier.padding(top = 8.dp)
+                            ) {
+                                Text("Open Settings")
+                            }
+                        }
+                    }
+                    else -> {}
+                }
+            } else {
+                // Inactive State Placeholder
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.camera), // Your custom camera drawable
+                        contentDescription = "Open Camera",
+                        tint = Color(0xFF9E9E9E),
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Text(
+                        text = "Tap to open camera",
+                        color = Color(0xFF9E9E9E),
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                }
+            }
+
+            // 2. Green Reticle Overlay (Frame)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .border(2.dp, Color(0xFF00E676), RoundedCornerShape(16.dp))
             )
 
-            when (uiState.permissionState) {
-                CameraPermissionState.Unknown,
-                CameraPermissionState.Denied -> {
-                    Text(
-                        text = uiState.captureStatus,
-                        style = MaterialTheme.typography.bodyLarge,
+            // 3. AI Badge Overlay
+            Surface(
+                color = Color(0xFF262626),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.padding(start = 24.dp, top = 24.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.astroid), // Your custom star drawable
+                        contentDescription = "AI Ready",
+                        tint = Color(0xFF00E676),
+                        modifier = Modifier.size(14.dp)
                     )
-                    Button(
-                        onClick = onRequestPermission,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(text = "Grant Camera Permission")
-                    }
-                }
-
-                CameraPermissionState.PermanentlyDenied -> {
                     Text(
-                        text = uiState.captureStatus,
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                    Button(
-                        onClick = onOpenAppSettings,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(text = "Open App Settings")
-                    }
-                }
-
-                CameraPermissionState.Granted -> {
-                    CameraPreviewSurface(
-                        sessionId = uiState.cameraSessionId,
-                        showLoading = uiState.capturePhase == ScanCapturePhase.PreviewLoading,
-                        onCameraPreviewReady = onCameraPreviewReady,
-                        onCameraFailure = onCameraFailure,
-                        onImageCaptureReady = onImageCaptureReady,
+                        text = "AI Ready",
+                        color = Color(0xFFE0E0E0),
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(start = 6.dp)
                     )
                 }
             }
         }
     }
 }
+
+// --- Retained Backend Logic Functions ---
 
 @Composable
 private fun CameraPreviewSurface(
@@ -358,9 +463,9 @@ private fun CameraPreviewSurface(
 
     Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .height(320.dp)
-            .background(Color.Black),
+            .fillMaxSize()
+            .clip(RoundedCornerShape(24.dp)) // Ensures the camera doesn't overflow the rounded card
+            .background(Color.Transparent),
     ) {
         AndroidView(
             factory = { previewView },
@@ -369,185 +474,8 @@ private fun CameraPreviewSurface(
         if (showLoading) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
+                color = Color(0xFF00E676)
             )
-        }
-    }
-}
-
-@Composable
-private fun CaptureStatusCard(uiState: ScanUiState) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = "Capture status",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = uiState.captureStatus,
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            uiState.cameraErrorMessage?.let { errorMessage ->
-                Text(
-                    text = errorMessage,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            uiState.capturedImage?.let { metadata ->
-                Text(
-                    text = "File: ${metadata.fileName}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = "Path: ${metadata.absolutePath}",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    text = "URI: ${metadata.contentUri}",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    text = "Size: ${metadata.fileSizeBytes} bytes",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                val dimensions = if (metadata.widthPx != null && metadata.heightPx != null) {
-                    "${metadata.widthPx} x ${metadata.heightPx}"
-                } else {
-                    "Unknown"
-                }
-                Text(
-                    text = "Dimensions: $dimensions",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun OcrStatusCard(ocr: OcrUiState) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = "OCR extraction",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = ocr.status,
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            ocr.errorMessage?.let { errorMessage ->
-                Text(
-                    text = errorMessage,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            ocr.warningMessages.forEach { warning ->
-                Text(
-                    text = warning,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
-            }
-            ocr.metadata?.let { metadata ->
-                Text(
-                    text = "Captured at: ${metadata.capturedAtMillis}",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    text = "Dimensions: ${metadata.widthPx ?: "Unknown"} x ${metadata.heightPx ?: "Unknown"}",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    text = "Image size: ${metadata.fileSizeBytes} bytes",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            ocr.lines.forEach { line ->
-                Text(
-                    text = "${line.index + 1}. ${line.text}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-            if (ocr.lines.isEmpty() && ocr.phase == OcrExtractionPhase.Idle) {
-                Text(
-                    text = "Normalized OCR lines will appear here after a capture is processed.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ParserStatusCard(parser: ParserUiState) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = "Deterministic parser",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = parser.status,
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            parser.errorMessage?.let { errorMessage ->
-                Text(
-                    text = errorMessage,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            parser.candidate?.let { candidate ->
-                Text(
-                    text = "Merchant: ${candidate.merchant ?: "Missing"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = "Expense date: ${candidate.expenseDate ?: "Missing"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = "Total: ${candidate.totalAmount?.rawText ?: "Missing"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                if (candidate.items.isEmpty()) {
-                    Text(
-                        text = "Items: none parsed",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                } else {
-                    candidate.items.forEach { item ->
-                        Text(
-                            text = "Item: ${item.description}${item.amount?.rawText?.let { " (${it})" } ?: ""}",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-                candidate.warnings.forEach { warning ->
-                    Text(
-                        text = warning,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.tertiary,
-                    )
-                }
-            }
-            if (parser.candidate == null && parser.phase == ParserPhase.Idle) {
-                Text(
-                    text = "Parsed receipt candidate output will appear here after OCR lines are available.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
         }
     }
 }
@@ -592,7 +520,7 @@ private fun Activity.shouldShowCameraPermissionRationale(): Boolean {
 
 private fun Context.hasCameraPermission(): Boolean {
     return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
-        PackageManager.PERMISSION_GRANTED
+            PackageManager.PERMISSION_GRANTED
 }
 
 private fun Context.openAppSettings() {

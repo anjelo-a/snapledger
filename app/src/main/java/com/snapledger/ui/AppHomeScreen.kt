@@ -39,6 +39,13 @@ fun AppHomeScreen(navController: NavHostController) {
     val inactiveGray = Color(0xFF757575)
     //val lightGreenPill = activeGreen.copy(alpha = 0.15f)
 
+    // 1. We observe the current route up here so ALL components can react to it
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+
+    // 2. Define the rule: Hide FAB if we are on the Scan screen
+    val isFabVisible = currentRoute != SnapLedgerDestination.Scan.route
+
     Scaffold(
         bottomBar = {
             NavigationBar(
@@ -46,9 +53,6 @@ fun AppHomeScreen(navController: NavHostController) {
                 tonalElevation = 0.dp,
                 modifier = Modifier.shadow(8.dp)
             ) {
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = navBackStackEntry?.destination?.route
-
                 items.forEach { item ->
                     NavigationBarItem(
                         icon = {
@@ -65,7 +69,7 @@ fun AppHomeScreen(navController: NavHostController) {
                                 fontWeight = FontWeight.Medium
                             )
                         },
-                        selected = currentRoute == item.route,
+                        selected = currentRoute == item.route, // Uses the hoisted route
                         onClick = {
                             navController.navigate(item.route) {
                                 popUpTo(navController.graph.findStartDestination().id) {
@@ -87,23 +91,26 @@ fun AppHomeScreen(navController: NavHostController) {
             }
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    navController.navigate(SnapLedgerDestination.AddTransaction.route)
-                },
-                shape = CircleShape,
-                containerColor = activeGreen,
-                contentColor = Color.White,
-                elevation = FloatingActionButtonDefaults.elevation(
-                    defaultElevation = 6.dp,
-                    pressedElevation = 12.dp
-                )
-            ) {
-                Icon(
-                    painter = painterResource(id = android.R.drawable.ic_input_add),
-                    contentDescription = "Add Transaction",
-                    modifier = Modifier.size(28.dp)
-                )
+            // 3. Conditionally show the FAB based on the rule we set above
+            if (isFabVisible) {
+                FloatingActionButton(
+                    onClick = {
+                        navController.navigate(SnapLedgerDestination.AddTransaction.route)
+                    },
+                    shape = CircleShape,
+                    containerColor = activeGreen,
+                    contentColor = Color.White,
+                    elevation = FloatingActionButtonDefaults.elevation(
+                        defaultElevation = 6.dp,
+                        pressedElevation = 12.dp
+                    )
+                ) {
+                    Icon(
+                        painter = painterResource(id = android.R.drawable.ic_input_add),
+                        contentDescription = "Add Transaction",
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
         },
         containerColor = Color(0xFFF8F9FA)

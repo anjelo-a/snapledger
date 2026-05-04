@@ -106,6 +106,7 @@ data class ScanUiState(
     val parser: ParserUiState = ParserUiState(),
     val cameraErrorMessage: String? = null,
     val cameraSessionId: Int = 0,
+    val isCameraActive: Boolean = false,
 ) {
     val canCapture: Boolean
         get() = permissionState == CameraPermissionState.Granted &&

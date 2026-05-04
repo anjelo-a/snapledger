@@ -324,4 +324,12 @@ class ScanViewModel(
             }
         }
     }
+
+    // toggles the camera on and off
+    fun toggleCameraActiveState() {
+        uiState = uiState.copy(
+            isCameraActive = !uiState.isCameraActive,
+            cameraErrorMessage = if (uiState.isCameraActive) null else uiState.cameraErrorMessage
+        )
+    }
 }
