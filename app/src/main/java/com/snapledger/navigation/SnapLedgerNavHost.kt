@@ -1,58 +1,49 @@
 package com.snapledger.navigation
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
-import com.snapledger.feature.review.domain.LocalFirstReviewRepository
-import com.snapledger.ui.AppHomeScreen
-import com.snapledger.feature.review.ui.ReviewRoute
-import com.snapledger.feature.review.vm.ReviewViewModel
-import com.snapledger.feature.scan.ui.ScanRoute
-import com.snapledger.feature.scan.vm.ScanViewModel
 
 @Composable
 fun SnapLedgerNavHost(
-    modifier: Modifier = Modifier,
+    navController: NavHostController,
+    modifier: Modifier = Modifier
 ) {
-    val navController = rememberNavController()
-
     NavHost(
         navController = navController,
         startDestination = SnapLedgerDestination.Home.route,
-        modifier = modifier,
+        modifier = modifier
     ) {
         composable(SnapLedgerDestination.Home.route) {
-            AppHomeScreen(
-                onOpenScan = { navController.navigate(SnapLedgerDestination.Scan.route) },
-                onOpenReview = { navController.navigate(SnapLedgerDestination.Review.route) },
-            )
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Home Screen")
+            }
         }
         composable(SnapLedgerDestination.Scan.route) {
-            val context = LocalContext.current
-            val scanViewModel: ScanViewModel = viewModel(
-                factory = ScanViewModel.factory(context.applicationContext),
-            )
-            ScanRoute(
-                viewModel = scanViewModel,
-                onBack = { navController.popBackStack() },
-                onOpenReview = { navController.navigate(SnapLedgerDestination.Review.route) },
-            )
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Scan Screen")
+            }
         }
-        composable(SnapLedgerDestination.Review.route) {
-            val context = LocalContext.current
-            val reviewViewModel: ReviewViewModel = viewModel(
-                factory = ReviewViewModel.factory(
-                    LocalFirstReviewRepository.getInstance(context.applicationContext),
-                ),
-            )
-            ReviewRoute(
-                viewModel = reviewViewModel,
-                onBack = { navController.popBackStack() },
-            )
+        composable(SnapLedgerDestination.History.route) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("History Screen")
+            }
+        }
+        composable(SnapLedgerDestination.Budgets.route) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Budget Screen")
+            }
+        }
+        composable(SnapLedgerDestination.AddTransaction.route) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Add Transaction Screen")
+            }
         }
     }
 }
