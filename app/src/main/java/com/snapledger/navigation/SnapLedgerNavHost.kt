@@ -15,6 +15,9 @@ import com.snapledger.feature.scan.ui.ScanRoute
 import com.snapledger.feature.scan.vm.ScanViewModel
 import androidx.compose.ui.platform.LocalContext
 import com.snapledger.feature.history.ui.HistoryRoute
+import com.snapledger.feature.review.domain.LocalFirstReviewRepository
+import com.snapledger.feature.review.ui.ReviewRoute
+import com.snapledger.feature.review.vm.ReviewViewModel
 
 @Composable
 fun SnapLedgerNavHost(
@@ -33,7 +36,6 @@ fun SnapLedgerNavHost(
         }
         composable(SnapLedgerDestination.Scan.route) {
             val context = LocalContext.current
-
             val scanViewModel: ScanViewModel = viewModel(
                 factory = ScanViewModel.factory(context)
             )
@@ -44,7 +46,27 @@ fun SnapLedgerNavHost(
                     navController.popBackStack()
                 },
                 onOpenReview = {
-                    // navController.navigate("review_route_placeholder")
+                    navController.navigate("review")
+                }
+            )
+        }
+
+        //review screen
+        composable("review") {
+            val context = LocalContext.current
+
+            // get the local database repository so the ViewModel can save receipts
+            val repository = LocalFirstReviewRepository.getInstance(context)
+
+            // build ReviewViewModel using the factory
+            val reviewViewModel: ReviewViewModel = viewModel(
+                factory = ReviewViewModel.factory(repository)
+            )
+
+            ReviewRoute(
+                viewModel = reviewViewModel,
+                onBack = {
+                    navController.popBackStack()
                 }
             )
         }

@@ -1,38 +1,81 @@
 package com.snapledger.feature.review.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.snapledger.feature.review.domain.ReviewEditableFieldState
+import androidx.compose.ui.unit.sp
 import com.snapledger.feature.review.domain.ReviewItemFieldState
 import com.snapledger.feature.review.domain.ReviewUiState
 import com.snapledger.feature.review.vm.ReviewViewModel
+import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun ReviewRoute(
     viewModel: ReviewViewModel,
     onBack: () -> Unit,
 ) {
+    var selectedCategory by remember { mutableStateOf("Food") }
+
     ReviewScreen(
         uiState = viewModel.uiState,
+        selectedCategory = selectedCategory,
+        onCategoryChanged = { selectedCategory = it },
         onBack = onBack,
         onMerchantChanged = viewModel::onMerchantChanged,
         onExpenseDateChanged = viewModel::onExpenseDateChanged,
@@ -45,10 +88,12 @@ fun ReviewRoute(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ReviewScreen(
     uiState: ReviewUiState,
+    selectedCategory: String,
+    onCategoryChanged: (String) -> Unit,
     onBack: () -> Unit,
     onMerchantChanged: (String) -> Unit,
     onExpenseDateChanged: (String) -> Unit,
@@ -59,212 +104,421 @@ fun ReviewScreen(
     onRemoveItemRequested: (Int) -> Unit,
     onSaveRequested: () -> Unit,
 ) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(text = uiState.title) },
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF8F9FA))
+            .padding(top = 24.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .border(1.dp, Color(0xFFE0E0E0), CircleShape)
+                    .clickable { onBack() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = "Close",
+                    tint = Color(0xFF424242),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Text(
+                text = "Review Receipt",
+                color = Color(0xFF1F1F1F),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
             )
+
+            val checkBgColor = if (uiState.saveEnabled) Color(0xFF00C875) else Color(0xFFBDBDBD)
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(checkBgColor)
+                    .clickable(enabled = uiState.saveEnabled && !uiState.isSaving) { onSaveRequested() },
+                contentAlignment = Alignment.Center
+            ) {
+                if (uiState.isSaving) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = "Save",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
         }
-    ) { innerPadding ->
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .padding(24.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(
-                text = uiState.subtitle,
-                style = MaterialTheme.typography.headlineSmall,
-            )
-
-            EditableFieldCard(
-                field = uiState.merchant,
-                supportingText = "Required",
-                onValueChange = onMerchantChanged,
-            )
-            EditableFieldCard(
-                field = uiState.expenseDate,
-                supportingText = "Required, YYYY-MM-DD",
-                onValueChange = onExpenseDateChanged,
-            )
-            EditableFieldCard(
-                field = uiState.totalAmount,
-                supportingText = "Required, positive amount",
-                onValueChange = onTotalAmountChanged,
-            )
-
-            ReviewWarningsCard(warnings = uiState.warnings)
-            ReviewItemsCard(
-                items = uiState.items,
-                onAddItemRequested = onAddItemRequested,
-                onDescriptionChanged = onItemDescriptionChanged,
-                onAmountChanged = onItemAmountChanged,
-                onRemoveItemRequested = onRemoveItemRequested,
-            )
-
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
+            Surface(
+                color = Color(0xFFE8F5E9),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
                     modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Text(
-                        text = "Validation",
-                        style = MaterialTheme.typography.titleMedium,
+                    Icon(
+                        imageVector = Icons.Rounded.Star,
+                        contentDescription = "AI Extracted",
+                        tint = Color(0xFF00C875),
+                        modifier = Modifier.size(16.dp)
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (uiState.saveEnabled) {
-                            "Required fields are valid. Save is enabled."
-                        } else {
-                            "Merchant, expense date, and total amount must all be valid before save is enabled."
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Text(
-                        text = uiState.saveStatusMessage,
-                        style = MaterialTheme.typography.bodySmall,
+                        text = "Extracted with 94% confidence. Tap any field to edit.",
+                        color = Color(0xFF2E7D32),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
 
-            Button(
-                onClick = onSaveRequested,
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = uiState.saveEnabled && !uiState.isSaving,
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
-                Text(text = if (uiState.isSaving) "Saving..." else "Save Placeholder")
-            }
-            OutlinedButton(
-                onClick = onBack,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(text = "Back")
-            }
-        }
-    }
-}
-
-@Composable
-private fun EditableFieldCard(
-    field: ReviewEditableFieldState,
-    supportingText: String,
-    onValueChange: (String) -> Unit,
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedTextField(
-                value = field.value,
-                onValueChange = onValueChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(text = field.label) },
-                isError = field.errorMessage != null,
-                singleLine = true,
-                supportingText = {
-                    Text(text = field.errorMessage ?: supportingText)
-                },
-            )
-        }
-    }
-}
-
-@Composable
-private fun ReviewWarningsCard(warnings: List<String>) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = "Parser warnings",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            if (warnings.isEmpty()) {
-                Text(
-                    text = "No parser warnings.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            } else {
-                warnings.forEach { warning ->
-                    Text(
-                        text = warning,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.tertiary,
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Text(text = "Merchant", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+                    MinimalTextField(
+                        value = uiState.merchant.value,
+                        onValueChange = onMerchantChanged,
+                        hint = "Enter merchant name",
+                        isError = uiState.merchant.errorMessage != null
                     )
-                }
-            }
-        }
-    }
-}
+                    if (uiState.merchant.errorMessage != null) {
+                        Text(text = uiState.merchant.errorMessage, color = MaterialTheme.colorScheme.error, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
+                    }
 
-@Composable
-private fun ReviewItemsCard(
-    items: List<ReviewItemFieldState>,
-    onAddItemRequested: () -> Unit,
-    onDescriptionChanged: (Int, String) -> Unit,
-    onAmountChanged: (Int, String) -> Unit,
-    onRemoveItemRequested: (Int) -> Unit,
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = "Items",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                TextButton(onClick = onAddItemRequested) {
-                    Text(text = "Add Item")
-                }
-            }
+                    Spacer(modifier = Modifier.height(16.dp))
 
-            if (items.isEmpty()) {
-                Text(
-                    text = "Items can be partial or empty in Phase 2.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            } else {
-                items.forEach { item ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            OutlinedTextField(
-                                value = item.description,
-                                onValueChange = { onDescriptionChanged(item.id, it) },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text(text = "Item description") },
-                                singleLine = true,
-                            )
-                            OutlinedTextField(
-                                value = item.amount,
-                                onValueChange = { onAmountChanged(item.id, it) },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text(text = "Item amount") },
-                                singleLine = true,
-                                supportingText = {
-                                    Text(text = "Optional during Phase 2 review")
-                                },
-                            )
-                            TextButton(
-                                onClick = { onRemoveItemRequested(item.id) },
-                                modifier = Modifier.fillMaxWidth(),
+                    Text(text = "Date", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+                    ReviewDatePickerField(
+                        value = uiState.expenseDate.value,
+                        onValueChange = onExpenseDateChanged,
+                        isError = uiState.expenseDate.errorMessage != null
+                    )
+                    if (uiState.expenseDate.errorMessage != null) {
+                        Text(text = uiState.expenseDate.errorMessage, color = MaterialTheme.colorScheme.error, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(text = "Category", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+                    val categories = listOf("Food", "Transport", "Shopping", "Bills", "Entertainment")
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        categories.forEach { category ->
+                            val isSelected = category == selectedCategory
+                            Surface(
+                                color = if (isSelected) Color(0xFF00C875) else Color.White,
+                                shape = RoundedCornerShape(20.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) Color.Transparent else Color(0xFFE0E0E0)),
+                                modifier = Modifier.clickable { onCategoryChanged(category) }
                             ) {
-                                Text(text = "Remove Item")
+                                Text(
+                                    text = category,
+                                    color = if (isSelected) Color.White else Color(0xFF757575),
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                )
                             }
                         }
                     }
                 }
             }
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "Line Items", fontSize = 16.sp, color = Color(0xFF1F1F1F), fontWeight = FontWeight.Medium)
+                        Text(text = "${uiState.items.size} items", fontSize = 12.sp, color = Color(0xFF9E9E9E))
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    uiState.items.forEach { item ->
+                        ReviewItemRow(
+                            item = item,
+                            onDescriptionChanged = { onItemDescriptionChanged(item.id, it) },
+                            onAmountChanged = { onItemAmountChanged(item.id, it) },
+                            onRemoveRequested = { onRemoveItemRequested(item.id) }
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
+                    TextButton(
+                        onClick = onAddItemRequested,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                    ) {
+                        Text(text = "+ Add missing item", color = Color(0xFF00C875), fontSize = 14.sp)
+                    }
+
+                    HorizontalDivider(color = Color(0xFFF5F5F5), thickness = 1.dp)
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    val subtotal = uiState.items.mapNotNull { it.amount.toDoubleOrNull() }.sum()
+                    val formattedSubtotal = NumberFormat.getCurrencyInstance(Locale.US).format(subtotal)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(text = "Subtotal", fontSize = 14.sp, color = Color(0xFF9E9E9E))
+                        Text(text = formattedSubtotal, fontSize = 14.sp, color = Color(0xFF757575))
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "Total", fontSize = 16.sp, color = Color(0xFF1F1F1F), fontWeight = FontWeight.Medium)
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = "$", fontSize = 16.sp, color = Color(0xFF757575), modifier = Modifier.padding(end = 8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .width(100.dp)
+                                    .height(40.dp)
+                                    .border(1.dp, if (uiState.totalAmount.errorMessage != null) MaterialTheme.colorScheme.error else Color(0xFFE0E0E0), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 12.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                BasicTextField(
+                                    value = uiState.totalAmount.value,
+                                    onValueChange = onTotalAmountChanged,
+                                    textStyle = TextStyle(fontSize = 16.sp, color = Color(0xFF1F1F1F), textAlign = TextAlign.End),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    cursorBrush = SolidColor(Color(0xFF00A86B)),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                    if (uiState.totalAmount.errorMessage != null) {
+                        Text(
+                            text = uiState.totalAmount.errorMessage,
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 10.sp,
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            textAlign = TextAlign.End
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Merchant, date and total are required. Items are optional.",
+                        color = Color(0xFFBDBDBD),
+                        fontSize = 10.sp,
+                    )
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun MinimalTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    hint: String,
+    isError: Boolean
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .background(if (isError) Color(0xFFFFEBEE) else Color(0xFFF8F9FA), RoundedCornerShape(12.dp))
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            textStyle = TextStyle(fontSize = 16.sp, color = Color(0xFF1F1F1F)),
+            singleLine = true,
+            cursorBrush = SolidColor(Color(0xFF00A86B)),
+            modifier = Modifier.fillMaxWidth(),
+            decorationBox = { innerTextField ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (value.isEmpty()) {
+                        Text(text = hint, color = Color(0xFFBDBDBD), fontSize = 16.sp)
+                    }
+                    innerTextField()
+                }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReviewDatePickerField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    isError: Boolean
+) {
+    var showDialog by remember { mutableStateOf(false) }
+    val datePickerState = rememberDatePickerState()
+
+    if (showDialog) {
+        DatePickerDialog(
+            onDismissRequest = { showDialog = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                        onValueChange(formatter.format(Date(millis)))
+                    }
+                    showDialog = false
+                }) {
+                    Text("OK", color = Color(0xFF00C875))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text("Cancel", color = Color(0xFF757575))
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .background(if (isError) Color(0xFFFFEBEE) else Color(0xFFF8F9FA), RoundedCornerShape(12.dp))
+            .clickable { showDialog = true }
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        if (value.isEmpty()) {
+            Text(text = "YYYY-MM-DD", color = Color(0xFFBDBDBD), fontSize = 16.sp)
+        } else {
+            Text(text = value, color = Color(0xFF1F1F1F), fontSize = 16.sp)
+        }
+    }
+}
+
+@Composable
+private fun ReviewItemRow(
+    item: ReviewItemFieldState,
+    onDescriptionChanged: (String) -> Unit,
+    onAmountChanged: (String) -> Unit,
+    onRemoveRequested: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Edit,
+            contentDescription = "Edit",
+            tint = Color(0xFFBDBDBD),
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Box(modifier = Modifier.weight(1f)) {
+            BasicTextField(
+                value = item.description,
+                onValueChange = onDescriptionChanged,
+                textStyle = TextStyle(fontSize = 14.sp, color = Color(0xFF1F1F1F)),
+                singleLine = true,
+                cursorBrush = SolidColor(Color(0xFF00A86B)),
+                modifier = Modifier.fillMaxWidth(),
+                decorationBox = { innerTextField ->
+                    if (item.description.isEmpty()) {
+                        Text(text = "Item name", color = Color(0xFFBDBDBD), fontSize = 14.sp)
+                    }
+                    innerTextField()
+                }
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Box(
+            modifier = Modifier
+                .width(80.dp)
+                .height(36.dp)
+                .background(Color(0xFFF8F9FA), RoundedCornerShape(8.dp))
+                .padding(horizontal = 8.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            BasicTextField(
+                value = item.amount,
+                onValueChange = onAmountChanged,
+                textStyle = TextStyle(fontSize = 14.sp, color = Color(0xFF1F1F1F)),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                cursorBrush = SolidColor(Color(0xFF00A86B)),
+                modifier = Modifier.fillMaxWidth(),
+                decorationBox = { innerTextField ->
+                    if (item.amount.isEmpty()) {
+                        Text(text = "0.00", color = Color(0xFFBDBDBD), fontSize = 14.sp)
+                    }
+                    innerTextField()
+                }
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Icon(
+            imageVector = Icons.Rounded.Delete,
+            contentDescription = "Delete",
+            tint = Color(0xFFBDBDBD),
+            modifier = Modifier
+                .size(20.dp)
+                .clickable { onRemoveRequested() }
+        )
     }
 }
