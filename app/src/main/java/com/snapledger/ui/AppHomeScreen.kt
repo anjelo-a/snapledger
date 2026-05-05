@@ -39,12 +39,13 @@ fun AppHomeScreen(navController: NavHostController) {
     val inactiveGray = Color(0xFF757575)
     //val lightGreenPill = activeGreen.copy(alpha = 0.15f)
 
-    // 1. We observe the current route up here so ALL components can react to it
+    // We observe the current route up here so ALL components can react to it
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // 2. Define the rule: Hide FAB if we are on the Scan screen
-    val isFabVisible = currentRoute != SnapLedgerDestination.Scan.route
+    // hide fab
+    val isFabVisible = currentRoute != SnapLedgerDestination.Scan.route &&
+            currentRoute != SnapLedgerDestination.AddTransaction.route
 
     Scaffold(
         bottomBar = {
@@ -91,7 +92,6 @@ fun AppHomeScreen(navController: NavHostController) {
             }
         },
         floatingActionButton = {
-            // 3. Conditionally show the FAB based on the rule we set above
             if (isFabVisible) {
                 FloatingActionButton(
                     onClick = {

@@ -14,6 +14,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.snapledger.feature.scan.ui.ScanRoute
 import com.snapledger.feature.scan.vm.ScanViewModel
 import androidx.compose.ui.platform.LocalContext
+import com.snapledger.feature.entry.ui.AddTransactionRoute
 import com.snapledger.feature.history.ui.HistoryRoute
 import com.snapledger.feature.review.domain.LocalFirstReviewRepository
 import com.snapledger.feature.review.ui.ReviewRoute
@@ -88,9 +89,15 @@ fun SnapLedgerNavHost(
             }
         }
         composable(SnapLedgerDestination.AddTransaction.route) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Add Transaction Screen")
-            }
+
+            // val addTransactionViewModel: AddTransactionViewModel = viewModel() // For later
+
+            AddTransactionRoute(
+                // viewModel = addTransactionViewModel,
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
         }
     }
 }
