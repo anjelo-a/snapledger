@@ -14,6 +14,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.snapledger.feature.scan.ui.ScanRoute
 import com.snapledger.feature.scan.vm.ScanViewModel
 import androidx.compose.ui.platform.LocalContext
+import com.snapledger.feature.history.ui.HistoryRoute
 
 @Composable
 fun SnapLedgerNavHost(
@@ -48,9 +49,16 @@ fun SnapLedgerNavHost(
             )
         }
         composable(SnapLedgerDestination.History.route) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("History Screen")
-            }
+            // grab the ViewModel here just like for Scan:
+            // val historyViewModel: HistoryViewModel = viewModel()
+
+            HistoryRoute(
+                // viewModel = historyViewModel, // Uncomment when backend is ready
+                onNavigateToDetail = { transactionId ->
+                    // This is where you will navigate to a Transaction Detail screen later
+                    // navController.navigate("transaction_detail/$transactionId")
+                }
+            )
         }
         composable(SnapLedgerDestination.Budgets.route) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

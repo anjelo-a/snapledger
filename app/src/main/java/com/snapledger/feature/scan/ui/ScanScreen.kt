@@ -356,7 +356,7 @@ private fun CameraCardDesign(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(
-                        painter = painterResource(id = R.drawable.camera), // Your custom camera drawable
+                        painter = painterResource(id = R.drawable.camera),
                         contentDescription = "Open Camera",
                         tint = Color(0xFF9E9E9E),
                         modifier = Modifier.size(48.dp)
