@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -65,6 +66,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import com.snapledger.R
 import com.snapledger.feature.scan.domain.CameraPermissionState
 import com.snapledger.feature.scan.domain.OcrExtractionPhase
@@ -73,6 +77,8 @@ import com.snapledger.feature.scan.domain.PendingCapture
 import com.snapledger.feature.scan.domain.ScanCapturePhase
 import com.snapledger.feature.scan.domain.ScanUiState
 import com.snapledger.feature.scan.vm.ScanViewModel
+import java.io.FileOutputStream
+import java.io.InputStream
 import java.io.File
 
 // --- ScanRoute remains unchanged as it handles the ViewModel connections ---
@@ -84,6 +90,7 @@ fun ScanRoute(
 ) {
     val context = LocalContext.current
     val activity = context.findActivity()
+    var pendingCapture by remember { mutableStateOf<PendingCapture?>(null) }
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -93,6 +100,37 @@ fun ScanRoute(
             canRequestPermissionAgain = canRequestAgain,
         )
     }
+    val documentScannerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult(),
+    ) { activityResult ->
+        val result = GmsDocumentScanningResult.fromActivityResultIntent(activityResult.data)
+        val pageUri = result?.pages?.firstOrNull()?.imageUri
+        val pending = pendingCapture
+        if (pageUri != null && pending != null) {
+            val copied = copyUriToPath(
+                context = context,
+                sourceUri = pageUri,
+                outputPath = pending.outputPath,
+            )
+            if (copied) {
+                viewModel.onCaptureSucceeded(pending.outputPath, pageUri.toString())
+            } else {
+                viewModel.onCaptureFailed("Document scan output could not be copied for OCR.")
+            }
+        } else if (pending != null) {
+            viewModel.onCaptureFailed("Document scan was cancelled or returned no page.")
+        }
+        pendingCapture = null
+    }
+    val scannerOptions = remember {
+        GmsDocumentScannerOptions.Builder()
+            .setPageLimit(1)
+            .setGalleryImportAllowed(false)
+            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .build()
+    }
+    val documentScanner = remember { GmsDocumentScanning.getClient(scannerOptions) }
     var hasRequestedPermission by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(viewModel.uiState.permissionState) {
@@ -119,6 +157,24 @@ fun ScanRoute(
         },
         onOpenAppSettings = { context.openAppSettings() },
         onCaptureRequested = { viewModel.prepareCapture(context.cacheDir) },
+        onDocumentScanRequested = { pending ->
+            val host = activity
+            if (host == null) {
+                viewModel.onCaptureFailed("Unable to launch scanner without an activity context.")
+            } else {
+                pendingCapture = pending
+                documentScanner.getStartScanIntent(host)
+                    .addOnSuccessListener { intentSender ->
+                        documentScannerLauncher.launch(
+                            IntentSenderRequest.Builder(intentSender).build(),
+                        )
+                    }
+                    .addOnFailureListener { error ->
+                        pendingCapture = null
+                        viewModel.onCaptureFailed(error.message ?: "Document scanner launch failed.")
+                    }
+            }
+        },
         onCaptureSucceeded = viewModel::onCaptureSucceeded,
         onCaptureFailed = viewModel::onCaptureFailed,
         onCameraPreviewReady = viewModel::onCameraPreviewReady,
@@ -139,6 +195,7 @@ fun ScanScreen(
     onRequestPermission: () -> Unit,
     onOpenAppSettings: () -> Unit,
     onCaptureRequested: () -> PendingCapture?,
+    onDocumentScanRequested: (PendingCapture) -> Unit,
     onCaptureSucceeded: (String, String?) -> Unit,
     onCaptureFailed: (String) -> Unit,
     onCameraPreviewReady: () -> Unit,
@@ -240,9 +297,7 @@ fun ScanScreen(
                         uiState.canRunOcr -> onOcrRequested()
                         uiState.canCapture -> {
                             val pendingCapture = onCaptureRequested() ?: return@Button
-                            if (imageCapture != null) {
-                                capturePhoto(context, imageCapture!!, pendingCapture, onCaptureSucceeded, onCaptureFailed)
-                            }
+                            onDocumentScanRequested(pendingCapture)
                         }
                     }
                 },
@@ -278,6 +333,19 @@ fun ScanScreen(
                 Text(
                     text = errorText,
                     color = MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+
+            val warningLines = buildList {
+                addAll(uiState.ocr.warningMessages)
+                uiState.parser.candidate?.warnings?.let { addAll(it) }
+            }.distinct()
+            if (warningLines.isNotEmpty()) {
+                Text(
+                    text = warningLines.joinToString(separator = "\n") { "Warning: $it" },
+                    color = Color(0xFF8A6D3B),
                     fontSize = 12.sp,
                     modifier = Modifier.padding(top = 8.dp)
                 )
@@ -506,6 +574,23 @@ private fun capturePhoto(
             }
         },
     )
+}
+
+private fun copyUriToPath(
+    context: Context,
+    sourceUri: Uri,
+    outputPath: String,
+): Boolean {
+    return runCatching {
+        context.contentResolver.openInputStream(sourceUri).use { input: InputStream? ->
+            if (input == null) return@runCatching false
+            File(outputPath).parentFile?.mkdirs()
+            FileOutputStream(outputPath).use { output ->
+                input.copyTo(output)
+            }
+            true
+        } ?: false
+    }.getOrDefault(false)
 }
 
 private fun Context.findActivity(): Activity? = when (this) {
