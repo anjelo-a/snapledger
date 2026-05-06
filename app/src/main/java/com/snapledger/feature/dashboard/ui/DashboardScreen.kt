@@ -36,7 +36,6 @@ import com.snapledger.R
 import java.text.NumberFormat
 import java.util.Locale
 
-// --- UI STATE MODELS ---
 
 data class DashboardUiState(
     val userName: String = "",
@@ -85,13 +84,10 @@ data class TransactionSummary(
     val isIncome: Boolean
 )
 
-// --- UTILITY FORMATTER ---
 fun formatCurrency(amount: Double): String {
     val format = NumberFormat.getCurrencyInstance(Locale.US)
     return format.format(amount)
 }
-
-// --- MAIN SCREEN COMPOSABLE ---
 
 @Composable
 fun DashboardScreen(

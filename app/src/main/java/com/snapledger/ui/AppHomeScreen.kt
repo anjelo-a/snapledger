@@ -39,7 +39,6 @@ fun AppHomeScreen(navController: NavHostController) {
     val inactiveGray = Color(0xFF757575)
     //val lightGreenPill = activeGreen.copy(alpha = 0.15f)
 
-    // We observe the current route up here so ALL components can react to it
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 

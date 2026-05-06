@@ -73,8 +73,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-// --- DOMAIN MODELS & STATE (Backend Ready) ---
-
 enum class TransactionType { EXPENSE, INCOME }
 
 data class CategoryUiModel(
@@ -174,7 +172,7 @@ fun AddTransactionRoute(
     )
 }
 
-// --- UI COMPOSABLES ---
+// ui composables
 
 @Composable
 fun AddTransactionScreen(
@@ -188,7 +186,6 @@ fun AddTransactionScreen(
             .background(Color(0xFFF8F9FA))
             .padding(top = 24.dp)
     ) {
-        // 1. Top Bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -544,7 +541,6 @@ private fun CategoryItem(
     }
 }
 
-// FIX 3: Perfectly vertical-centered insertion points
 @Composable
 private fun AddTransactionInputField(
     value: String,
