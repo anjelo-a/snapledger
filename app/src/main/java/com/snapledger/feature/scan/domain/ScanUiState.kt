@@ -42,6 +42,15 @@ enum class OcrExtractionPhase {
 data class NormalizedOcrLine(
     val index: Int,
     val text: String,
+    val bbox: NormalizedBoundingBox? = null,
+    val ocrConfidence: Float? = null,
+)
+
+data class NormalizedBoundingBox(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
 )
 
 data class OcrExtractionMetadata(

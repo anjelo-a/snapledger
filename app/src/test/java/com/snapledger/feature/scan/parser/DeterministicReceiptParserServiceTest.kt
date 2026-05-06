@@ -117,6 +117,77 @@ class DeterministicReceiptParserServiceTest {
         assertEquals(800L, candidate.totalAmount?.amountMinor)
         assertTrue(candidate.warnings.any { it.contains("multi-line total label") })
     }
+
+    @Test
+    fun `faded total keyword with ocr confusion still parses total`() {
+        val candidate = parser.parse(
+            lines = fixtureLines(
+                "THERMAL MART",
+                "05/01/2026",
+                "BREAD 50.00",
+                "T0TAL 50.00",
+            ),
+        )
+
+        assertEquals(5000L, candidate.totalAmount?.amountMinor)
+    }
+
+    @Test
+    fun `faded amount due context can infer total`() {
+        val candidate = parser.parse(
+            lines = fixtureLines(
+                "THERMAL MART",
+                "05/01/2026",
+                "MILK 22.50",
+                "AM0UNT DUE 22.50",
+            ),
+        )
+
+        assertEquals(2250L, candidate.totalAmount?.amountMinor)
+        assertTrue(candidate.warnings.any { it.contains("faded total context") })
+    }
+
+    @Test
+    fun `integer amount total is accepted and normalized`() {
+        val candidate = parser.parse(
+            lines = fixtureLines(
+                "THERMAL MART",
+                "05/01/2026",
+                "TOTAL 66",
+            ),
+        )
+
+        assertEquals(6600L, candidate.totalAmount?.amountMinor)
+    }
+
+    @Test
+    fun `single decimal amount total is accepted and padded`() {
+        val candidate = parser.parse(
+            lines = fixtureLines(
+                "THERMAL MART",
+                "05/01/2026",
+                "TOTAL 13.7",
+            ),
+        )
+
+        assertEquals(1370L, candidate.totalAmount?.amountMinor)
+    }
+
+    @Test
+    fun `bottom standalone total fallback handles faded receipt without total keyword`() {
+        val candidate = parser.parse(
+            lines = fixtureLines(
+                "Starbucks Cotlee",
+                "HI by: Rust Uof fee Cop.",
+                "Latte 120.00",
+                "120.00",
+            ),
+        )
+
+        assertEquals(12000L, candidate.totalAmount?.amountMinor)
+        assertEquals("Starbucks Cotlee", candidate.merchant)
+        assertTrue(candidate.warnings.any { it.contains("bottom standalone amount fallback") })
+    }
 }
 
 private fun fixtureLines(vararg values: String): List<NormalizedOcrLine> {
