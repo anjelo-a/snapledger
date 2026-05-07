@@ -41,9 +41,12 @@
 
 ### OCR processing
 `POST /v1/receipts/process`
-- Purpose: optional server-side deterministic parsing fallback for OCR text lines in the scan review flow.
+- Purpose: optional server-side receipt extraction for the scan review flow using backend Gemini
+  vision with strict structured output validation.
 - Request contract:
-  - `ocr_lines: string[]` required, non-empty, max 500 lines.
+  - `image_base64: string` required for image-based extraction.
+  - `image_mime_type: string` required (for example `image/jpeg` or `image/png`).
+  - `ocr_lines: string[]` optional backward-compatibility path.
   - `locale: string | null` optional.
   - `currency_hint: string | null` optional 3-letter currency hint.
 - Response contract:
@@ -58,17 +61,18 @@
     0..1 confidence hints; `null` when unavailable.
 - Contract rules:
   - Backward-compatible additions are allowed only as optional response fields.
-  - No image bytes are posted to this endpoint; the contract starts after OCR as normalized text lines.
+  - Image payload must be validated for size and type before model invocation.
   - This endpoint never mutates saved receipts.
   - Android local save must not depend on this endpoint being available.
-  - Parser behavior is deterministic and rule-based only; no LLM, prompt, AI endpoint, or
-    generative cleanup path is allowed.
+  - Non-fabrication is mandatory: uncertain merchant/date/total/item amount fields return `null`
+    and include warning codes.
+  - Model output must be constrained to structured fields and pass deterministic
+    schema/business validation before response.
 - Current status:
-  - The route, strict request validation, deterministic parser, warnings, warning codes, and field
-    confidence hints are implemented.
+  - The route, strict request validation, warnings, warning codes, and field confidence hints are implemented.
   - Malformed, blank, unknown-field, overlong-line, and overlong-total-text payloads return
     explicit validation errors.
-  - Backend fallback remains optional; reviewed Android local save is the primary success path and
+  - Backend processing remains optional; reviewed Android local save is the primary success path and
     is local-first.
 - Scope: Phase 2 optional fallback.
 

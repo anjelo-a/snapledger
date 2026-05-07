@@ -23,6 +23,9 @@ import com.snapledger.feature.review.domain.ReviewRepository
 import com.snapledger.feature.scan.ocr.MlKitReceiptOcrService
 import com.snapledger.feature.scan.ocr.ReceiptOcrResult
 import com.snapledger.feature.scan.ocr.ReceiptOcrService
+import com.snapledger.feature.scan.network.ReceiptProcessService
+import com.snapledger.feature.scan.network.ReceiptProcessClient
+import com.snapledger.feature.scan.network.RemoteProcessResult
 import com.snapledger.feature.scan.parser.DeterministicReceiptParserService
 import com.snapledger.feature.scan.parser.ReceiptParserService
 import java.io.File
@@ -35,6 +38,7 @@ class ScanViewModel(
     private val repository: ScanRepository = CameraCaptureRepository(),
     private val ocrService: ReceiptOcrService,
     private val parserService: ReceiptParserService,
+    private val processService: ReceiptProcessClient,
     private val reviewRepository: ReviewRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
@@ -171,10 +175,10 @@ class ScanViewModel(
     fun onOcrRequested() {
         val capturedImage = uiState.capturedImage ?: run {
             uiState = uiState.copy(
-                ocr = OcrUiState(
-                    phase = OcrExtractionPhase.Failure,
-                    status = "OCR unavailable",
-                    errorMessage = "Capture a receipt image before running OCR.",
+                parser = ParserUiState(
+                    phase = ParserPhase.Failure,
+                    status = "Processing unavailable",
+                    errorMessage = "Capture a receipt image before processing.",
                 ),
             )
             return
@@ -182,62 +186,93 @@ class ScanViewModel(
 
         reviewRepository.storeParsedCandidate(null)
         uiState = uiState.copy(
-            ocr = OcrUiState(
-                phase = OcrExtractionPhase.Running,
-                status = "Extracting text with ML Kit",
-            ),
             parser = ParserUiState(
-                status = "Run the deterministic parser after OCR completes",
+                phase = ParserPhase.Running,
+                status = "Processing receipt",
             ),
         )
 
         viewModelScope.launch {
             val sourcePath = capturedImage.absolutePath
-            val result = withContext(ioDispatcher) {
-                ocrService.extractReceiptText(capturedImage)
-            }
+            val remoteResult = withContext(ioDispatcher) { processService.processReceipt(capturedImage) }
             if (uiState.capturedImage?.absolutePath != sourcePath) return@launch
 
-            uiState = uiState.copy(
-                ocr = when (result) {
-                    is ReceiptOcrResult.Success -> {
-                        val isPartial = result.warningMessages.isNotEmpty()
-                        OcrUiState(
-                            phase = if (isPartial) {
-                                OcrExtractionPhase.Partial
-                            } else {
-                                OcrExtractionPhase.Success
-                            },
-                            status = if (isPartial) {
-                                "OCR completed with warnings"
-                            } else {
-                                "OCR completed successfully"
-                            },
-                            lines = result.lines,
-                            metadata = result.metadata,
-                            warningMessages = result.warningMessages,
-                        )
-                    }
+            when (remoteResult) {
+                is RemoteProcessResult.Success -> {
+                    reviewRepository.storeParsedCandidate(remoteResult.candidate)
+                    val isComplete = remoteResult.candidate.merchant != null &&
+                        remoteResult.candidate.expenseDate != null &&
+                        remoteResult.candidate.totalAmount != null &&
+                        remoteResult.candidate.warnings.isEmpty()
+                    uiState = uiState.copy(
+                        parser = ParserUiState(
+                            phase = if (isComplete) ParserPhase.Success else ParserPhase.Partial,
+                            status = if (isComplete) "Receipt processed successfully" else "Receipt processed with warnings",
+                            candidate = remoteResult.candidate,
+                        ),
+                    )
+                }
 
-                    is ReceiptOcrResult.Empty -> {
-                        OcrUiState(
-                            phase = OcrExtractionPhase.Empty,
-                            status = "OCR found no usable lines",
-                            metadata = result.metadata,
-                            warningMessages = result.warningMessages,
-                            errorMessage = result.message,
-                        )
-                    }
+                is RemoteProcessResult.RateLimited -> {
+                    uiState = uiState.copy(
+                        parser = ParserUiState(
+                            phase = ParserPhase.Failure,
+                            status = "Processing delayed",
+                            errorMessage = remoteResult.message,
+                        ),
+                    )
+                }
 
-                    is ReceiptOcrResult.Failure -> {
-                        OcrUiState(
-                            phase = OcrExtractionPhase.Failure,
-                            status = "OCR failed",
-                            errorMessage = result.message,
-                        )
+                is RemoteProcessResult.Failure -> {
+                    val fallback = withContext(ioDispatcher) { ocrService.extractReceiptText(capturedImage) }
+                    when (fallback) {
+                        is ReceiptOcrResult.Success -> {
+                            val candidate = withContext(ioDispatcher) { parserService.parse(fallback.lines) }
+                            val mergedWarnings = (
+                                listOf("Offline fallback used. OCR accuracy may be reduced.") +
+                                    fallback.warningMessages +
+                                    candidate.warnings
+                                ).distinct()
+                            val fallbackCandidate = candidate.copy(warnings = mergedWarnings)
+                            reviewRepository.storeParsedCandidate(fallbackCandidate)
+                            uiState = uiState.copy(
+                                ocr = OcrUiState(
+                                    phase = OcrExtractionPhase.Partial,
+                                    status = "Offline OCR fallback used",
+                                    lines = fallback.lines,
+                                    metadata = fallback.metadata,
+                                    warningMessages = fallback.warningMessages,
+                                ),
+                                parser = ParserUiState(
+                                    phase = ParserPhase.Partial,
+                                    status = "Offline fallback completed",
+                                    candidate = fallbackCandidate,
+                                ),
+                            )
+                        }
+
+                        is ReceiptOcrResult.Empty -> {
+                            uiState = uiState.copy(
+                                parser = ParserUiState(
+                                    phase = ParserPhase.Failure,
+                                    status = "Processing failed",
+                                    errorMessage = "No network and offline OCR found no usable text.",
+                                ),
+                            )
+                        }
+
+                        is ReceiptOcrResult.Failure -> {
+                            uiState = uiState.copy(
+                                parser = ParserUiState(
+                                    phase = ParserPhase.Failure,
+                                    status = "Processing failed",
+                                    errorMessage = remoteResult.message,
+                                ),
+                            )
+                        }
                     }
-                },
-            )
+                }
+            }
         }
     }
 
@@ -316,6 +351,7 @@ class ScanViewModel(
                             repository = CameraCaptureRepository(),
                             ocrService = MlKitReceiptOcrService(appContext),
                             parserService = DeterministicReceiptParserService(),
+                            processService = ReceiptProcessService(appContext),
                             reviewRepository = LocalFirstReviewRepository.getInstance(appContext),
                         ) as T
                     }

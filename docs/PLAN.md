@@ -39,7 +39,7 @@ Why:
 ### Explicit non-goals
 - Microservices, CQRS, Kafka, message brokers.
 - Event-sourcing sync systems.
-- LLM for parsing or budgets.
+- LLM for budgets or deterministic finance math.
 - Forecasting/anomaly detection before core reliability.
 - Plugin/provider abstraction systems before concrete need.
 
@@ -85,16 +85,16 @@ Objective:
 - Production-ready scan -> structured review -> save flow.
 
 Deliverables:
-- CameraX capture, ML Kit extraction, deterministic parser, editable structured review.
-- Lock parser contract as `ocr_lines + locale + currency_hint -> candidate fields + warnings`.
+- CameraX capture, backend Gemini vision extraction, editable structured review.
+- Lock parser/extraction contract as image payload + optional locale/currency hints -> candidate fields + warnings.
 - Keep backend fallback optional so user-confirmed local save remains the primary success path.
 
 Acceptance criteria:
 - Save succeeds when merchant/date/total present even if items incomplete.
 - Review always happens before save; parser output is never auto-persisted.
 - Reviewed receipts are persisted locally first, with sync metadata queued separately.
-- Backend parser fallback is optional and must not block a valid local save.
-- No LLM parsing is introduced for receipts, including fallback behavior.
+- Backend processing is optional and must not block a valid local save.
+- Receipt extraction must enforce non-fabrication: uncertain fields return null with warning codes.
 
 Must not start:
 - Receipt version management and alias systems.
@@ -168,10 +168,13 @@ Acceptance criteria:
 Backend progress note (April 28, 2026):
 - Phase 1 backend scope is complete.
 - Phase 2 backend fallback parser is implemented as deterministic rule-based parsing only.
+- Phase 2 backend receipt processing path is moving to Gemini vision extraction with strict
+  schema validation and non-fabrication safeguards.
 - Remaining backend work is Phase 3 (budgets/dashboard), Phase 4 (sync), and Phase 5 (insight).
 
 Phase 2 contract lock (April 29, 2026):
-- `ReceiptProcessRequest` is already present with `ocr_lines`, optional `locale`, and optional `currency_hint`.
+- `ReceiptProcessRequest` supports image-based processing with optional locale and optional
+  `currency_hint`.
 - `ParsedReceiptCandidate` already carries `merchant`, `expense_date`, `total_amount`, `items`, and `warnings`.
 - Optional backward-compatible metadata fields are allowed for review UX only; current contract adds
   `warning_codes` and `field_confidence`.
@@ -179,8 +182,9 @@ Phase 2 contract lock (April 29, 2026):
 
 Phase 2 implementation note (April 30, 2026):
 - Android scan/review/save is local-first: a valid reviewed receipt saves locally even when
-  backend fallback is unavailable.
-- The backend fallback parser remains optional and deterministic-only.
+  backend processing is unavailable.
+- Backend extraction remains optional and must return structured output with deterministic
+  validation and non-fabrication behavior.
 - Sync metadata is queued separately from the local receipt record.
 
 ## Implementation order
@@ -192,8 +196,8 @@ Phase 2 implementation note (April 30, 2026):
 6. Implement history filters.
 7. Build structured review editor.
 8. Add CameraX capture.
-9. Add ML Kit OCR extraction.
-10. Add deterministic OCR parser.
+9. Add backend Gemini receipt extraction.
+10. Add deterministic validation and null-on-uncertain guardrails.
 11. Finalize scan/review/save flow.
 12. Add budgets and thresholds.
 13. Build dashboard aggregates and UI.

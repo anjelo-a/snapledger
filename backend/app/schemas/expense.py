@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.core.security import PaginationQuery, StrictSchema
 
@@ -79,13 +79,16 @@ class ExpenseListResponse(StrictSchema):
 
 
 class ReceiptProcessRequest(StrictSchema):
-    ocr_lines: list[str] = Field(min_length=1, max_length=500)
+    ocr_lines: list[str] | None = Field(default=None, min_length=1, max_length=500)
+    image_base64: str | None = Field(default=None, min_length=32, max_length=12_000_000)
     locale: str | None = Field(default=None, max_length=20)
     currency_hint: str | None = Field(default=None, min_length=3, max_length=3)
 
     @field_validator("ocr_lines")
     @classmethod
-    def validate_ocr_lines(cls, value: list[str]) -> list[str]:
+    def validate_ocr_lines(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
         total_chars = 0
         for line in value:
             if not line:
@@ -97,10 +100,35 @@ class ReceiptProcessRequest(StrictSchema):
             raise ValueError("ocr_lines total text length must be at most 20000 characters.")
         return value
 
+    @field_validator("image_base64")
+    @classmethod
+    def normalize_image_base64(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if normalized.startswith("data:") and "," in normalized:
+            normalized = normalized.split(",", 1)[1]
+        if not normalized:
+            raise ValueError("image_base64 must not be blank.")
+        return normalized
+
     @field_validator("currency_hint")
     @classmethod
     def normalize_currency_hint(cls, value: str | None) -> str | None:
         return value.upper() if value is not None else None
+
+    @field_validator("locale")
+    @classmethod
+    def normalize_locale(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
+    @model_validator(mode="after")
+    def validate_union_input(self) -> "ReceiptProcessRequest":
+        ocr_lines = self.ocr_lines
+        image_base64 = self.image_base64
+        if not ocr_lines and not image_base64:
+            raise ValueError("Either ocr_lines or image_base64 is required.")
+        return self
 
 
 class ParsedReceiptFieldConfidence(StrictSchema):

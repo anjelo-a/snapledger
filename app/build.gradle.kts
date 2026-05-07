@@ -1,9 +1,25 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
 }
+
+kotlin {
+    jvmToolchain(21)
+}
+
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) {
+        f.inputStream().use { load(it) }
+    }
+}
+val backendBaseUrl =
+    (localProps.getProperty("SNAPLEDGER_BACKEND_BASE_URL") ?: "http://10.0.2.2:8000/")
+        .let { if (it.endsWith("/")) it else "$it/" }
 
 android {
     namespace = "com.snapledger"
@@ -21,12 +37,12 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("String", "BACKEND_BASE_URL", "\"http://10.0.2.2:8000/\"")
+            buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
         }
 
         release {
             isMinifyEnabled = false
-            buildConfigField("String", "BACKEND_BASE_URL", "\"http://10.0.2.2:8000/\"")
+            buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

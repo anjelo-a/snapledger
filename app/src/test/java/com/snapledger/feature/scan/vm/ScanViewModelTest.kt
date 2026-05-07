@@ -17,6 +17,8 @@ import com.snapledger.feature.review.domain.ReviewRepository
 import com.snapledger.feature.review.domain.ReviewSaveResult
 import com.snapledger.feature.scan.ocr.ReceiptOcrResult
 import com.snapledger.feature.scan.ocr.ReceiptOcrService
+import com.snapledger.feature.scan.network.RemoteProcessResult
+import com.snapledger.feature.scan.network.ReceiptProcessClient
 import com.snapledger.feature.scan.parser.ReceiptParserService
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -41,6 +43,7 @@ class ScanViewModelTest {
             repository = repository,
             ocrService = FakeReceiptOcrService(),
             parserService = FakeReceiptParserService(),
+            processService = FakeReceiptProcessService(),
             reviewRepository = FakeReviewRepository(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
@@ -72,6 +75,7 @@ class ScanViewModelTest {
             repository = FakeScanRepository(),
             ocrService = FakeReceiptOcrService(),
             parserService = FakeReceiptParserService(),
+            processService = FakeReceiptProcessService(),
             reviewRepository = FakeReviewRepository(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
@@ -110,6 +114,7 @@ class ScanViewModelTest {
                 ),
             ),
             parserService = FakeReceiptParserService(),
+            processService = FakeReceiptProcessService(),
             reviewRepository = FakeReviewRepository(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
@@ -135,6 +140,7 @@ class ScanViewModelTest {
                 ),
             ),
             parserService = FakeReceiptParserService(),
+            processService = FakeReceiptProcessService(),
             reviewRepository = FakeReviewRepository(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
@@ -158,6 +164,7 @@ class ScanViewModelTest {
                 ),
             ),
             parserService = FakeReceiptParserService(),
+            processService = FakeReceiptProcessService(),
             reviewRepository = FakeReviewRepository(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
@@ -183,6 +190,7 @@ class ScanViewModelTest {
                 ),
             ),
             parserService = FakeReceiptParserService(),
+            processService = FakeReceiptProcessService(),
             reviewRepository = FakeReviewRepository(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
@@ -223,6 +231,7 @@ class ScanViewModelTest {
                 ),
             ),
             reviewRepository = FakeReviewRepository(),
+            processService = FakeReceiptProcessService(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -258,6 +267,7 @@ class ScanViewModelTest {
                 ),
             ),
             reviewRepository = FakeReviewRepository(),
+            processService = FakeReceiptProcessService(),
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -332,6 +342,14 @@ private class FakeReceiptParserService(
 ) : ReceiptParserService {
     override fun parse(lines: List<NormalizedOcrLine>): ParsedReceiptCandidate {
         return candidate
+    }
+}
+
+private class FakeReceiptProcessService(
+    private val result: RemoteProcessResult = RemoteProcessResult.Failure("offline"),
+) : ReceiptProcessClient {
+    override suspend fun processReceipt(capturedImage: CapturedImageMetadata): RemoteProcessResult {
+        return result
     }
 }
 

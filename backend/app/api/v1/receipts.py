@@ -16,7 +16,7 @@ from app.schemas.expense import (
     ParsedReceiptCandidate,
     ReceiptProcessRequest,
 )
-from app.services.parser_service import parse_receipt
+from app.services.parser_service import GeminiProcessError, parse_receipt
 from app.services.receipt_service import ReceiptService
 
 router = APIRouter(prefix="/receipts", tags=["receipts"])
@@ -107,4 +107,7 @@ def delete_receipt(
 
 @router.post("/process", response_model=ParsedReceiptCandidate)
 def process_receipt(payload: ReceiptProcessRequest) -> ParsedReceiptCandidate:
-    return parse_receipt(payload)
+    try:
+        return parse_receipt(payload)
+    except GeminiProcessError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

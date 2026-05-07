@@ -3,11 +3,11 @@
 ## System shape
 - Android app is local-first and remains usable with no network.
 - Backend is a single FastAPI service with PostgreSQL.
-- Gemini is backend-only and used only for one narrative insight.
+- Gemini is backend-only and used for receipt extraction plus one narrative insight.
 
 ## Android frontend architecture
 Responsibilities:
-- Capture receipt image and OCR text.
+- Capture receipt image and submit for extraction.
 - Provide structured review/edit experience before any save.
 - Persist all user actions locally first.
 - Render dashboard/history from local data.
@@ -17,7 +17,7 @@ Boundaries:
 - ViewModels orchestrate intents and state.
 - Repositories encapsulate data source access.
 - Domain logic lives outside Composables.
-- Scan flow is `capture -> OCR -> deterministic parse candidate -> user review -> local save`.
+- Scan flow is `capture -> backend extraction candidate -> user review -> local save`.
 - Review is the approval boundary: parser output is always editable and never saved directly.
 
 Must not couple:
@@ -29,7 +29,7 @@ Must not couple:
 ## Backend architecture
 Responsibilities:
 - Canonical cloud schema and CRUD.
-- Deterministic parsing helpers (optional server fallback).
+- Receipt extraction orchestration using Gemini vision with deterministic schema/business validation.
 - Budget and dashboard deterministic calculations.
 - Insight generation orchestration.
 - Sync protocol support.
@@ -44,7 +44,7 @@ Must not couple:
 - SQL in API routers.
 - Budget logic with AI pipeline.
 - AI outputs with deterministic finance logic.
-- Receipt parsing with any LLM, prompt, or generative cleanup path.
+- Receipt extraction output bypassing deterministic validation or non-fabrication gates.
 
 Current backend implementation notes:
 - Receipts and category mutation endpoints are implemented through service/repository layers.
@@ -52,9 +52,9 @@ Current backend implementation notes:
 - Global error envelope handlers are registered for HTTP/validation/unhandled exceptions.
 - Optional security middleware gates are available via env config: API key, CORS allowlist, in-memory rate limiting, HTTPS enforcement.
 - `POST /v1/receipts/process` implements the Phase 2 deterministic parser fallback with strict
-  OCR input validation and structured candidate output.
-- Backend fallback parsing is optional; Android review/save persists locally first and never waits
-  on backend availability.
+  image/OCR input validation and structured candidate output.
+- Backend receipt processing is optional; Android review/save persists locally first and never waits
+  on backend availability to complete a valid reviewed save.
 
 ## Data/storage architecture
 Local:
@@ -98,10 +98,12 @@ Must not couple:
 - Prompt is template-based and minimal.
 - Response is one polished insight text + optional short action tip.
 - Insight failures return fallback response; never block dashboard.
-- Receipt OCR parsing is outside AI scope and must remain deterministic-only.
+- Receipt extraction can use backend Gemini vision but must output strict structured fields and
+  return null on uncertainty with warning metadata.
 
 Must not couple:
-- AI to parsing, totals, budget thresholds, or category math.
+- AI to budget thresholds or category math.
+- AI output directly to persistence without review and deterministic validation boundaries.
 
 ## Android module/package structure
 - `app/src/main/java/com/snapledger/core/*` shared data/network/sync utilities.

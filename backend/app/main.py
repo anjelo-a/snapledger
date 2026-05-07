@@ -9,6 +9,7 @@ from app.api.error_handlers import (
 )
 from app.api.v1 import api_router
 from app.core.config import get_settings
+from app.core.logging import configure_logging
 from app.core.middleware import (
     ApiKeyMiddleware,
     HttpsEnforcementMiddleware,
@@ -17,6 +18,7 @@ from app.core.middleware import (
 
 
 def create_app() -> FastAPI:
+    configure_logging()
     settings = get_settings()
     app = FastAPI(title=settings.app_name, version="0.1.0")
     app.add_exception_handler(HTTPException, http_exception_handler)
