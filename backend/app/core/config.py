@@ -46,6 +46,10 @@ class Settings:
         self.enforce_https: bool = os.getenv("ENFORCE_HTTPS", "false").lower() == "true"
         self.gemini_api_key: str | None = os.getenv("GEMINI_API_KEY")
         self.gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.gemini_fallback_model: str = os.getenv(
+            "GEMINI_FALLBACK_MODEL",
+            "gemini-2.5-flash-lite",
+        )
         self.gemini_timeout_seconds: float = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "20"))
 
 
