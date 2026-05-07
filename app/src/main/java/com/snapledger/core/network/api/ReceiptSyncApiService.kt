@@ -25,7 +25,7 @@ interface ReceiptSyncApiService {
 
     companion object {
         fun create(
-            baseUrl: String = NetworkConfig.backendBaseUrl,
+            baseUrl: String = NetworkConfig.safeBackendBaseUrl,
             moshi: Moshi = Moshi.Builder().build(),
         ): ReceiptSyncApiService {
             return Retrofit.Builder()

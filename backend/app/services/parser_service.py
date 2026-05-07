@@ -115,13 +115,86 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
     try:
         image_bytes = base64.b64decode(payload.image_base64, validate=False)
         image_bytes, mime_type = _prepare_image_for_gemini(image_bytes)
-        response_text = _call_gemini_extract(
-            image_bytes=image_bytes,
-            mime_type=mime_type,
-            locale=payload.locale,
-            currency_hint=payload.currency_hint,
-        )
-        return _map_gemini_response_to_candidate(response_text)
+        primary_model = settings.gemini_model
+        fallback_model = settings.gemini_fallback_model
+        model_sequence = [primary_model]
+        if fallback_model and fallback_model != primary_model:
+            model_sequence.append(fallback_model)
+
+        last_exception: Exception | None = None
+        for model_index, model_name in enumerate(model_sequence):
+            has_fallback_remaining = model_index < len(model_sequence) - 1
+            try:
+                response_text = _call_gemini_extract(
+                    image_bytes=image_bytes,
+                    mime_type=mime_type,
+                    locale=payload.locale,
+                    currency_hint=payload.currency_hint,
+                    model_name=model_name,
+                )
+                try:
+                    return _map_gemini_response_to_candidate(response_text)
+                except json.JSONDecodeError as exc:
+                    logger.error(
+                        "gemini_receipt_failure type=invalid_json model=%s error=%s",
+                        model_name,
+                        str(exc),
+                    )
+                    repair_text = _call_gemini_extract(
+                        image_bytes=image_bytes,
+                        mime_type=mime_type,
+                        locale=payload.locale,
+                        currency_hint=payload.currency_hint,
+                        model_name=model_name,
+                        strict_json_repair=True,
+                    )
+                    return _map_gemini_response_to_candidate(repair_text)
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                response_body = _truncate_for_log(exc.response.text)
+                logger.error(
+                    "gemini_receipt_failure type=http_status model=%s status=%s body=%s",
+                    model_name,
+                    status,
+                    response_body,
+                )
+                if status == 429:
+                    raise GeminiProcessError(
+                        429,
+                        "Receipt extraction is rate-limited. Try again shortly.",
+                    ) from exc
+                if status in (401, 403):
+                    raise GeminiProcessError(
+                        502,
+                        "Receipt extraction auth failed. Check Gemini API key configuration.",
+                    ) from exc
+                if status in (500, 502, 503, 504) and has_fallback_remaining:
+                    last_exception = exc
+                    continue
+                raise GeminiProcessError(502, "Receipt extraction upstream request failed.") from exc
+            except TimeoutError as exc:
+                logger.error("gemini_receipt_failure type=timeout model=%s", model_name)
+                if has_fallback_remaining:
+                    last_exception = exc
+                    continue
+                raise GeminiProcessError(504, "Receipt extraction timed out.") from exc
+            except json.JSONDecodeError as exc:
+                logger.error(
+                    "gemini_receipt_failure type=invalid_json model=%s error=%s",
+                    model_name,
+                    str(exc),
+                )
+                if has_fallback_remaining:
+                    last_exception = exc
+                    continue
+                raise GeminiProcessError(502, "Receipt extraction returned invalid JSON.") from exc
+            except Exception as exc:
+                logger.exception("gemini_receipt_failure type=unexpected model=%s", model_name)
+                if has_fallback_remaining:
+                    last_exception = exc
+                    continue
+                raise GeminiProcessError(502, f"Receipt extraction failed: {exc}") from exc
+        raise GeminiProcessError(502, "Receipt extraction upstream request failed.") from last_exception
     except TimeoutError as exc:
         logger.error("gemini_receipt_failure type=timeout")
         raise GeminiProcessError(504, "Receipt extraction timed out.") from exc
@@ -232,6 +305,8 @@ def _call_gemini_extract(
     mime_type: str,
     locale: str | None,
     currency_hint: str | None,
+    model_name: str,
+    strict_json_repair: bool = False,
 ) -> str:
     settings = get_settings()
     prompt = (
@@ -240,8 +315,14 @@ def _call_gemini_extract(
         "Use null when uncertain. No extra keys or text. "
         f"Locale={locale or 'unknown'}; currency_hint={currency_hint or 'unknown'}."
     )
+    if strict_json_repair:
+        prompt = (
+            "Output a single valid JSON object only. No markdown, no explanation, no trailing text. "
+            "Schema: {merchant,date,subtotal,tax,total,line_items:[{name,amount}]}. "
+            "Use null when uncertain."
+        )
     endpoint = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent"
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
         f"?key={settings.gemini_api_key}"
     )
     request_payload = {
@@ -269,10 +350,32 @@ def _call_gemini_extract(
             try:
                 response = client.post(endpoint, json=request_payload)
             except httpx.TimeoutException as exc:
+                if attempt == 0:
+                    backoff_seconds = random.uniform(0.3, 0.8)
+                    logger.warning(
+                        "gemini_receipt_timeout_retry model=%s attempt=%s backoff_seconds=%.2f",
+                        model_name,
+                        attempt + 1,
+                        backoff_seconds,
+                    )
+                    time.sleep(backoff_seconds)
+                    continue
                 raise TimeoutError from exc
+            if response.status_code in (503, 504) and attempt == 0:
+                backoff_seconds = random.uniform(0.3, 0.8)
+                logger.warning(
+                    "gemini_receipt_http_retry model=%s status=%s attempt=%s backoff_seconds=%.2f",
+                    model_name,
+                    response.status_code,
+                    attempt + 1,
+                    backoff_seconds,
+                )
+                time.sleep(backoff_seconds)
+                continue
             if response.status_code == 429 and attempt == 0:
                 logger.warning(
-                    "gemini_receipt_429_retry attempt=%s backoff_seconds=%.2f",
+                    "gemini_receipt_429_retry model=%s attempt=%s backoff_seconds=%.2f",
+                    model_name,
                     attempt + 1,
                     2.5,
                 )
@@ -287,7 +390,7 @@ def _call_gemini_extract(
             )
             logger.info(
                 "gemini_receipt_raw_response model=%s text_len=%s text=%s",
-                settings.gemini_model,
+                model_name,
                 len(response_text or ""),
                 _truncate_for_log(response_text),
             )

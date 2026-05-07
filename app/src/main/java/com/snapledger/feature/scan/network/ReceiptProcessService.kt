@@ -71,7 +71,7 @@ class ReceiptProcessService(
 
     companion object {
         private fun createApi(
-            baseUrl: String = NetworkConfig.backendBaseUrl,
+            baseUrl: String = NetworkConfig.safeBackendBaseUrl,
             moshi: Moshi = Moshi.Builder().build(),
         ): ReceiptProcessApiService {
             return Retrofit.Builder()

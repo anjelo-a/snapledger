@@ -10,7 +10,6 @@ import androidx.lifecycle.viewModelScope
 import com.snapledger.feature.scan.domain.CameraCaptureRepository
 import com.snapledger.feature.scan.domain.CameraPermissionState
 import com.snapledger.feature.scan.domain.CapturedImageMetadata
-import com.snapledger.feature.scan.domain.OcrExtractionPhase
 import com.snapledger.feature.scan.domain.OcrUiState
 import com.snapledger.feature.scan.domain.ParserPhase
 import com.snapledger.feature.scan.domain.ParserUiState
@@ -20,9 +19,6 @@ import com.snapledger.feature.scan.domain.ScanRepository
 import com.snapledger.feature.scan.domain.ScanUiState
 import com.snapledger.feature.review.domain.LocalFirstReviewRepository
 import com.snapledger.feature.review.domain.ReviewRepository
-import com.snapledger.feature.scan.ocr.MlKitReceiptOcrService
-import com.snapledger.feature.scan.ocr.ReceiptOcrResult
-import com.snapledger.feature.scan.ocr.ReceiptOcrService
 import com.snapledger.feature.scan.network.ReceiptProcessService
 import com.snapledger.feature.scan.network.ReceiptProcessClient
 import com.snapledger.feature.scan.network.RemoteProcessResult
@@ -36,7 +32,6 @@ import kotlinx.coroutines.withContext
 
 class ScanViewModel(
     private val repository: ScanRepository = CameraCaptureRepository(),
-    private val ocrService: ReceiptOcrService,
     private val parserService: ReceiptParserService,
     private val processService: ReceiptProcessClient,
     private val reviewRepository: ReviewRepository,
@@ -224,53 +219,13 @@ class ScanViewModel(
                 }
 
                 is RemoteProcessResult.Failure -> {
-                    val fallback = withContext(ioDispatcher) { ocrService.extractReceiptText(capturedImage) }
-                    when (fallback) {
-                        is ReceiptOcrResult.Success -> {
-                            val candidate = withContext(ioDispatcher) { parserService.parse(fallback.lines) }
-                            val mergedWarnings = (
-                                listOf("Offline fallback used. OCR accuracy may be reduced.") +
-                                    fallback.warningMessages +
-                                    candidate.warnings
-                                ).distinct()
-                            val fallbackCandidate = candidate.copy(warnings = mergedWarnings)
-                            reviewRepository.storeParsedCandidate(fallbackCandidate)
-                            uiState = uiState.copy(
-                                ocr = OcrUiState(
-                                    phase = OcrExtractionPhase.Partial,
-                                    status = "Offline OCR fallback used",
-                                    lines = fallback.lines,
-                                    metadata = fallback.metadata,
-                                    warningMessages = fallback.warningMessages,
-                                ),
-                                parser = ParserUiState(
-                                    phase = ParserPhase.Partial,
-                                    status = "Offline fallback completed",
-                                    candidate = fallbackCandidate,
-                                ),
-                            )
-                        }
-
-                        is ReceiptOcrResult.Empty -> {
-                            uiState = uiState.copy(
-                                parser = ParserUiState(
-                                    phase = ParserPhase.Failure,
-                                    status = "Processing failed",
-                                    errorMessage = "No network and offline OCR found no usable text.",
-                                ),
-                            )
-                        }
-
-                        is ReceiptOcrResult.Failure -> {
-                            uiState = uiState.copy(
-                                parser = ParserUiState(
-                                    phase = ParserPhase.Failure,
-                                    status = "Processing failed",
-                                    errorMessage = remoteResult.message,
-                                ),
-                            )
-                        }
-                    }
+                    uiState = uiState.copy(
+                        parser = ParserUiState(
+                            phase = ParserPhase.Failure,
+                            status = "Processing failed",
+                            errorMessage = remoteResult.message,
+                        ),
+                    )
                 }
             }
         }
@@ -349,7 +304,6 @@ class ScanViewModel(
                     if (modelClass.isAssignableFrom(ScanViewModel::class.java)) {
                         return ScanViewModel(
                             repository = CameraCaptureRepository(),
-                            ocrService = MlKitReceiptOcrService(appContext),
                             parserService = DeterministicReceiptParserService(),
                             processService = ReceiptProcessService(appContext),
                             reviewRepository = LocalFirstReviewRepository.getInstance(appContext),
