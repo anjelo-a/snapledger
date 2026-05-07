@@ -47,6 +47,13 @@ Backend:
 - Capture endpoint latency, error rates, and DB query timings.
 - Track sync batch durations and failure causes.
 
+Receipt extraction baseline cadence:
+- Run deterministic extraction perf sweep nightly (`/v1/receipts/process` with OCR-line dataset).
+- Track p50/p95/p99 latency, timeout rate, 429 rate, and non-200 class breakdown.
+- Store timestamped artifacts with commit SHA for trend analysis.
+- Treat p95 regressions above +15% as merge-blocking unless explicitly accepted in PR notes.
+- Treat sub-5 percentage point deltas as noise at small sample sizes unless repeated across 2+ runs.
+
 ## Minimum acceptable release bar
 - No target misses above 10% on two consecutive benchmark runs.
 - No regressions in startup, OCR latency, or dashboard responsiveness before phase sign-off.

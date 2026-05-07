@@ -27,3 +27,8 @@ __pycache__/
 
 # Logs
 *.log
+
+# Eval artifacts
+backend/eval_artifacts/
+backend/evals/staging/
+backend/evals/incoming/
