@@ -171,7 +171,10 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
                 if status in (500, 502, 503, 504) and has_fallback_remaining:
                     last_exception = exc
                     continue
-                raise GeminiProcessError(502, "Receipt extraction upstream request failed.") from exc
+                raise GeminiProcessError(
+                    502,
+                    "Receipt extraction upstream request failed.",
+                ) from exc
             except TimeoutError as exc:
                 logger.error("gemini_receipt_failure type=timeout model=%s", model_name)
                 if has_fallback_remaining:
@@ -194,7 +197,10 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
                     last_exception = exc
                     continue
                 raise GeminiProcessError(502, f"Receipt extraction failed: {exc}") from exc
-        raise GeminiProcessError(502, "Receipt extraction upstream request failed.") from last_exception
+        raise GeminiProcessError(
+            502,
+            "Receipt extraction upstream request failed.",
+        ) from last_exception
     except TimeoutError as exc:
         logger.error("gemini_receipt_failure type=timeout")
         raise GeminiProcessError(504, "Receipt extraction timed out.") from exc
@@ -317,7 +323,8 @@ def _call_gemini_extract(
     )
     if strict_json_repair:
         prompt = (
-            "Output a single valid JSON object only. No markdown, no explanation, no trailing text. "
+            "Output a single valid JSON object only. "
+            "No markdown, no explanation, no trailing text. "
             "Schema: {merchant,date,subtotal,tax,total,line_items:[{name,amount}]}. "
             "Use null when uncertain."
         )
