@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import re
 import base64
+from io import BytesIO
 import json
 import logging
 import random
+import re
 import time
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Generic, TypeVar
-from io import BytesIO
 
 import httpx
 from PIL import Image
@@ -24,6 +24,7 @@ from app.schemas.expense import (
 )
 
 logger = logging.getLogger(__name__)
+
 
 class GeminiProcessError(Exception):
     def __init__(self, status_code: int, message: str) -> None:
@@ -126,7 +127,10 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         if status == 429:
-            raise GeminiProcessError(429, "Receipt extraction is rate-limited. Try again shortly.") from exc
+            raise GeminiProcessError(
+                429,
+                "Receipt extraction is rate-limited. Try again shortly.",
+            ) from exc
         raise GeminiProcessError(502, "Receipt extraction upstream request failed.") from exc
     except Exception as exc:
         raise GeminiProcessError(502, f"Receipt extraction failed: {exc}") from exc
@@ -299,7 +303,10 @@ def _map_gemini_response_to_candidate(response_text: str) -> ParsedReceiptCandid
     if _contains_injection_content(parsed):
         logger.warning("gemini_receipt_rejected reason=injection_like_content")
         return ParsedReceiptCandidate(
-            warnings=["Gemini response contained non-receipt instruction-like content and was discarded."],
+            warnings=[
+                "Gemini response contained non-receipt "
+                "instruction-like content and was discarded."
+            ],
             warning_codes=["GEMINI_PROMPT_INJECTION_DETECTED"],
         )
 
