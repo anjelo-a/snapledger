@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-from io import BytesIO
 import json
 import logging
 import random
@@ -10,6 +9,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
 from typing import Generic, TypeVar
 
 import httpx
