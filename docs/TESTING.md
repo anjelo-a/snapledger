@@ -71,6 +71,38 @@
 - Validate response shape and fallback handling.
 - Do not assert exact full generated text snapshots.
 
+## Receipt extraction eval cadence (Phase 2+)
+- Goal: catch silent extraction regressions early without annotation burnout.
+- Keep two eval sets:
+- `canary` set: frozen subset (8 receipts).
+- `full` set: working benchmark subset (40 receipts).
+- Run `canary` on every backend PR touching `backend/**`.
+- Run `full` before merge for any PR that changes:
+- `backend/app/services/parser_service.py`
+- prompt/extraction mapping logic
+- extraction request/response schema (`backend/app/schemas/expense.py`)
+- extraction route behavior (`POST /v1/receipts/process`)
+- Run `full` nightly in CI to catch drift (429 patterns, timeout behavior, env drift).
+- Run perf sweep nightly (deterministic route) with repeated passes.
+- Archive eval metrics by merge commit SHA so regressions and improvements are auditable.
+- Current runner command:
+- `cd backend && .venv/bin/python scripts/run_receipt_eval.py --mode eval --dataset evals/receipt_canary.jsonl --output-dir eval_artifacts`
+- `cd backend && .venv/bin/python scripts/run_receipt_eval.py --mode eval --dataset evals/receipt_full.jsonl --output-dir eval_artifacts`
+- `cd backend && .venv/bin/python scripts/run_receipt_eval.py --mode perf --dataset evals/receipt_full.jsonl --repeats 3 --output-dir eval_artifacts`
+
+### Practical merge gate for extraction changes
+- No regression in `total_amount` non-null precision.
+- No regression in null-on-uncertainty recall for uncertain fields.
+- Warning-code false-positive rate increase must stay within:
+- +2 percentage points overall, and
+- +5 percentage points for any single high-impact warning code.
+- p95 `/v1/receipts/process` latency regression must stay within +15% unless explicitly approved.
+
+### Baseline reporting rule for small datasets
+- Always report metric + denominator (example: `87.5% (14/16)`).
+- Do not treat sub-5 percentage point changes as meaningful without larger sample size.
+- Repeat suspicious deltas across at least 2 independent runs before claiming regression/fix.
+
 ## CI requirements by phase
 - Phase 1: unit + Room tests mandatory.
 - Phase 2: add OCR flow smoke tests plus parser contract regression tests.

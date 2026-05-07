@@ -44,6 +44,30 @@ cd backend
 pytest -q
 ```
 
+## Run receipt extraction eval
+
+```bash
+cd backend
+.venv/bin/python scripts/run_receipt_eval.py --mode eval --dataset evals/receipt_canary.jsonl --output-dir eval_artifacts
+.venv/bin/python scripts/run_receipt_eval.py --mode eval --dataset evals/receipt_full.jsonl --output-dir eval_artifacts
+.venv/bin/python scripts/run_receipt_eval.py --mode perf --dataset evals/receipt_full.jsonl --repeats 3 --output-dir eval_artifacts
+```
+
+## Curate real scan samples into eval datasets
+
+```bash
+cd backend
+.venv/bin/python scripts/export_local_receipts_to_incoming.py --sqlite-db /path/to/review_local.db --output evals/incoming/new_scans.jsonl
+.venv/bin/python scripts/manage_receipt_eval_staging.py ingest --input evals/incoming/new_scans.jsonl
+.venv/bin/python scripts/manage_receipt_eval_staging.py stats
+.venv/bin/python scripts/manage_receipt_eval_staging.py approve --all-clean
+.venv/bin/python scripts/manage_receipt_eval_staging.py promote --target evals/receipt_full.jsonl --prefix real --limit 10
+```
+
+Notes:
+- Export reads `local_receipts` + `local_receipt_items` from Android Room DB and reconstructs `ocr_lines`.
+- Raw OCR text is not persisted by the app today, so exported rows are review-derived reconstruction.
+
 ## Run migrations
 
 ```bash
