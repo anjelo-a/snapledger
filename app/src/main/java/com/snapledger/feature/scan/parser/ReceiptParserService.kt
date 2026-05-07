@@ -27,8 +27,7 @@ class DeterministicReceiptParserService : ReceiptParserService {
             )
         }
 
-        val filteredLines = lines.filterNot { isStrongNoiseLine(it.text) }
-        val cleanedLines = if (filteredLines.size >= 3) filteredLines else lines
+        val cleanedLines = lines
         val merchantSelection = selectMerchant(cleanedLines)
         val expenseDateSelection = selectExpenseDate(cleanedLines)
         val tableHeaderIndex = detectItemTableHeaderIndex(cleanedLines)
@@ -46,6 +45,9 @@ class DeterministicReceiptParserService : ReceiptParserService {
         warnings += merchantSelection.warnings
         warnings += expenseDateSelection.warnings
         warnings += totalSelection.warnings
+        if (items.isNotEmpty() && items.any { it.amount == null }) {
+            warnings += "Item prices were not detected by OCR; descriptions were recovered without amounts."
+        }
         if (!(merchantPass || datePass || totalPass)) {
             warnings += "Low OCR parse reliability score ($reliability/$MAX_PARSE_RELIABILITY_SCORE). Manual confirmation required."
         }
@@ -95,12 +97,41 @@ private data class InferredTotal(
 )
 
 private fun selectMerchant(lines: List<NormalizedOcrLine>): MerchantSelection {
-    val orderedForMerchant = lines
+    val orderedAll = lines
         .sortedWith(
             compareBy<NormalizedOcrLine> { it.bbox?.top ?: 1f }
                 .thenBy { it.index },
         )
-        .take(10)
+    val orderedForMerchant = orderedAll.take(10)
+
+    val directKnownHit = orderedAll.firstNotNullOfOrNull { line ->
+        val compact = normalizeOcrKeywordText(line.text.lowercase(Locale.US)).replace(Regex("[^a-z0-9]"), "")
+        val match = KNOWN_MERCHANT_CANONICAL.entries.firstOrNull { (key, _) ->
+            compact.contains(key) || merchantMatchScore(compact, key) >= 60
+        }
+        match?.let { line.index to it.value }
+    }
+    if (directKnownHit != null) {
+        return MerchantSelection(
+            value = directKnownHit.second,
+            lineIndex = directKnownHit.first,
+            warnings = emptyList(),
+        )
+    }
+
+    val canonicalHit = orderedForMerchant
+        .mapNotNull { line ->
+            val normalized = canonicalizeMerchant(line.text)
+            if (KNOWN_MERCHANT_CANONICAL.values.contains(normalized)) line.index to normalized else null
+        }
+        .firstOrNull()
+    if (canonicalHit != null) {
+        return MerchantSelection(
+            value = canonicalHit.second,
+            lineIndex = canonicalHit.first,
+            warnings = emptyList(),
+        )
+    }
 
     val candidates = orderedForMerchant.map { line ->
         ScoredMerchantLine(line.index, line.text, scoreMerchantLine(line))
@@ -142,7 +173,9 @@ private fun scoreMerchantLine(line: NormalizedOcrLine): Int {
     if (letters > 0 && digits > letters) score -= 28
     if (letters > 0 && letters * 100 / (letters + digits).coerceAtLeast(1) < 55) score -= 24
     if (uppercaseLetters > 0 && uppercaseLetters >= letters * 0.6) score += 8
-    if (KNOWN_MERCHANT_HINTS.any { lowercase.contains(it) }) score += 8
+    if (KNOWN_MERCHANT_HINTS.any { lowercase.contains(it) }) score += 22
+    if (looksAddressLike(lowercase)) score -= 26
+    if (matchesKnownMerchantCanonical(text)) score += 24
 
     if (lowercase.contains("receipt") || lowercase.contains("invoice") || lowercase.contains("order")) score -= 12
     if (lowercase.contains("copy")) score -= 18
@@ -173,7 +206,6 @@ private fun selectExpenseDate(lines: List<NormalizedOcrLine>): DateSelection {
     }
 
     prioritized.forEach { line ->
-        if (isReceiptMetaNoise(line.text)) return@forEach
         val matchedDate = matchesKnownDate(line.text) ?: return@forEach
         val year = matchedDate.normalized.take(4).toIntOrNull() ?: return@forEach
         if (year !in VALID_RECEIPT_YEAR_RANGE) return@forEach
@@ -264,6 +296,15 @@ private fun selectTotalAmount(
     }
 
     if (bestCandidate == null) {
+        val subtotalTax = inferTotalFromSubtotalAndTax(lines)
+        if (subtotalTax != null) {
+            warnings += "Total amount was inferred from subtotal plus tax."
+            bestCandidate = -2 to subtotalTax
+            bestScore = 64
+        }
+    }
+
+    if (bestCandidate == null) {
         val fromItems = inferTotalFromItems(items)
         if (fromItems != null) {
             warnings += "Total amount was inferred from parsed item sum."
@@ -318,6 +359,7 @@ private fun normalizeOcrKeywordText(text: String): String {
         .replace('|', 'l')
         .replace('!', 'i')
         .replace('@', 'a')
+        .replace('i', 'l')
 }
 
 private fun detectItemTableHeaderIndex(lines: List<NormalizedOcrLine>): Int? {
@@ -362,7 +404,32 @@ private fun inferTotalFromItems(items: List<ParsedReceiptItemCandidate>): Parsed
     )
 }
 
+private fun inferTotalFromSubtotalAndTax(lines: List<NormalizedOcrLine>): ParsedMoneyCandidate? {
+    var subtotal: Long? = null
+    var tax: Long? = null
+    lines.forEach { line ->
+        val lower = normalizeOcrKeywordText(line.text.lowercase(Locale.US))
+        val amount = parseLastMoneyCandidate(line.text)?.amountMinor ?: return@forEach
+        if (lower.contains("subtotal")) subtotal = amount
+        if (lower.contains("tax") || lower.contains("vat")) tax = amount
+    }
+    val sub = subtotal ?: return null
+    val tx = tax ?: return null
+    val total = sub + tx
+    if (total <= 0L) return null
+    return ParsedMoneyCandidate(rawText = "subtotal_plus_tax", amountMinor = total)
+}
+
 private fun inferBottomRightStandaloneTotal(lines: List<NormalizedOcrLine>): InferredTotal? {
+    if (lines.any { line ->
+            val normalized = normalizeOcrKeywordText(line.text.lowercase(Locale.US))
+            (normalized.contains("total") || normalized.contains("amount due") || normalized.contains("balance due")) &&
+                !NON_TOTAL_KEYWORDS.any { token -> normalized.contains(token) }
+        }
+    ) {
+        return null
+    }
+
     return lines.mapNotNull { line ->
         val amount = parseLastMoneyCandidate(line.text) ?: return@mapNotNull null
         if (amount.amountMinor <= 0L) return@mapNotNull null
@@ -371,11 +438,14 @@ private fun inferBottomRightStandaloneTotal(lines: List<NormalizedOcrLine>): Inf
         var score = 0
         if (isBottomZone(line)) score += 14
         if (isRightZone(line)) score += 14
+        if (line.index >= lines.size - 4) score += 8
         if (line.text.count { it.isLetter() } <= 3) score += 4
         if (lower.contains("total")) score += 6
-        if (lower.contains("cash") || lower.contains("change") || lower.contains("tax")) score -= 10
+        if (lower.contains("cash") || lower.contains("change") || lower.contains("tax")) score -= 16
+        if (lower.contains("mastercard") || lower.contains("visa") || lower.contains("debit") || lower.contains("credit")) score -= 18
+        if (lower.contains("guest") || lower.contains("table") || lower.contains("server")) score -= 18
         InferredTotal(line.index, amount, score)
-    }.maxByOrNull { it.score }?.takeIf { it.score >= 18 }
+    }.maxByOrNull { it.score }?.takeIf { it.score >= 20 }
 }
 
 private fun computeReliabilityScore(
@@ -458,7 +528,27 @@ private fun canonicalizeMerchant(raw: String): String {
     val best = KNOWN_MERCHANT_CANONICAL.entries.maxByOrNull { merchant ->
         merchantMatchScore(compact, merchant.key)
     } ?: return cleaned
-    return if (merchantMatchScore(compact, best.key) >= 70) best.value else cleaned
+    return if (merchantMatchScore(compact, best.key) >= 60) best.value else cleaned
+}
+
+private fun matchesKnownMerchantCanonical(text: String): Boolean {
+    val compact = normalizeOcrKeywordText(text.lowercase(Locale.US)).replace(Regex("[^a-z0-9]"), "")
+    if (compact.isEmpty()) return false
+    val best = KNOWN_MERCHANT_CANONICAL.keys.maxOfOrNull { merchantMatchScore(compact, it) } ?: 0
+    return best >= 60
+}
+
+private fun looksAddressLike(lowercase: String): Boolean {
+    return lowercase.contains(" blvd") ||
+        lowercase.contains(" boulevard") ||
+        lowercase.contains(" street") ||
+        lowercase.contains(" st ") ||
+        lowercase.contains(" avenue") ||
+        lowercase.contains(" ave") ||
+        lowercase.contains(" tower") ||
+        lowercase.contains(" floor") ||
+        lowercase.contains(" bldg") ||
+        lowercase.contains(" city")
 }
 
 private fun merchantMatchScore(compact: String, key: String): Int {
@@ -519,7 +609,7 @@ private fun selectItems(
         .takeIf { it >= 0 }
         ?: lines.size
 
-    return lines
+    val parsedWithAmounts = lines
         .subList(startIndex.coerceAtMost(lines.size), endExclusive.coerceAtLeast(startIndex))
         .mapNotNull { line ->
             val lowercase = line.text.lowercase(Locale.US)
@@ -527,19 +617,24 @@ private fun selectItems(
             if (matchesKnownDate(line.text) != null) return@mapNotNull null
             if (looksLikeReferenceNoise(line.text)) return@mapNotNull null
             if (isReceiptMetaNoise(line.text)) return@mapNotNull null
-            if (!(isMiddleZone(line) || isBottomZone(line))) return@mapNotNull null
-
+            if (ITEM_META_NOISE_TOKENS.any { lowercase.contains(it) }) return@mapNotNull null
+            if (!Regex("""\d+[.,]\d{1,2}\b""").containsMatchIn(line.text) &&
+                !Regex("""[$₱]|\bphp\b""", RegexOption.IGNORE_CASE).containsMatchIn(line.text)
+            ) {
+                return@mapNotNull null
+            }
             val money = parseLastMoneyCandidate(line.text) ?: return@mapNotNull null
             val amountMatch = AMOUNT_REGEX.findAll(line.text).lastOrNull() ?: return@mapNotNull null
+            if (!amountMatch.value.contains(".") && !amountMatch.value.contains(",")) return@mapNotNull null
             if (!amountMatch.value.contains(".") && !amountMatch.value.contains(",") && money.amountMinor >= 100_000L) return@mapNotNull null
 
             val description = line.text.substring(0, amountMatch.range.first)
                 .replace(Regex("[\\s.:-]+$"), "")
                 .trim()
             if (description.length < 2 || description.count { it.isLetter() } < 2) return@mapNotNull null
-            if (description.length > 40) return@mapNotNull null
+            if (description.length > 64) return@mapNotNull null
             val digitRatio = description.count { it.isDigit() }.toFloat() / description.length.coerceAtLeast(1)
-            if (digitRatio > 0.35f) return@mapNotNull null
+            if (digitRatio > 0.55f) return@mapNotNull null
             if (Regex("""\b(?:tin|sn|rid|uat|auth|ref|terminal|trace|balance|bal)\b""", RegexOption.IGNORE_CASE).containsMatchIn(description)) {
                 return@mapNotNull null
             }
@@ -551,6 +646,65 @@ private fun selectItems(
         }
         .filter { it.amount?.amountMinor?.let { amt -> amt in 1..250_000 } == true }
         .distinctBy { "${it.description.lowercase(Locale.US)}|${it.amount?.amountMinor}" }
+        .take(20)
+
+    if (parsedWithAmounts.isNotEmpty()) return parsedWithAmounts
+
+    val window = lines.subList(startIndex.coerceAtMost(lines.size), endExclusive.coerceAtLeast(startIndex))
+    val fallbackStart = window.indexOfFirst { line ->
+        Regex("""^\s*\d+\s+[A-Za-z].*""").matches(line.text.trim())
+    }
+    if (fallbackStart < 0) return emptyList()
+
+    val fallbackWindow = window.subList(fallbackStart, window.size)
+    val fallbackEndExclusive = fallbackWindow.indexOfFirst { line ->
+        val lower = line.text.lowercase(Locale.US)
+        lower.contains("subtotal") ||
+            lower.contains("tax") ||
+            lower.contains("total") ||
+            lower.contains("mastercard") ||
+            lower.contains("visa") ||
+            lower.contains("cash") ||
+            lower.contains("change") ||
+            lower.contains("check closed") ||
+            lower.contains("loyalty") ||
+            lower.contains("rewards") ||
+            lower.contains("visit ") ||
+            lower.contains("download") ||
+            lower.contains("stores")
+    }.let { if (it < 0) fallbackWindow.size else it }
+
+    return fallbackWindow
+        .subList(0, fallbackEndExclusive)
+        .mapNotNull { line ->
+            val lowercase = line.text.lowercase(Locale.US)
+            if (NON_ITEM_KEYWORDS.any { lowercase.contains(it) }) return@mapNotNull null
+            if (matchesKnownDate(line.text) != null) return@mapNotNull null
+            if (looksLikeReferenceNoise(line.text)) return@mapNotNull null
+            if (isReceiptMetaNoise(line.text)) return@mapNotNull null
+            if (ITEM_META_NOISE_TOKENS.any { lowercase.contains(it) }) return@mapNotNull null
+            if (lowercase.contains("subtotal") || lowercase.contains("tax") || lowercase.contains("total")) return@mapNotNull null
+
+            val normalized = line.text.replace(Regex("\\s+"), " ").trim()
+            if (!Regex("""^\d+\s+[A-Za-z].*""").matches(normalized)) return@mapNotNull null
+            val desc = normalized
+                .replace(Regex("""^\d+\s+"""), "")
+                .replace(Regex("""\s+(?:x|qty)\s*\d+\s*$""", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("""\s+[-–—]\s*$"""), "")
+                .trim()
+            if (desc.length < 3) return@mapNotNull null
+            if (desc.length > 64) return@mapNotNull null
+            if (desc.count { it.isLetter() } < 2) return@mapNotNull null
+            if (desc.any { it == ':' }) return@mapNotNull null
+            if (desc.count { it.isDigit() } > 4) return@mapNotNull null
+            if (desc.lowercase(Locale.US) in setOf("to go", "take out", "dine in")) return@mapNotNull null
+
+            ParsedReceiptItemCandidate(
+                description = desc,
+                amount = null,
+            )
+        }
+        .distinctBy { it.description.lowercase(Locale.US) }
         .take(20)
 }
 
@@ -617,12 +771,17 @@ private fun parseLastMoneyCandidate(text: String): ParsedMoneyCandidate? {
         ?.value
         ?.trim()
         ?: return null
+    if (!raw.contains(".") && !raw.contains(",")) return null
 
     val normalized = raw
         .replace("$", "")
         .replace("₱", "")
         .replace("PHP", "", ignoreCase = true)
         .replace(",", "")
+        .replace("O", "0")
+        .replace("o", "0")
+        .replace("I", "1")
+        .replace("l", "1")
         .trim()
 
     val canonical = if (normalized.contains(".")) {
@@ -762,6 +921,15 @@ private val NON_ITEM_KEYWORDS = listOf(
     "www",
     "http",
     "savings",
+)
+private val ITEM_META_NOISE_TOKENS = listOf(
+    "guest",
+    "guests",
+    "table",
+    "server",
+    "check closed",
+    "ws:",
+    "store #",
 )
 
 private val AMOUNT_REGEX = Regex("""(?:[$₱]|PHP\s*)?\d+(?:,\d{3})*(?:[.,]\d{1,2})?""")

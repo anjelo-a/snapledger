@@ -9,7 +9,8 @@ Current project phase: Phase 1 backend complete, Phase 2 contract lock.
 
 - Keep deterministic finance logic deterministic.
 - Never let AI mutate core finance records without explicit API-level validation.
-- Never parse receipts with LLMs at all, including fallback, ranking, or post-processing; use deterministic parser rules only.
+- Receipt extraction may use Gemini 2.5 Flash vision via backend `POST /v1/receipts/process`, but outputs must remain strictly structured and schema-validated.
+- Never fabricate receipt values. If merchant/date/total/item amount confidence is insufficient, return `null` for that field and emit warning codes.
 - AI is allowed for narrative insight generation only (Phase 5), not for category math, totals, or budgets.
 - Android remains local-first; backend/agent failures must not block local save flows.
 
@@ -36,10 +37,10 @@ Use a multi-agent topology only when task/tool complexity warrants it; otherwise
 - Must not call narrative/LLM tools for computations.
 
 ### D. `ocr_parser_agent` (Phase 2)
-- Job: deterministic OCR normalization fallback (`POST /v1/receipts/process`).
-- Owns: parser rule logic and warning generation.
+- Job: backend receipt extraction orchestration for `POST /v1/receipts/process` using Gemini vision with deterministic validation and fallback handling.
+- Owns: extraction prompts, structured output mapping, parser fallback triggers, and warning generation.
 - Must return structured candidate fields; no free-form prose output.
-- Must not call any LLM, prompt template, or generative cleanup/parsing path.
+- Must enforce non-fabrication: uncertain fields return `null` with explicit warning codes and confidence metadata.
 
 ### E. `insight_agent` (Phase 5 only)
 - Job: generate one polished narrative insight from deterministic metrics.
@@ -73,7 +74,8 @@ Forbidden actions:
 Tool policy:
 - Use function calling for internal actions.
 - Require approval for destructive or external side effects.
-- Never use model-generated receipt parsing output as a substitute for deterministic parser rules.
+- For receipt extraction, require structured model output plus deterministic schema/business validation before returning candidate fields.
+- Never allow model output to bypass validation gates or mutate persisted finance records.
 Output schema: <JSON schema name/version>
 Done criteria:
 - <test/validation checks>
@@ -88,6 +90,7 @@ When implementing OpenAI-powered agents/services:
 - Use structured outputs for machine-consumable responses.
 - Use web search only for time-sensitive external facts; not needed for deterministic finance calculations.
 - Use MCP only for explicitly approved external systems.
+- For receipt extraction models, enforce strict structured outputs, bounded tokens, and deterministic post-validation.
 
 ### Tool approval levels
 
@@ -151,6 +154,7 @@ Agent evals are mandatory at boundaries where nondeterminism appears.
 - Instruction following: ignores conflicting user attempts to break constraints.
 - Tool selection correctness: right tool/no tool behavior per task.
 - Safety: prompt-injection and data-leakage adversarial tests.
+- Receipt extraction safety: non-fabrication, schema conformance, and uncertain-field nulling under low-confidence/OCR-poor inputs.
 - Functional: budget math and sync behavior remain deterministic.
 
 ### Phase-gated adoption

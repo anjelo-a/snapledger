@@ -186,7 +186,96 @@ class DeterministicReceiptParserServiceTest {
 
         assertEquals(12000L, candidate.totalAmount?.amountMinor)
         assertEquals("Starbucks Cotlee", candidate.merchant)
-        assertTrue(candidate.warnings.any { it.contains("bottom standalone amount fallback") })
+        assertTrue(candidate.warnings.any { it.contains("bottom-right standalone amount") })
+    }
+
+    @Test
+    fun `kiosk receipt keeps date ignores guests metadata and avoids cash as total`() {
+        val candidate = parser.parse(
+            lines = fixtureLines(
+                "KO",
+                "MR Ona Jkr1to",
+                "Vytento g. 50-431",
+                "Vilnius LT-03229",
+                "11/20/2019 11:05 AM",
+                "Table: 415 Guests: 2",
+                "Server: Rebecca",
+                "Americano 2.99",
+                "Chocolate Cookie 1.98",
+                "Water bottle 0.50",
+                "Subtotal 5.47",
+                "Tax 0.24",
+                "Total 5.71",
+                "Cash 6.00",
+                "Change 0.29",
+            ),
+        )
+
+        assertEquals("2019-11-20", candidate.expenseDate)
+        assertEquals(571L, candidate.totalAmount?.amountMinor)
+        assertTrue(candidate.items.none { it.description.contains("Guest", ignoreCase = true) })
+    }
+
+    @Test
+    fun `starbucks receipt extracts date items and labeled total`() {
+        val candidate = parser.parse(
+            lines = fixtureLines(
+                "Starbucks",
+                "Caesars Palace Augustus Tower",
+                "Store #16859",
+                "3570 Las Vegas Blvd",
+                "Las Vegas, NV 89109",
+                "2235042 Diego N",
+                "THK 5120",
+                "3/31/2025 9:40 AM",
+                "To Go",
+                "1 VT LCD COFFEE 8.75",
+                "1 BREAKFAST BURRITO 18.75",
+                "Subtotal 27.50",
+                "Tax 2.30",
+                "Total 29.80",
+                "Mastercard 29.40",
+                "Check Closed",
+                "3/31/2025 9:41 AM",
+            ),
+        )
+
+        assertEquals("2025-03-31", candidate.expenseDate)
+        assertEquals(2980L, candidate.totalAmount?.amountMinor)
+        assertTrue(candidate.items.size >= 2)
+    }
+
+    @Test
+    fun `ocr confused total label and glyphs still parse total`() {
+        val candidate = parser.parse(
+            lines = fixtureLines(
+                "STARBUCKS",
+                "3/31/2025 9:40 AM",
+                "1 VT LCD COFFEE 8.7S",
+                "1 BREAKFAST BURRITO 18.7S",
+                "TotaI 29.8O",
+            ),
+        )
+
+        assertEquals("2025-03-31", candidate.expenseDate)
+        assertEquals(2980L, candidate.totalAmount?.amountMinor)
+    }
+
+    @Test
+    fun `total can be inferred from subtotal plus tax when total line is unreadable`() {
+        val candidate = parser.parse(
+            lines = fixtureLines(
+                "STARBUCKS",
+                "3/31/2025 9:40 AM",
+                "1 VT LCD COFFEE 8.75",
+                "1 BREAKFAST BURRITO 18.75",
+                "Subtotal 27.50",
+                "Tax 2.30",
+            ),
+        )
+
+        assertEquals(2980L, candidate.totalAmount?.amountMinor)
+        assertTrue(candidate.warnings.any { it.contains("subtotal plus tax") })
     }
 }
 

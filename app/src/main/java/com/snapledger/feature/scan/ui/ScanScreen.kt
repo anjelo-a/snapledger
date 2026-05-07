@@ -72,8 +72,8 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import com.snapledger.R
 import com.snapledger.feature.scan.domain.CameraPermissionState
 import com.snapledger.feature.scan.domain.OcrExtractionPhase
-import com.snapledger.feature.scan.domain.ParserPhase
 import com.snapledger.feature.scan.domain.PendingCapture
+import com.snapledger.feature.scan.domain.ParserPhase
 import com.snapledger.feature.scan.domain.ScanCapturePhase
 import com.snapledger.feature.scan.domain.ScanUiState
 import com.snapledger.feature.scan.vm.ScanViewModel
@@ -181,7 +181,6 @@ fun ScanRoute(
         onCameraFailure = viewModel::onCameraFailure,
         onRetryCapture = viewModel::onRetryCapture,
         onOcrRequested = viewModel::onOcrRequested,
-        onParseRequested = viewModel::onParseRequested,
         onOpenReview = onOpenReview,
     )
 }
@@ -202,12 +201,8 @@ fun ScanScreen(
     onCameraFailure: (String) -> Unit,
     onRetryCapture: () -> Unit,
     onOcrRequested: () -> Unit,
-    onParseRequested: () -> Unit,
     onOpenReview: () -> Unit,
 ) {
-    val context = LocalContext.current
-    var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -258,15 +253,19 @@ fun ScanScreen(
                 .weight(1f)
                 .padding(24.dp)
         ) {
-            CameraCardDesign(
-                uiState = uiState,
-                onToggleCamera = onToggleCamera,
-                onCameraPreviewReady = onCameraPreviewReady,
-                onCameraFailure = onCameraFailure,
-                onImageCaptureReady = { imageCapture = it },
-                onRequestPermission = onRequestPermission,
-                onOpenAppSettings = onOpenAppSettings
-            )
+            if (uiState.capturedImage == null) {
+                CameraCardDesign(
+                    uiState = uiState,
+                    onToggleCamera = onToggleCamera,
+                    onCameraPreviewReady = onCameraPreviewReady,
+                    onCameraFailure = onCameraFailure,
+                    onImageCaptureReady = { _ -> },
+                    onRequestPermission = onRequestPermission,
+                    onOpenAppSettings = onOpenAppSettings
+                )
+            } else {
+                CapturedReceiptCard(uiState = uiState)
+            }
         }
 
         // 3. Dynamic Footer Button
@@ -279,21 +278,18 @@ fun ScanScreen(
             // Determine button state based on backend flow
             val buttonText = when {
                 uiState.canContinueToReview -> "Review Receipt"
-                uiState.parser.phase == ParserPhase.Running -> "Parsing Data..."
-                uiState.canRunParser -> "Analyze Receipt"
-                uiState.ocr.phase == OcrExtractionPhase.Running -> "Extracting Text..."
-                uiState.canRunOcr -> "Extract Text"
+                uiState.parser.phase.name == "Running" || uiState.ocr.phase == OcrExtractionPhase.Running -> "Processing..."
+                uiState.canRunOcr -> "Process Receipt"
                 uiState.capturePhase == ScanCapturePhase.Capturing -> "Capturing..."
                 else -> "Capture Receipt"
             }
 
-            val isButtonEnabled = uiState.canCapture || uiState.canRunOcr || uiState.canRunParser || uiState.canContinueToReview
+            val isButtonEnabled = uiState.canCapture || uiState.canRunOcr || uiState.canContinueToReview
 
             androidx.compose.material3.Button(
                 onClick = {
                     when {
                         uiState.canContinueToReview -> onOpenReview()
-                        uiState.canRunParser -> onParseRequested()
                         uiState.canRunOcr -> onOcrRequested()
                         uiState.canCapture -> {
                             val pendingCapture = onCaptureRequested() ?: return@Button
@@ -348,6 +344,45 @@ fun ScanScreen(
                     color = Color(0xFF8A6D3B),
                     fontSize = 12.sp,
                     modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+
+        }
+    }
+}
+
+@Composable
+private fun CapturedReceiptCard(uiState: ScanUiState) {
+    val statusText = when {
+        uiState.canContinueToReview -> "Receipt processed. Ready for review."
+        uiState.parser.phase == ParserPhase.Running || uiState.ocr.phase == OcrExtractionPhase.Running -> "Processing receipt..."
+        else -> "Receipt captured. Tap Process Receipt."
+    }
+    Card(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(24.dp)),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C1A)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    painter = painterResource(id = R.drawable.receipt),
+                    contentDescription = "Captured receipt",
+                    tint = Color(0xFF00E676),
+                    modifier = Modifier.size(44.dp),
+                )
+                Text(
+                    text = statusText,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(top = 12.dp),
+                    textAlign = TextAlign.Center,
                 )
             }
         }

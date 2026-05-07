@@ -1,17 +1,47 @@
 from __future__ import annotations
 
 import re
+import base64
+import json
+import logging
+import random
+import time
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Generic, TypeVar
+from io import BytesIO
 
+import httpx
+from PIL import Image
+
+from app.core.config import get_settings
 from app.schemas.expense import (
     ExpenseItemWrite,
     ParsedReceiptCandidate,
     ParsedReceiptFieldConfidence,
     ReceiptProcessRequest,
 )
+
+logger = logging.getLogger(__name__)
+
+class GeminiProcessError(Exception):
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+_GEMINI_ALLOWED_TOP_LEVEL_KEYS = {"merchant", "date", "subtotal", "tax", "total", "line_items"}
+_INJECTION_PATTERNS = (
+    "ignore previous",
+    "system prompt",
+    "developer message",
+    "tool call",
+    "execute",
+    "instruction",
+)
+_MAX_TOTAL = Decimal("1000000.00")
+_MIN_POSITIVE_AMOUNT = Decimal("0.01")
 
 _AMOUNT_RE = re.compile(r"(?:[$₱]|PHP\s*)?\d+(?:,\d{3})*(?:\.\d{2})")
 _ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
@@ -66,7 +96,44 @@ class _FieldSelection(Generic[_T]):
 
 
 def parse_receipt(payload: ReceiptProcessRequest) -> ParsedReceiptCandidate:
-    lines, warnings, warning_codes = _normalize_ocr_lines(payload.ocr_lines)
+    if payload.image_base64:
+        return _parse_receipt_with_gemini(payload)
+
+    ocr_lines = payload.ocr_lines or []
+    return _parse_receipt_from_ocr_lines(ocr_lines)
+
+
+def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptCandidate:
+    settings = get_settings()
+    if not settings.gemini_api_key:
+        return ParsedReceiptCandidate(
+            warnings=["Gemini API key is not configured on the backend."],
+            warning_codes=["gemini_api_key_missing"],
+        )
+
+    try:
+        image_bytes = base64.b64decode(payload.image_base64, validate=False)
+        image_bytes, mime_type = _prepare_image_for_gemini(image_bytes)
+        response_text = _call_gemini_extract(
+            image_bytes=image_bytes,
+            mime_type=mime_type,
+            locale=payload.locale,
+            currency_hint=payload.currency_hint,
+        )
+        return _map_gemini_response_to_candidate(response_text)
+    except TimeoutError as exc:
+        raise GeminiProcessError(504, "Receipt extraction timed out.") from exc
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status == 429:
+            raise GeminiProcessError(429, "Receipt extraction is rate-limited. Try again shortly.") from exc
+        raise GeminiProcessError(502, "Receipt extraction upstream request failed.") from exc
+    except Exception as exc:
+        raise GeminiProcessError(502, f"Receipt extraction failed: {exc}") from exc
+
+
+def _parse_receipt_from_ocr_lines(ocr_lines: list[str]) -> ParsedReceiptCandidate:
+    lines, warnings, warning_codes = _normalize_ocr_lines(ocr_lines)
     if not lines:
         field_confidence = ParsedReceiptFieldConfidence(
             merchant=0.0,
@@ -124,6 +191,303 @@ def parse_receipt(payload: ReceiptProcessRequest) -> ParsedReceiptCandidate:
         warning_codes=_dedupe_strings(warning_codes),
         field_confidence=field_confidence,
     )
+
+
+def _prepare_image_for_gemini(image_bytes: bytes) -> tuple[bytes, str]:
+    image = Image.open(BytesIO(image_bytes))
+    image = image.convert("RGB")
+    max_dimension = max(image.width, image.height)
+    if max_dimension > 1200:
+        scale = 1200 / max_dimension
+        resized = image.resize((int(image.width * scale), int(image.height * scale)))
+        image = resized
+    output = BytesIO()
+    image.save(output, format="JPEG", optimize=True, quality=85)
+    return output.getvalue(), "image/jpeg"
+
+
+def _call_gemini_extract(
+    *,
+    image_bytes: bytes,
+    mime_type: str,
+    locale: str | None,
+    currency_hint: str | None,
+) -> str:
+    settings = get_settings()
+    prompt = (
+        "Return JSON only: "
+        "{merchant,date,subtotal,tax,total,line_items:[{name,amount}]}. "
+        "Use null when uncertain. No extra keys or text. "
+        f"Locale={locale or 'unknown'}; currency_hint={currency_hint or 'unknown'}."
+    )
+    endpoint = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent"
+        f"?key={settings.gemini_api_key}"
+    )
+    request_payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": mime_type,
+                            "data": base64.b64encode(image_bytes).decode("utf-8"),
+                        }
+                    },
+                ]
+            }
+        ],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0,
+            "maxOutputTokens": 650,
+        },
+    }
+    with httpx.Client(timeout=settings.gemini_timeout_seconds) as client:
+        for attempt in range(2):
+            try:
+                response = client.post(endpoint, json=request_payload)
+            except httpx.TimeoutException as exc:
+                raise TimeoutError from exc
+            if response.status_code == 429 and attempt == 0:
+                logger.warning(
+                    "gemini_receipt_429_retry attempt=%s backoff_seconds=%.2f",
+                    attempt + 1,
+                    2.5,
+                )
+                time.sleep(random.uniform(2.0, 3.0))
+                continue
+            response.raise_for_status()
+            body = response.json()
+            response_text = (
+                body["candidates"][0]["content"]["parts"][0].get("text")
+                if body.get("candidates")
+                else "{}"
+            )
+            logger.info(
+                "gemini_receipt_raw_response model=%s text_len=%s text=%s",
+                settings.gemini_model,
+                len(response_text or ""),
+                _truncate_for_log(response_text),
+            )
+            return response_text
+    return "{}"
+
+
+def _map_gemini_response_to_candidate(response_text: str) -> ParsedReceiptCandidate:
+    warnings: list[str] = []
+    warning_codes: list[str] = []
+    parsed = json.loads(response_text or "{}")
+    if not isinstance(parsed, dict):
+        return ParsedReceiptCandidate(
+            warnings=["Gemini response was not a JSON object and was discarded."],
+            warning_codes=["GEMINI_INVALID_PAYLOAD"],
+        )
+
+    unexpected_keys = set(parsed.keys()) - _GEMINI_ALLOWED_TOP_LEVEL_KEYS
+    if unexpected_keys:
+        logger.warning(
+            "gemini_receipt_rejected reason=unexpected_keys keys=%s",
+            sorted(unexpected_keys),
+        )
+        return ParsedReceiptCandidate(
+            warnings=["Gemini response contained unexpected keys and was discarded."],
+            warning_codes=["GEMINI_PROMPT_INJECTION_DETECTED"],
+        )
+
+    if _contains_injection_content(parsed):
+        logger.warning("gemini_receipt_rejected reason=injection_like_content")
+        return ParsedReceiptCandidate(
+            warnings=["Gemini response contained non-receipt instruction-like content and was discarded."],
+            warning_codes=["GEMINI_PROMPT_INJECTION_DETECTED"],
+        )
+
+    merchant_raw = parsed.get("merchant")
+    merchant = str(merchant_raw).strip()[:160] if isinstance(merchant_raw, str) else None
+    if merchant_raw is not None and merchant is None:
+        warning_codes.append("GEMINI_INVALID_MERCHANT")
+        warnings.append("Merchant failed validation and was nulled.")
+
+    date_value = _coerce_iso_date(parsed.get("date"))
+    if parsed.get("date") is not None and date_value is None:
+        warning_codes.append("GEMINI_INVALID_DATE")
+        warnings.append("Date failed validation and was nulled.")
+
+    subtotal = _coerce_amount_field(parsed.get("subtotal"), allow_zero=True)
+    tax = _coerce_amount_field(parsed.get("tax"), allow_zero=True)
+    total = _coerce_amount_field(parsed.get("total"), allow_zero=False)
+    if parsed.get("subtotal") is not None and subtotal is None:
+        warning_codes.append("GEMINI_INVALID_SUBTOTAL")
+        warnings.append("Subtotal failed validation and was nulled.")
+    if parsed.get("tax") is not None and tax is None:
+        warning_codes.append("GEMINI_INVALID_TAX")
+        warnings.append("Tax failed validation and was nulled.")
+    if parsed.get("total") is not None and total is None:
+        warning_codes.append("GEMINI_INVALID_TOTAL")
+        warnings.append("Total failed validation and was nulled.")
+
+    items = []
+    for item in parsed.get("line_items") or []:
+        if not isinstance(item, dict):
+            warning_codes.append("GEMINI_INVALID_LINE_ITEM")
+            continue
+        name = str(
+            item.get("name")
+            or item.get("description")
+            or item.get("item")
+            or ""
+        ).strip()
+        amount = _coerce_amount_field(
+            item.get("amount")
+            if "amount" in item
+            else item.get("price")
+            if "price" in item
+            else item.get("total"),
+            allow_zero=False,
+        )
+        if not name:
+            continue
+        if amount is None:
+            continue
+        items.append(ExpenseItemWrite(name=name[:160], amount=amount))
+
+    items_total = sum((line.amount for line in items), Decimal("0.00"))
+    if total is not None and items and items_total > Decimal("0.00"):
+        diff_ratio = abs(total - items_total) / items_total
+        if diff_ratio > Decimal("0.05"):
+            warning_codes.append("TOTAL_MISMATCH")
+            warnings.append("Total differs from sum of line items by more than 5%.")
+
+    if merchant is None:
+        warning_codes.append("merchant_missing")
+    if date_value is None:
+        warning_codes.append("expense_date_missing")
+    if total is None:
+        warning_codes.append("total_amount_missing")
+    if parsed.get("line_items") and not items:
+        warning_codes.append("line_items_amount_unparsed")
+        warnings.append("Line items were detected but none had valid numeric amounts.")
+    if warning_codes:
+        warnings.append("Some receipt fields were not confidently extracted and remain null.")
+    logger.info(
+        "gemini_receipt_mapped merchant=%s date=%s total=%s items=%s warning_codes=%s",
+        merchant,
+        date_value.isoformat() if date_value else None,
+        str(total) if total is not None else None,
+        len(items),
+        sorted(set(warning_codes)),
+    )
+    return ParsedReceiptCandidate(
+        merchant=merchant,
+        expense_date=date_value,
+        total_amount=total,
+        items=items,
+        warnings=_dedupe_strings(warnings),
+        warning_codes=_dedupe_strings(warning_codes),
+    )
+
+
+def _coerce_iso_date(raw: object) -> date | None:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+
+    # 1) Strict ISO first.
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        pass
+
+    # 2) Common receipt date formats.
+    formats = (
+        "%m/%d/%Y",
+        "%m-%d-%Y",
+        "%d/%m/%Y",
+        "%d-%m-%Y",
+        "%m/%d/%y",
+        "%m-%d-%y",
+        "%d/%m/%y",
+        "%d-%m-%y",
+        "%b %d, %Y",
+        "%B %d, %Y",
+        "%b %d %Y",
+        "%B %d %Y",
+    )
+    for fmt in formats:
+        try:
+            parsed = datetime.strptime(text, fmt).date()
+            if 2000 <= parsed.year <= 2100:
+                return parsed
+        except ValueError:
+            continue
+
+    # 3) Pull date token from noisy text and retry.
+    token_match = re.search(
+        r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{2,4})",
+        text,
+    )
+    if token_match:
+        return _coerce_iso_date(token_match.group(1))
+    return None
+
+
+def _coerce_decimal(raw: object) -> Decimal | None:
+    if raw is None:
+        return None
+    if isinstance(raw, int | float):
+        try:
+            return Decimal(str(raw)).quantize(Decimal("0.01"))
+        except (InvalidOperation, ValueError):
+            return None
+    try:
+        text = str(raw).strip()
+        if not text:
+            return None
+        # Accept common currency-formatted strings like "₱1,234.50" or "PHP 99.00".
+        sanitized = text.replace(",", "")
+        sanitized = re.sub(r"(?i)php\s*", "", sanitized)
+        sanitized = sanitized.replace("₱", "").replace("$", "").strip()
+        if not re.fullmatch(r"-?\d+(?:\.\d{1,4})?", sanitized):
+            match = re.search(r"-?\d+(?:\.\d{1,4})?", sanitized)
+            if not match:
+                return None
+            sanitized = match.group(0)
+        value = Decimal(sanitized)
+        return value.quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _coerce_amount_field(raw: object, *, allow_zero: bool) -> Decimal | None:
+    value = _coerce_decimal(raw)
+    if value is None:
+        return None
+    if value >= _MAX_TOTAL:
+        return None
+    if allow_zero:
+        if value < Decimal("0.00"):
+            return None
+        return value
+    if value < _MIN_POSITIVE_AMOUNT:
+        return None
+    return value
+
+
+def _contains_injection_content(payload: dict[str, object]) -> bool:
+    serialized = json.dumps(payload).lower()
+    return any(pattern in serialized for pattern in _INJECTION_PATTERNS)
+
+
+def _truncate_for_log(value: str | None, limit: int = 1200) -> str:
+    if not value:
+        return ""
+    normalized = re.sub(r"\s+", " ", value).strip()
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[:limit]}...<truncated>"
 
 
 @dataclass(frozen=True)

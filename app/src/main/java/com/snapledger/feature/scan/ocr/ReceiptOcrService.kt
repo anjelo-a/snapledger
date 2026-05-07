@@ -85,6 +85,18 @@ class MlKitReceiptOcrService(
                 metadata = metadata,
                 viewport = OcrViewport(left = 0.48f, top = 0.58f, right = 1f, bottom = 1f),
             )
+            val rightAmountColumnPasses = runZonePasses(
+                recognizer = recognizer,
+                sourceBitmap = preprocessedBitmap,
+                metadata = metadata,
+                viewport = OcrViewport(left = 0.64f, top = 0.22f, right = 1f, bottom = 0.9f),
+            )
+            val fullRightStripPasses = runZonePasses(
+                recognizer = recognizer,
+                sourceBitmap = preprocessedBitmap,
+                metadata = metadata,
+                viewport = OcrViewport(left = 0.72f, top = 0.0f, right = 1f, bottom = 1f),
+            )
             val variantPasses = buildOcrVariants(preprocessedBitmap).mapNotNull { variant ->
                 withTimeoutOrNull(OCR_PASS_TIMEOUT_MS) {
                     val recognizedText = recognizer.process(InputImage.fromBitmap(variant, 0)).awaitResult()
@@ -97,6 +109,8 @@ class MlKitReceiptOcrService(
             val passes = buildList {
                 addAll(topBandPasses)
                 addAll(bottomRightPasses)
+                addAll(rightAmountColumnPasses)
+                addAll(fullRightStripPasses)
                 if (directPass != null) add(directPass)
                 addAll(variantPasses)
             }
@@ -298,25 +312,29 @@ private fun mergeRecognitions(recognitions: List<NormalizedRecognition>): Normal
     val mergedLines = primary.lines.mapIndexed { idx, line -> line.copy(index = idx) }.toMutableList()
     val seen = mergedLines.map { it.text.lowercase() }.toMutableSet()
 
-    var amountCount = mergedLines.count { hasAmount(it.text) }
+    var moneyCount = mergedLines.count { hasMoneyAmount(it.text) }
     var hasDate = mergedLines.any { hasDate(it.text) }
 
     ranked.drop(1).forEach { pass ->
         pass.lines.forEach { line ->
             val key = line.text.lowercase()
             if (key in seen) return@forEach
-            val valuable = hasAmount(line.text) || hasDate(line.text) || looksLikeMerchantSignal(line) || looksLikeDateLabel(line.text)
+            val hasAmountLike = hasAmount(line.text)
+            val hasMoneyLike = hasMoneyAmount(line.text)
+            val hasDateLike = hasDate(line.text)
+            val hasLabeledTotalLike = looksLikeTotalLabel(line.text)
+            val valuable = hasAmountLike || hasDateLike || hasLabeledTotalLike || looksLikeMerchantSignal(line) || looksLikeDateLabel(line.text)
             val zoneUseful = isTopBandLine(line) || isBottomRightLine(line)
             if (!valuable && !zoneUseful) return@forEach
             if (likelyNoiseLine(line.text) && !valuable) return@forEach
 
-            if (hasAmount(line.text) && amountCount >= 5) return@forEach
-            if (hasDate(line.text) && hasDate) return@forEach
+            if (hasMoneyLike && moneyCount >= 28 && !hasLabeledTotalLike) return@forEach
+            if (hasDateLike && hasDate && !looksLikeDateLabel(line.text)) return@forEach
 
             seen += key
             mergedLines += line.copy(index = mergedLines.size)
-            if (hasAmount(line.text)) amountCount += 1
-            if (hasDate(line.text)) hasDate = true
+            if (hasMoneyLike) moneyCount += 1
+            if (hasDateLike) hasDate = true
         }
     }
 
@@ -340,7 +358,7 @@ private fun mergeRecognitions(recognitions: List<NormalizedRecognition>): Normal
 
 private fun scoreRecognition(recognition: NormalizedRecognition): Int {
     val lines = recognition.lines.size.coerceAtMost(100)
-    val amounts = recognition.lines.count { hasAmount(it.text) }.coerceAtMost(20)
+    val amounts = recognition.lines.count { hasMoneyAmount(it.text) }.coerceAtMost(20)
     val dates = recognition.lines.count { hasDate(it.text) }.coerceAtMost(4)
     val badNoise = recognition.lines.count { likelyNoiseLine(it.text) }.coerceAtMost(20)
     return lines * 2 + amounts * 6 + dates * 8 - badNoise * 2
@@ -348,6 +366,10 @@ private fun scoreRecognition(recognition: NormalizedRecognition): Int {
 
 private fun hasAmount(text: String): Boolean {
     return Regex("(?:[$₱]|PHP\\s*)?\\d+(?:,\\d{3})*(?:[.,]\\d{1,2})?").containsMatchIn(text)
+}
+
+private fun hasMoneyAmount(text: String): Boolean {
+    return Regex("(?:[$₱]|PHP\\s*)?\\d+[.,]\\d{2}\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)
 }
 
 private fun hasDate(text: String): Boolean {
@@ -364,7 +386,7 @@ private fun likelyNoiseLine(text: String): Boolean {
 
 private fun looksStrong(recognition: NormalizedRecognition): Boolean {
     val lineCount = recognition.lines.size
-    val amountCount = recognition.lines.count { hasAmount(it.text) }
+    val amountCount = recognition.lines.count { hasMoneyAmount(it.text) }
     return lineCount >= 4 && amountCount >= 1
 }
 
@@ -383,6 +405,20 @@ private fun looksLikeMerchantSignal(line: NormalizedOcrLine): Boolean {
 private fun looksLikeDateLabel(text: String): Boolean {
     val lower = text.lowercase()
     return lower.contains("date") || lower.contains("time") || lower.contains("txn")
+}
+
+private fun looksLikeTotalLabel(text: String): Boolean {
+    val lower = text.lowercase()
+    val normalized = lower
+        .replace('0', 'o')
+        .replace('1', 'l')
+        .replace('5', 's')
+        .replace('8', 'b')
+        .replace('6', 'g')
+        .replace('7', 't')
+    return normalized.contains("total") ||
+        normalized.contains("amount due") ||
+        normalized.contains("balance due")
 }
 
 private fun isTopBandLine(line: NormalizedOcrLine): Boolean {
@@ -404,6 +440,7 @@ private fun buildOcrVariants(bitmap: Bitmap): List<Bitmap> {
     variants += mildContrastStretch(scaled)
     variants += adaptiveBinarize(scaled, -8)
     variants += adaptiveBinarize(scaled, -14)
+    variants += adaptiveBinarize(scaled, -20)
     return variants
 }
 
