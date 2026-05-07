@@ -123,16 +123,32 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
         )
         return _map_gemini_response_to_candidate(response_text)
     except TimeoutError as exc:
+        logger.error("gemini_receipt_failure type=timeout")
         raise GeminiProcessError(504, "Receipt extraction timed out.") from exc
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
+        response_body = _truncate_for_log(exc.response.text)
+        logger.error(
+            "gemini_receipt_failure type=http_status status=%s body=%s",
+            status,
+            response_body,
+        )
         if status == 429:
             raise GeminiProcessError(
                 429,
                 "Receipt extraction is rate-limited. Try again shortly.",
             ) from exc
+        if status in (401, 403):
+            raise GeminiProcessError(
+                502,
+                "Receipt extraction auth failed. Check Gemini API key configuration.",
+            ) from exc
         raise GeminiProcessError(502, "Receipt extraction upstream request failed.") from exc
+    except json.JSONDecodeError as exc:
+        logger.error("gemini_receipt_failure type=invalid_json error=%s", str(exc))
+        raise GeminiProcessError(502, "Receipt extraction returned invalid JSON.") from exc
     except Exception as exc:
+        logger.exception("gemini_receipt_failure type=unexpected")
         raise GeminiProcessError(502, f"Receipt extraction failed: {exc}") from exc
 
 
