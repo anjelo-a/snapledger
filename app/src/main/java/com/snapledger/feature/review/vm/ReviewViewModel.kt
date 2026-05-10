@@ -100,10 +100,18 @@ class ReviewViewModel(
                     validateReviewState(
                         uiState.copy(
                             isSaving = false,
-                            saveStatusMessage = if (result.syncDispatchError == null) {
-                                "Saved locally as ${result.receiptId}. Sync metadata queued as ${result.syncQueueId}."
-                            } else {
-                                "Saved locally as ${result.receiptId}. Sync metadata queued as ${result.syncQueueId}; background dispatch failed: ${result.syncDispatchError}"
+                            saveStatusMessage = buildString {
+                                append("Saved locally as ${result.receiptId}. ")
+                                if (result.backendConfirmError == null) {
+                                    append("Backend receipt confirmed. ")
+                                } else {
+                                    append("Backend confirm failed: ${result.backendConfirmError}. ")
+                                }
+                                if (result.syncDispatchError == null) {
+                                    append("Sync metadata queued as ${result.syncQueueId}.")
+                                } else {
+                                    append("Sync metadata queued as ${result.syncQueueId}; background dispatch failed: ${result.syncDispatchError}")
+                                }
                             },
                         ),
                     )
