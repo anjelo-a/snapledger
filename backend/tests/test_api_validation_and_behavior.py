@@ -170,6 +170,44 @@ def test_manual_entries_alias_matches_direct_receipt_shape(client: TestClient) -
         assert alias_json[field] == direct_json[field]
 
 
+def test_receipts_confirm_alias_creates_receipt(client: TestClient) -> None:
+    response = client.post("/v1/receipts/confirm", json=_create_receipt_payload(items=[]))
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["merchant"] == "Coffee Shop"
+    assert payload["source"] == "scan"
+
+
+def test_receipts_confirm_alias_forces_scan_source(client: TestClient) -> None:
+    response = client.post(
+        "/v1/receipts/confirm",
+        json=_create_receipt_payload(source="manual", merchant="Reviewed Scan"),
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["merchant"] == "Reviewed Scan"
+    assert payload["source"] == "scan"
+
+
+def test_receipts_confirm_alias_matches_direct_receipt_shape(client: TestClient) -> None:
+    direct = client.post("/v1/receipts", json=_create_receipt_payload(source="scan", items=[]))
+    alias = client.post("/v1/receipts/confirm", json=_create_receipt_payload(items=[]))
+    assert direct.status_code == 200
+    assert alias.status_code == 200
+    direct_json = direct.json()
+    alias_json = alias.json()
+    for field in (
+        "source",
+        "merchant",
+        "expense_date",
+        "total_amount",
+        "currency",
+        "category_id",
+        "notes",
+    ):
+        assert alias_json[field] == direct_json[field]
+
+
 def test_receipt_process_returns_locked_phase2_candidate_shape(client: TestClient) -> None:
     response = client.post(
         "/v1/receipts/process",

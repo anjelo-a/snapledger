@@ -7,6 +7,7 @@ client = TestClient(app)
 
 EXPECTED_PATHS = {
     "/v1/receipts",
+    "/v1/receipts/confirm",
     "/v1/receipts/{receipt_id}",
     "/v1/receipts/process",
     "/v1/manual-entries",
@@ -21,6 +22,7 @@ EXPECTED_PATHS = {
 
 EXPECTED_METHODS = {
     "/v1/receipts": {"get", "post"},
+    "/v1/receipts/confirm": {"post"},
     "/v1/receipts/{receipt_id}": {"get", "patch", "delete"},
     "/v1/receipts/process": {"post"},
     "/v1/manual-entries": {"post"},
