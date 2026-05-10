@@ -16,6 +16,9 @@ class LocalFirstReviewRepositoryTest {
         val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
             atomicSaveStore = atomicSaveStore,
+            backendConfirmClient = object : ReviewBackendConfirmClient {
+                override suspend fun confirm(record: LocalReceiptRecord) = Unit
+            },
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
             },
@@ -35,6 +38,9 @@ class LocalFirstReviewRepositoryTest {
         val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
             atomicSaveStore = atomicSaveStore,
+            backendConfirmClient = object : ReviewBackendConfirmClient {
+                override suspend fun confirm(record: LocalReceiptRecord) = Unit
+            },
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
             },
@@ -53,6 +59,9 @@ class LocalFirstReviewRepositoryTest {
         val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
             atomicSaveStore = atomicSaveStore,
+            backendConfirmClient = object : ReviewBackendConfirmClient {
+                override suspend fun confirm(record: LocalReceiptRecord) = Unit
+            },
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
             },
@@ -72,6 +81,9 @@ class LocalFirstReviewRepositoryTest {
         val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
             atomicSaveStore = atomicSaveStore,
+            backendConfirmClient = object : ReviewBackendConfirmClient {
+                override suspend fun confirm(record: LocalReceiptRecord) = Unit
+            },
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
             },
@@ -100,6 +112,9 @@ class LocalFirstReviewRepositoryTest {
         val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
             atomicSaveStore = atomicSaveStore,
+            backendConfirmClient = object : ReviewBackendConfirmClient {
+                override suspend fun confirm(record: LocalReceiptRecord) = Unit
+            },
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) {
                     error("backend unavailable")
@@ -113,8 +128,36 @@ class LocalFirstReviewRepositoryTest {
 
         assertTrue(result is ReviewSaveResult.Success)
         val success = result as ReviewSaveResult.Success
+        assertTrue(success.backendConfirmed)
         assertFalse(success.dispatchedSyncAttempt)
         assertNotNull(success.syncDispatchError)
+        assertEquals(1, atomicSaveStore.savedReceipts.size)
+        assertEquals(1, atomicSaveStore.queuedRecords.size)
+    }
+
+    @Test
+    fun `save still succeeds when backend confirm fails`() = runTest {
+        val atomicSaveStore = FakeAtomicSaveStore()
+        val repository = LocalFirstReviewRepository(
+            atomicSaveStore = atomicSaveStore,
+            backendConfirmClient = object : ReviewBackendConfirmClient {
+                override suspend fun confirm(record: LocalReceiptRecord) {
+                    error("confirm endpoint unavailable")
+                }
+            },
+            syncDispatcher = object : ReviewSyncDispatcher {
+                override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
+            },
+            idGenerator = sequentialIds(),
+            clock = { 1000L },
+        )
+
+        val result = repository.saveReviewedReceipt(validReviewState())
+
+        assertTrue(result is ReviewSaveResult.Success)
+        val success = result as ReviewSaveResult.Success
+        assertFalse(success.backendConfirmed)
+        assertNotNull(success.backendConfirmError)
         assertEquals(1, atomicSaveStore.savedReceipts.size)
         assertEquals(1, atomicSaveStore.queuedRecords.size)
     }
@@ -126,6 +169,9 @@ class LocalFirstReviewRepositoryTest {
         )
         val repository = LocalFirstReviewRepository(
             atomicSaveStore = atomicSaveStore,
+            backendConfirmClient = object : ReviewBackendConfirmClient {
+                override suspend fun confirm(record: LocalReceiptRecord) = Unit
+            },
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
             },
