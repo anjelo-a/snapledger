@@ -33,6 +33,18 @@ def create_receipt(
         raise to_http_exception(exc) from exc
 
 
+@router.post("/confirm", response_model=ExpenseRead)
+def confirm_receipt(
+    payload: ExpenseWrite,
+    db: Annotated[Session, Depends(get_db)],
+) -> ExpenseRead:
+    confirmed_payload = payload.model_copy(update={"source": "scan"})
+    try:
+        return ReceiptService.create(db, confirmed_payload)
+    except DomainError as exc:
+        raise to_http_exception(exc) from exc
+
+
 @router.get("/{receipt_id}", response_model=ExpenseRead)
 def get_receipt(
     receipt_id: str,

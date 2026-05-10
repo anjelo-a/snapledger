@@ -7,6 +7,7 @@ FastAPI + PostgreSQL backend service.
 Implemented:
 - API routes under `/v1` for receipts and categories (CRUD/mutation scope for Phase 1).
 - Manual entries alias as a real create proxy via `POST /v1/manual-entries`.
+- Reviewed scan confirmation alias via `POST /v1/receipts/confirm`.
 - Cursor-based receipt listing with stable sort and opaque `next_cursor`.
 - Soft-delete behavior for receipts and receipt items.
 - Category mutation rules:

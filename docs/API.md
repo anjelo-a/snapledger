@@ -15,6 +15,12 @@
 - Response summary: canonical receipt with item list and timestamps.
 - Scope: MVP.
 
+`POST /v1/receipts/confirm`
+- Purpose: explicit reviewed-scan confirmation endpoint; persists the reviewed receipt as a
+  canonical expense payload.
+- Behavior: enforces `source=scan` server-side.
+- Scope: MVP.
+
 `GET /v1/receipts/{id}`
 - Purpose: fetch one receipt detail.
 - Response summary: receipt + items + category.
