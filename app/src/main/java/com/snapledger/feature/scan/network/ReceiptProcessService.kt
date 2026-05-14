@@ -14,6 +14,8 @@ import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import java.io.File
 import java.math.BigDecimal
+import java.util.concurrent.TimeUnit
+import okhttp3.OkHttpClient
 import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -74,8 +76,16 @@ class ReceiptProcessService(
             baseUrl: String = NetworkConfig.safeBackendBaseUrl,
             moshi: Moshi = Moshi.Builder().build(),
         ): ReceiptProcessApiService {
+            val httpClient = OkHttpClient.Builder()
+                .connectTimeout(20, TimeUnit.SECONDS)
+                .readTimeout(90, TimeUnit.SECONDS)
+                .writeTimeout(90, TimeUnit.SECONDS)
+                .callTimeout(120, TimeUnit.SECONDS)
+                .build()
+
             return Retrofit.Builder()
                 .baseUrl(baseUrl)
+                .client(httpClient)
                 .addConverterFactory(MoshiConverterFactory.create(moshi))
                 .build()
                 .create(ReceiptProcessApiService::class.java)

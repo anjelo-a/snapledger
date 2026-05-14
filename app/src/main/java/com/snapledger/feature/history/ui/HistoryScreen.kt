@@ -435,13 +435,13 @@ private fun AdvancedFilterCard(
                     modifier = Modifier.weight(1f),
                     value = uiState.minAmount,
                     onValueChange = { onEvent(HistoryEvent.OnMinAmountChanged(it)) },
-                    hint = "Min $"
+                    hint = "Min ₱"
                 )
                 AdvancedFilterNumberInput(
                     modifier = Modifier.weight(1f),
                     value = uiState.maxAmount,
                     onValueChange = { onEvent(HistoryEvent.OnMaxAmountChanged(it)) },
-                    hint = "Max $"
+                    hint = "Max ₱"
                 )
             }
 
@@ -682,6 +682,6 @@ private fun EmptyStateView() {
 }
 
 private fun formatMoney(amount: Double): String {
-    val format = NumberFormat.getCurrencyInstance(Locale.US)
+    val format = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
     return format.format(amount)
 }

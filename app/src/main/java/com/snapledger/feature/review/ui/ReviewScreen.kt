@@ -300,7 +300,7 @@ fun ReviewScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     val subtotal = uiState.items.mapNotNull { it.amount.toDoubleOrNull() }.sum()
-                    val formattedSubtotal = NumberFormat.getCurrencyInstance(Locale.US).format(subtotal)
+                    val formattedSubtotal = NumberFormat.getCurrencyInstance(Locale("en", "PH")).format(subtotal)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -319,7 +319,7 @@ fun ReviewScreen(
                         Text(text = "Total", fontSize = 16.sp, color = Color(0xFF1F1F1F), fontWeight = FontWeight.Medium)
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = "$", fontSize = 16.sp, color = Color(0xFF757575), modifier = Modifier.padding(end = 8.dp))
+                            Text(text = "₱", fontSize = 16.sp, color = Color(0xFF757575), modifier = Modifier.padding(end = 8.dp))
                             Box(
                                 modifier = Modifier
                                     .width(100.dp)
