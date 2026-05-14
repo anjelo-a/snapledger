@@ -11,3 +11,9 @@ Offline-first Android-native personal finance app with receipt scan, OCR, struct
 ## Open In Android Studio
 
 Open this repository root directly in Android Studio.
+
+## Development Setup
+
+For full co-builder onboarding (Android <-> backend wiring, local/cloud DB, Cloud Run, envs, migrations, and troubleshooting), see:
+
+- `docs/DEVELOPMENT_SETUP.md`
