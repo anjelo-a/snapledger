@@ -85,7 +85,7 @@ data class TransactionSummary(
 )
 
 fun formatCurrency(amount: Double): String {
-    val format = NumberFormat.getCurrencyInstance(Locale.US)
+    val format = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
     return format.format(amount)
 }
 

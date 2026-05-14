@@ -18,7 +18,11 @@ val localProps = Properties().apply {
     }
 }
 val backendBaseUrl =
-    (localProps.getProperty("SNAPLEDGER_BACKEND_BASE_URL") ?: "http://10.0.2.2:8000/")
+    (
+        localProps.getProperty("SNAPLEDGER_BACKEND_BASE_URL")
+            ?: localProps.getProperty("SNAPLEDGER_API_BASE_URL")
+            ?: "https://snapledger-backend-75893256027.asia-southeast1.run.app/"
+        )
         .let { if (it.endsWith("/")) it else "$it/" }
 
 android {
