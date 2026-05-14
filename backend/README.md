@@ -75,3 +75,35 @@ Notes:
 cd backend
 alembic upgrade head
 ```
+
+## Cloud Run deployment notes
+
+Build/deploy assumptions:
+- Build context: `/backend`
+- Build type: Python buildpacks (or Dockerfile if added later)
+- Runtime process: `Procfile` web command in this directory
+- Container port: `8080` (Cloud Run provides `PORT`)
+
+Production environment variables:
+- Required:
+  - `APP_ENV=production`
+  - `DATABASE_URL` (set via Secret Manager)
+- Optional security hardening:
+  - `REQUIRE_API_KEY=true`
+  - `API_KEY` (via Secret Manager)
+  - `CORS_ALLOWED_ORIGINS=https://your.domain`
+  - `RATE_LIMIT_ENABLED=true`
+  - `RATE_LIMIT_REQUESTS=120`
+  - `RATE_LIMIT_WINDOW_SECONDS=60`
+  - `ENFORCE_HTTPS=true`
+- Optional OCR settings:
+  - `GEMINI_API_KEY` (via Secret Manager)
+  - `GEMINI_MODEL=gemini-2.5-flash`
+  - `GEMINI_FALLBACK_MODEL=gemini-2.5-flash-lite`
+  - `GEMINI_TIMEOUT_SECONDS=20`
+
+Cloud SQL `DATABASE_URL` example (Unix socket):
+
+```text
+postgresql+psycopg://DB_USER:DB_PASS@/snapledger?host=/cloudsql/PROJECT_ID:REGION:INSTANCE_NAME
+```

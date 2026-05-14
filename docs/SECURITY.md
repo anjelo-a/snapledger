@@ -1,10 +1,10 @@
 # SnapLedger Security
 
 ## Security posture by phase
-MVP baseline:
-- Backend is local-only for demos.
-- No public internet exposure assumed.
-- Full user authentication deferred until exposure changes.
+Current staging posture:
+- Backend is deployed on Cloud Run and internet-reachable.
+- Cloud SQL is the runtime datastore.
+- Full user authentication is still deferred, so compensating controls must stay enabled.
 
 If private staging or external testers are introduced:
 - Move these controls earlier immediately:
@@ -51,11 +51,13 @@ Hardening later:
 - Release builds must disallow cleartext traffic.
 - Use HTTPS for any non-local deployment.
 - Keep CORS locked to explicit origins when exposed.
+- For Cloud Run, avoid `Allow unauthenticated` without at least API key gating in staging.
 
 ## Access and least privilege
 - DB user must have least required privileges for app schema only.
 - No superuser DB credentials in app runtime.
 - Limit backend process permissions to needed network and storage access.
+- Prefer a dedicated Cloud Run service account over the default compute service account.
 
 ## Data retention and delete behavior
 - Use soft delete (`deleted_at`) on mutable core entities for sync safety.
