@@ -47,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.painterResource
@@ -139,8 +140,6 @@ fun HistoryRoute(
 
             val matchesCategory = if (selectedCategory == "All") true else transaction.category.equals(selectedCategory, ignoreCase = true)
 
-            // Further advanced filter matching would go here (e.g., date ranges, amount bounds)
-
             matchesSearch && matchesQuickFilter && matchesCategory
         }
     }
@@ -199,6 +198,7 @@ fun HistoryScreen(
             .background(Color(0xFFF8F9FA))
             .padding(top = 24.dp)
     ) {
+        // STICKY HEADER
         Column(modifier = Modifier.padding(horizontal = 24.dp)) {
             Text(
                 text = "Transactions",
@@ -226,47 +226,54 @@ fun HistoryScreen(
                 AdvancedFilterCard(uiState, onEvent)
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
         }
 
-        if (uiState.groupedTransactions.isEmpty()) {
-            EmptyStateView()
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 24.dp, end = 24.dp, bottom = 120.dp
-                )
-            ) {
-                uiState.groupedTransactions.forEach { (dateString, transactions) ->
-                    item {
-                        Text(
-                            text = dateString,
-                            fontSize = 12.sp,
-                            color = Color(0xFF9E9E9E),
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(bottom = 8.dp, top = if (dateString == uiState.groupedTransactions.keys.first()) 0.dp else 16.dp)
-                        )
-                    }
+        // SCROLLABLE AREA WITH FADE
+        Box(modifier = Modifier.weight(1f)) {
+            // Content
+            if (uiState.groupedTransactions.isEmpty()) {
+                EmptyStateView()
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        start = 24.dp,
+                        end = 24.dp,
+                        top = 8.dp,
+                        bottom = 120.dp
+                    )
+                ) {
+                    uiState.groupedTransactions.forEach { (dateString, transactions) ->
+                        item {
+                            Text(
+                                text = dateString,
+                                fontSize = 12.sp,
+                                color = Color(0xFF9E9E9E),
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(bottom = 8.dp, top = if (dateString == uiState.groupedTransactions.keys.first()) 0.dp else 16.dp)
+                            )
+                        }
 
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color.White),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                        ) {
-                            Column {
-                                transactions.forEachIndexed { index, transaction ->
-                                    TransactionItemRow(transaction) {
-                                        onEvent(HistoryEvent.OnTransactionClicked(transaction.id))
-                                    }
-                                    if (index < transactions.lastIndex) {
-                                        HorizontalDivider(
-                                            color = Color(0xFFF5F5F5),
-                                            thickness = 1.dp,
-                                            modifier = Modifier.padding(horizontal = 16.dp)
-                                        )
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(20.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            ) {
+                                Column {
+                                    transactions.forEachIndexed { index, transaction ->
+                                        TransactionItemRow(transaction) {
+                                            onEvent(HistoryEvent.OnTransactionClicked(transaction.id))
+                                        }
+                                        if (index < transactions.lastIndex) {
+                                            HorizontalDivider(
+                                                color = Color(0xFFF5F5F5),
+                                                thickness = 1.dp,
+                                                modifier = Modifier.padding(horizontal = 16.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -274,6 +281,19 @@ fun HistoryScreen(
                     }
                 }
             }
+
+            // fading gradient
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(12.dp)
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFFF8F9FA), Color(0x00F8F9FA))
+                        )
+                    )
+            )
         }
     }
 }
@@ -333,7 +353,7 @@ private fun SearchAndFilterRow(
         Box(
             modifier = Modifier
                 .size(48.dp)
-                .clip(RoundedCornerShape(12.dp)) // FIX: Applied clip before background/clickable
+                .clip(RoundedCornerShape(12.dp))
                 .background(
                     if (uiState.isAdvancedFilterVisible) Color(0xFF00C875) else Color.White
                 )
@@ -394,7 +414,7 @@ private fun FilterPill(
         shape = RoundedCornerShape(20.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp)) // FIX: Contains the ripple perfectly
+            .clip(RoundedCornerShape(20.dp))
             .clickable { onClick() }
     ) {
         Text(
@@ -472,7 +492,7 @@ private fun AdvancedFilterCard(
                         shape = RoundedCornerShape(20.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) Color.Transparent else Color(0xFFE0E0E0)),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp)) // FIX: Ripple protection
+                            .clip(RoundedCornerShape(20.dp))
                             .clickable { onEvent(HistoryEvent.OnCategorySelected(category)) }
                     ) {
                         Text(
