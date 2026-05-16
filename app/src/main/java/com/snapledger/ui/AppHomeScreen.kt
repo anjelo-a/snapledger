@@ -1,17 +1,30 @@
 package com.snapledger.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.FloatingActionButton
@@ -21,12 +34,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,9 +51,17 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
+import com.snapledger.R
 import com.snapledger.core.profile.UserProfile
 import com.snapledger.navigation.SnapLedgerDestination
 import com.snapledger.navigation.SnapLedgerNavHost
+
+data class BottomNavItem(
+    val route: String,
+    val iconResId: Int?,
+    val iconVector: ImageVector?,
+    val label: String
+)
 
 @Composable
 fun AppHomeScreen(
@@ -44,12 +69,12 @@ fun AppHomeScreen(
     profile: UserProfile,
     onDisplayNameChange: (String) -> Unit,
 ) {
-    val items = remember {
+    val navItems = remember {
         listOf(
-            SnapLedgerDestination.Home,
-            SnapLedgerDestination.Scan,
-            SnapLedgerDestination.History,
-            SnapLedgerDestination.Budgets,
+            BottomNavItem(SnapLedgerDestination.Home.route, R.drawable.home, null, "Home"),
+            BottomNavItem(SnapLedgerDestination.Budgets.route, R.drawable.pie, null, "Budget"),
+            BottomNavItem(SnapLedgerDestination.History.route, R.drawable.list, null, "History"),
+            BottomNavItem("settings", R.drawable.settings, null, "Settings")
         )
     }
 
@@ -61,7 +86,11 @@ fun AppHomeScreen(
     val currentRoute = navBackStackEntry?.destination?.route
 
     val isFabVisible = currentRoute != SnapLedgerDestination.Scan.route &&
-            currentRoute != SnapLedgerDestination.AddTransaction.route
+            currentRoute != SnapLedgerDestination.AddTransaction.route &&
+            currentRoute != "review"
+
+    var isFabMenuExpanded by remember { mutableStateOf(false) }
+    val fabRotation by animateFloatAsState(targetValue = if (isFabMenuExpanded) 45f else 0f, label = "fabRotate")
 
     Scaffold(
         bottomBar = {
@@ -80,13 +109,13 @@ fun AppHomeScreen(
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
                             NavBarItem(
-                                icon = items[0].icon,
-                                label = items[0].label,
-                                isSelected = currentRoute == items[0].route,
+                                item = navItems[0],
+                                isSelected = currentRoute == navItems[0].route,
                                 activeColor = activeGreen,
                                 inactiveColor = inactiveGray,
                                 onClick = {
-                                    navController.navigate(items[0].route) {
+                                    isFabMenuExpanded = false
+                                    navController.navigate(navItems[0].route) {
                                         popUpTo(navController.graph.findStartDestination().id) {
                                             saveState = true
                                         }
@@ -96,13 +125,13 @@ fun AppHomeScreen(
                                 }
                             )
                             NavBarItem(
-                                icon = items[1].icon,
-                                label = items[1].label,
-                                isSelected = currentRoute == items[1].route,
+                                item = navItems[1],
+                                isSelected = currentRoute == navItems[1].route,
                                 activeColor = activeGreen,
                                 inactiveColor = inactiveGray,
                                 onClick = {
-                                    navController.navigate(items[1].route) {
+                                    isFabMenuExpanded = false
+                                    navController.navigate(navItems[1].route) {
                                         popUpTo(navController.graph.findStartDestination().id) {
                                             saveState = true
                                         }
@@ -120,13 +149,13 @@ fun AppHomeScreen(
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
                             NavBarItem(
-                                icon = items[2].icon,
-                                label = items[2].label,
-                                isSelected = currentRoute == items[2].route,
+                                item = navItems[2],
+                                isSelected = currentRoute == navItems[2].route,
                                 activeColor = activeGreen,
                                 inactiveColor = inactiveGray,
                                 onClick = {
-                                    navController.navigate(items[2].route) {
+                                    isFabMenuExpanded = false
+                                    navController.navigate(navItems[2].route) {
                                         popUpTo(navController.graph.findStartDestination().id) {
                                             saveState = true
                                         }
@@ -136,13 +165,13 @@ fun AppHomeScreen(
                                 }
                             )
                             NavBarItem(
-                                icon = items[3].icon,
-                                label = items[3].label,
-                                isSelected = currentRoute == items[3].route,
+                                item = navItems[3],
+                                isSelected = currentRoute == navItems[3].route,
                                 activeColor = activeGreen,
                                 inactiveColor = inactiveGray,
                                 onClick = {
-                                    navController.navigate(items[3].route) {
+                                    isFabMenuExpanded = false
+                                    navController.navigate(navItems[3].route) {
                                         popUpTo(navController.graph.findStartDestination().id) {
                                             saveState = true
                                         }
@@ -158,45 +187,90 @@ fun AppHomeScreen(
         },
         floatingActionButton = {
             if (isFabVisible) {
-                FloatingActionButton(
-                    onClick = {
-                        navController.navigate(SnapLedgerDestination.AddTransaction.route)
-                    },
-                    shape = CircleShape,
-                    containerColor = activeGreen,
-                    contentColor = Color.White,
-                    elevation = FloatingActionButtonDefaults.elevation(
-                        defaultElevation = 6.dp,
-                        pressedElevation = 12.dp
-                    ),
-                    modifier = Modifier
-                        .size(80.dp)
-                        .offset(y = 80.dp)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.offset(y = 80.dp)
                 ) {
-                    Icon(
-                        painter = painterResource(id = android.R.drawable.ic_input_add),
-                        contentDescription = "Add Transaction",
-                        modifier = Modifier.size(28.dp)
-                    )
+                    AnimatedVisibility(
+                        visible = isFabMenuExpanded,
+                        enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+                        exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(bottom = 24.dp)
+                        ) {
+                            FabMenuItem(
+                                iconResId = R.drawable.camera,
+                                label = "Scan receipt",
+                                onClick = {
+                                    isFabMenuExpanded = false
+                                    navController.navigate(SnapLedgerDestination.Scan.route)
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            FabMenuItem(
+                                iconResId = android.R.drawable.ic_input_add,
+                                label = "Add new transaction",
+                                onClick = {
+                                    isFabMenuExpanded = false
+                                    navController.navigate(SnapLedgerDestination.AddTransaction.route)
+                                }
+                            )
+                        }
+                    }
+
+                    FloatingActionButton(
+                        onClick = { isFabMenuExpanded = !isFabMenuExpanded },
+                        shape = CircleShape,
+                        containerColor = activeGreen,
+                        contentColor = Color.White,
+                        elevation = FloatingActionButtonDefaults.elevation(
+                            defaultElevation = 6.dp,
+                            pressedElevation = 12.dp
+                        ),
+                        modifier = Modifier.size(80.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = android.R.drawable.ic_input_add),
+                            contentDescription = "Expand Menu",
+                            modifier = Modifier
+                                .size(28.dp)
+                                .rotate(fabRotation)
+                        )
+                    }
                 }
             }
         },
         floatingActionButtonPosition = FabPosition.Center,
         containerColor = bgColor
     ) { innerPadding ->
-        SnapLedgerNavHost(
-            navController = navController,
-            profile = profile,
-            onDisplayNameChange = onDisplayNameChange,
-            modifier = Modifier.padding(innerPadding)
-        )
+        Box(modifier = Modifier.fillMaxSize()) {
+            SnapLedgerNavHost(
+                navController = navController,
+                profile = profile,
+                onDisplayNameChange = onDisplayNameChange,
+                modifier = Modifier.padding(innerPadding)
+            )
+
+            if (isFabMenuExpanded) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.3f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { isFabMenuExpanded = false }
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun NavBarItem(
-    icon: Int,
-    label: String,
+    item: BottomNavItem,
     isSelected: Boolean,
     activeColor: Color,
     inactiveColor: Color,
@@ -211,16 +285,56 @@ private fun NavBarItem(
             .clickable { onClick() }
             .padding(8.dp)
     ) {
-        Icon(
-            painter = painterResource(id = icon),
-            contentDescription = label,
-            tint = color,
-            modifier = Modifier.size(24.dp)
-        )
+        if (item.iconResId != null) {
+            Icon(
+                painter = painterResource(id = item.iconResId),
+                contentDescription = item.label,
+                tint = color,
+                modifier = Modifier.size(24.dp)
+            )
+        } else if (item.iconVector != null) {
+            Icon(
+                imageVector = item.iconVector,
+                contentDescription = item.label,
+                tint = color,
+                modifier = Modifier.size(24.dp)
+            )
+        }
         Text(
-            text = label,
+            text = item.label,
             color = color,
             fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun FabMenuItem(
+    iconResId: Int,
+    label: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .shadow(4.dp, RoundedCornerShape(12.dp))
+            .background(Color.White, RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            painter = painterResource(id = iconResId),
+            contentDescription = label,
+            tint = Color(0xFF00A86B),
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = label,
+            color = Color(0xFF1F1F1F),
+            fontSize = 14.sp,
             fontWeight = FontWeight.Medium
         )
     }
