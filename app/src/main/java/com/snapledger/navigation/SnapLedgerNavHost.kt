@@ -6,21 +6,22 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.snapledger.core.profile.UserProfile
+import com.snapledger.feature.budget.ui.BudgetRoute
 import com.snapledger.feature.dashboard.ui.DashboardScreen
 import com.snapledger.feature.dashboard.ui.DashboardUiState
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.snapledger.feature.scan.ui.ScanRoute
-import com.snapledger.feature.scan.vm.ScanViewModel
-import androidx.compose.ui.platform.LocalContext
 import com.snapledger.feature.entry.ui.AddTransactionRoute
 import com.snapledger.feature.history.ui.HistoryRoute
 import com.snapledger.feature.review.domain.LocalFirstReviewRepository
 import com.snapledger.feature.review.ui.ReviewRoute
 import com.snapledger.feature.review.vm.ReviewViewModel
+import com.snapledger.feature.scan.ui.ScanRoute
+import com.snapledger.feature.scan.vm.ScanViewModel
 
 @Composable
 fun SnapLedgerNavHost(
@@ -94,9 +95,7 @@ fun SnapLedgerNavHost(
             )
         }
         composable(SnapLedgerDestination.Budgets.route) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Budget Screen")
-            }
+            BudgetRoute()
         }
         composable(SnapLedgerDestination.AddTransaction.route) {
 
