@@ -24,6 +24,10 @@ val backendBaseUrl =
             ?: "https://snapledger-backend-75893256027.asia-southeast1.run.app/"
         )
         .let { if (it.endsWith("/")) it else "$it/" }
+val googleSignInServerClientId =
+    localProps.getProperty("SNAPLEDGER_GOOGLE_WEB_CLIENT_ID")
+        ?: localProps.getProperty("GOOGLE_SIGN_IN_SERVER_CLIENT_ID")
+        ?: ""
 
 android {
     namespace = "com.snapledger"
@@ -37,6 +41,11 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField(
+            "String",
+            "GOOGLE_SIGN_IN_SERVER_CLIENT_ID",
+            "\"$googleSignInServerClientId\"",
+        )
     }
 
     buildTypes {
@@ -83,6 +92,11 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.4")
     implementation("androidx.navigation:navigation-compose:2.8.0")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")

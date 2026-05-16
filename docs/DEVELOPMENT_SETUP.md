@@ -43,7 +43,29 @@ Use cases:
 Important:
 - Include trailing `/` (the build script normalizes this, but keep it explicit).
 
-## 4) Local backend setup
+## 4) Android Google Sign-In setup
+
+SnapLedger uses Android Credential Manager + Sign in with Google for identity-only local profiles.
+Ledger data remains local; this does not create backend user records or cloud sync ownership.
+
+In Google Cloud:
+- Configure the OAuth consent screen.
+- Create an Android OAuth client for `com.snapledger` with the debug/release SHA fingerprints.
+- Create a Web OAuth client ID.
+
+Set the Web OAuth client ID in root `local.properties`:
+
+```properties
+SNAPLEDGER_GOOGLE_WEB_CLIENT_ID=your-web-client-id.apps.googleusercontent.com
+```
+
+Notes:
+- The Web client ID is used as the Credential Manager `serverClientId`.
+- Do not commit `local.properties`.
+- If this value is omitted, the app still supports `Continue locally` and shows a configuration
+  message when `Continue with Google` is tapped.
+
+## 5) Local backend setup
 
 ```bash
 cd backend
@@ -77,7 +99,7 @@ Expected:
 {"status":"ok"}
 ```
 
-## 5) Database modes
+## 6) Database modes
 
 ### Local dev DB (default)
 
@@ -105,7 +127,7 @@ Use Cloud SQL Unix socket URL in Cloud Run secret:
 postgresql+psycopg://DB_USER:DB_PASS@/snapledger?host=/cloudsql/PROJECT_ID:REGION:INSTANCE_NAME
 ```
 
-## 6) Migrations
+## 7) Migrations
 
 Apply migrations after DB changes:
 
@@ -119,7 +141,7 @@ When adding schema changes:
 2. Run tests.
 3. Validate upgrade path from previous revision.
 
-## 7) Cloud Run deployment baseline
+## 8) Cloud Run deployment baseline
 
 Current shared service:
 - URL: `https://snapledger-backend-75893256027.asia-southeast1.run.app`
@@ -142,7 +164,7 @@ Optional OCR envs:
 - `GEMINI_FALLBACK_MODEL`
 - `GEMINI_TIMEOUT_SECONDS`
 
-## 8) API/security toggles and current behavior
+## 9) API/security toggles and current behavior
 
 Backend supports:
 - `REQUIRE_API_KEY` + `API_KEY`
@@ -157,7 +179,7 @@ Current gap:
 Recommendation today:
 - Keep `REQUIRE_API_KEY=false` in shared dev unless/until Android header support is added.
 
-## 9) Frontend/backend smoke test flow
+## 10) Frontend/backend smoke test flow
 
 1. Backend `/health` returns 200.
 2. Android app points to intended base URL.
@@ -165,7 +187,7 @@ Recommendation today:
 4. Review confirm can call `POST /v1/receipts/confirm`.
 5. Sync worker can hit `/v1/sync/push` and `/v1/sync/pull`.
 
-## 10) Troubleshooting quick hits
+## 11) Troubleshooting quick hits
 
 Cloud Run "failed to start/listen on PORT":
 - Do not override container command to `python` for buildpack images.
@@ -183,7 +205,7 @@ DB errors on startup:
 - Verify Cloud SQL instance connection is attached to the Cloud Run service.
 - Run `alembic upgrade head`.
 
-## 11) Team workflow conventions
+## 12) Team workflow conventions
 
 - Do not commit secrets or `.env.local`.
 - Use Secret Manager for cloud secrets.
