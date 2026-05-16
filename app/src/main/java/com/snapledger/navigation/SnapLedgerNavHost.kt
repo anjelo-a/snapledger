@@ -97,7 +97,7 @@ fun SnapLedgerNavHost(
         }
         composable("settings") {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = "Settings Screen Under Construction")
+                Text(text = "Settings Screen")
             }
         }
     }

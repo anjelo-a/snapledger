@@ -1,7 +1,14 @@
 package com.snapledger.feature.dashboard.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,9 +18,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -34,7 +44,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.res.painterResource
@@ -46,6 +59,16 @@ import com.snapledger.R
 import java.text.NumberFormat
 import java.util.Locale
 
+// --- Backend-Ready Data Models ---
+
+data class NotificationSummary(
+    val id: String,
+    val title: String,
+    val message: String,
+    val date: String,
+    val isUnread: Boolean
+)
+
 data class DashboardUiState(
     val userName: String = "",
     val budget: BudgetSummary = BudgetSummary(),
@@ -54,8 +77,12 @@ data class DashboardUiState(
     val insight: String? = null,
     val categories: List<CategorySummary> = emptyList(),
     val recentActivity: List<TransactionSummary> = emptyList(),
+    // Completely empty to trigger default states
+    val notifications: List<NotificationSummary> = emptyList(),
     val isLoading: Boolean = false
-)
+) {
+    val hasUnreadNotifications: Boolean get() = notifications.any { it.isUnread }
+}
 
 data class BudgetSummary(
     val limit: Double = 0.0,
@@ -93,66 +120,142 @@ data class TransactionSummary(
     val isIncome: Boolean
 )
 
-// Reusable formatter hoisted outside to prevent multiple instances
 private val phFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
 fun formatCurrency(amount: Double): String = phFormatter.format(amount)
+
+fun Modifier.noRippleClickable(
+    enabled: Boolean = true,
+    onClick: () -> Unit
+): Modifier = composed {
+    this.clickable(
+        interactionSource = remember { MutableInteractionSource() },
+        indication = null,
+        enabled = enabled,
+        onClick = onClick
+    )
+}
 
 @Composable
 fun DashboardScreen(
     state: DashboardUiState = DashboardUiState(),
     onDisplayNameChange: (String) -> Unit = {},
-    onManageBudgetClick: () -> Unit = {}
+    onManageBudgetClick: () -> Unit = {},
+    onMarkAllNotificationsAsRead: () -> Unit = {}
 ) {
     var isEditingName by remember { mutableStateOf(false) }
     var nameDraft by remember { mutableStateOf(state.userName) }
+    var showNotifications by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.userName) {
         nameDraft = state.userName
     }
 
-    LazyColumn(
+    // Top Level Box allows controlling Z-Index of overlays and buttons
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF8F9FA)),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 50.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .background(Color(0xFFF8F9FA))
     ) {
-        item {
-            GreetingSection(
-                userName = state.userName,
-                onNameClick = { isEditingName = true },
-            )
-        }
-
-        item {
-            BudgetCard(budget = state.budget, onManageClick = onManageBudgetClick)
-        }
-
-        if (state.alert != null) {
+        // SCROLLABLE CONTENT
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            // Top padding ensures content starts below the sticky header (24dp + 40dp + 16dp)
+            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 88.dp, bottom = 40.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
             item {
-                AlertCard(alert = state.alert)
+                BudgetCard(budget = state.budget, onManageClick = onManageBudgetClick)
+            }
+
+            if (state.alert != null) {
+                item { AlertCard(alert = state.alert) }
+            }
+
+            item { TrendCard(trend = state.trend) }
+
+            item { InsightCard(insightText = state.insight) }
+
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                CategoriesSection(categories = state.categories)
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                RecentActivitySection(transactions = state.recentActivity)
             }
         }
 
-        item {
-            TrendCard(trend = state.trend)
+        // STICKY GREETING HEADER WITH FADING GRADIENT
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFF8F9FA))
+                    .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 8.dp)
+            ) {
+                GreetingTexts(
+                    userName = state.userName,
+                    onNameClick = { isEditingName = true },
+                    modifier = Modifier.align(Alignment.CenterStart)
+                )
+            }
+            // Fading gradient edge
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(12.dp) //fade size
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFFF8F9FA), Color(0x00F8F9FA))
+                        )
+                    )
+            )
         }
 
-        item {
-            InsightCard(insightText = state.insight)
+        // DARK OVERLAY
+        if (showNotifications) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.2f))
+                    .noRippleClickable { showNotifications = false }
+            )
         }
 
-        item {
-            Spacer(modifier = Modifier.height(8.dp))
-            CategoriesSection(categories = state.categories)
-        }
+        // NOTIFICATION BELL
+        NotificationBell(
+            hasUnread = state.hasUnreadNotifications,
+            onClick = { showNotifications = !showNotifications },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 24.dp, end = 24.dp)
+        )
 
-        item {
-            Spacer(modifier = Modifier.height(8.dp))
-            RecentActivitySection(transactions = state.recentActivity)
+        // NOTIFICATION POPOVER
+        AnimatedVisibility(
+            visible = showNotifications,
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                // Padded exactly to align under the bell
+                .padding(start = 24.dp, end = 24.dp, top = 76.dp)
+        ) {
+            NotificationsPopover(
+                notifications = state.notifications,
+                onMarkAllAsRead = onMarkAllNotificationsAsRead,
+                onDismiss = { showNotifications = false }
+            )
         }
     }
 
+    // Name Editing Dialog
     if (isEditingName) {
         AlertDialog(
             onDismissRequest = { isEditingName = false },
@@ -186,45 +289,171 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun GreetingSection(
-    userName: String,
-    onNameClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Good afternoon",
-                color = Color(0xFF757575),
-                fontSize = 14.sp
-            )
-            Text(
-                text = userName.ifBlank { "User" },
-                color = Color(0xFF1F1F1F),
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable(onClick = onNameClick),
-            )
-        }
+private fun GreetingTexts(userName: String, onNameClick: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(text = "Good afternoon,", color = Color(0xFF757575), fontSize = 14.sp)
+        Text(
+            text = userName.ifBlank { "User" },
+            color = Color(0xFF1F1F1F),
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.clickable(onClick = onNameClick),
+        )
+    }
+}
 
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(Color(0xFFE0E0E0)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painter = painterResource(id = R.drawable.bell),
-                contentDescription = "Notifications",
-                modifier = Modifier.size(22.dp),
-                tint = Color(0xFF1F1F1F)
+@Composable
+private fun NotificationBell(hasUnread: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(Color(0xFFE0E0E0))
+            .noRippleClickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(id = R.drawable.bell),
+            contentDescription = "Notifications",
+            modifier = Modifier.size(22.dp),
+            tint = Color(0xFF1F1F1F)
+        )
+
+        // Only shows when hasUnread is true
+        if (hasUnread) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 8.dp, end = 10.dp)
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFF5252))
+                    .border(1.dp, Color(0xFFE0E0E0), CircleShape)
             )
         }
     }
 }
+
+@Composable
+private fun NotificationsPopover(
+    notifications: List<NotificationSummary>,
+    onMarkAllAsRead: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val hasUnread = notifications.any { it.isUnread }
+    val iconResId = if (hasUnread) R.drawable.mail_close else R.drawable.mail_open
+    val iconTint = if (hasUnread) Color(0xFF00C875) else Color(0xFFBDBDBD)
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(16.dp, RoundedCornerShape(16.dp)),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Column(modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Notifications", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
+
+                // Mail button toggle
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .noRippleClickable { if (hasUnread) onMarkAllAsRead() }
+                        .padding(4.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = iconResId),
+                        contentDescription = "Mark as read",
+                        tint = iconTint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            HorizontalDivider(color = Color(0xFFEEEEEE), modifier = Modifier.padding(top = 12.dp))
+
+            if (notifications.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.bell),
+                        contentDescription = "No notifications",
+                        tint = Color(0xFFE0E0E0),
+                        modifier = Modifier
+                            .size(48.dp)
+                            .padding(bottom = 8.dp)
+                    )
+                    Text(
+                        text = "You're all caught up!",
+                        fontSize = 14.sp,
+                        color = Color(0xFF757575),
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Check back later for alerts.",
+                        fontSize = 12.sp,
+                        color = Color(0xFF9E9E9E),
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 300.dp)
+                ) {
+                    itemsIndexed(notifications) { index, notif ->
+                        NotificationItemRow(notif)
+                        if (index < notifications.lastIndex) {
+                            HorizontalDivider(color = Color(0xFFF5F5F5), modifier = Modifier.padding(horizontal = 16.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationItemRow(notification: NotificationSummary) {
+    val bgColor = if (notification.isUnread) Color(0xFFE8F5E9).copy(alpha = 0.4f) else Color.Transparent
+    val titleColor = if (notification.isUnread) Color(0xFF1F1F1F) else Color(0xFF757575)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(bgColor)
+            .padding(16.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .padding(top = 6.dp)
+                .clip(CircleShape)
+                .background(if (notification.isUnread) Color(0xFF00C875) else Color.Transparent)
+        )
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = notification.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = titleColor)
+            Text(text = notification.message, fontSize = 13.sp, color = Color(0xFF757575), modifier = Modifier.padding(top = 2.dp))
+            Text(text = notification.date, fontSize = 11.sp, color = Color(0xFFBDBDBD), modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+}
+
+// ... BudgetCard, AlertCard, TrendCard, InsightCard, CategoriesSection, RecentActivitySection remaining components untouched.
 
 @Composable
 private fun BudgetCard(
@@ -235,7 +464,7 @@ private fun BudgetCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF00A86B)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp) // Optimized elevation
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(
@@ -245,12 +474,11 @@ private fun BudgetCard(
             ) {
                 Text(text = "Monthly budget", color = Color.White, fontSize = 14.sp)
 
-                // NEW: Clickable Manage Button
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable { onManageClick() }
+                        .noRippleClickable { onManageClick() }
                         .padding(4.dp)
                 ) {
                     Text(text = "Manage", color = Color.White, fontSize = 14.sp)
