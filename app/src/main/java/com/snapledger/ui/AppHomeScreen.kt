@@ -23,8 +23,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.FloatingActionButton
@@ -45,7 +43,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -104,82 +101,58 @@ fun AppHomeScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Left side items
                         Row(
                             modifier = Modifier.weight(1f),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            NavBarItem(
-                                item = navItems[0],
-                                isSelected = currentRoute == navItems[0].route,
-                                activeColor = activeGreen,
-                                inactiveColor = inactiveGray,
-                                onClick = {
-                                    isFabMenuExpanded = false
-                                    navController.navigate(navItems[0].route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
+                            navItems.take(2).forEach { item ->
+                                NavBarItem(
+                                    item = item,
+                                    isSelected = currentRoute == item.route,
+                                    activeColor = activeGreen,
+                                    inactiveColor = inactiveGray,
+                                    onClick = {
+                                        isFabMenuExpanded = false
+                                        navController.navigate(item.route) {
+                                            popUpTo(navController.graph.findStartDestination().id) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            // FIX: Only restore state if we aren't clicking the Home button.
+                                            // This prevents getting "stuck" on sub-pages like the Budget screen.
+                                            restoreState = item.route != SnapLedgerDestination.Home.route
                                         }
-                                        launchSingleTop = true
-                                        restoreState = true
                                     }
-                                }
-                            )
-                            NavBarItem(
-                                item = navItems[1],
-                                isSelected = currentRoute == navItems[1].route,
-                                activeColor = activeGreen,
-                                inactiveColor = inactiveGray,
-                                onClick = {
-                                    isFabMenuExpanded = false
-                                    navController.navigate(navItems[1].route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            )
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.width(72.dp))
 
+                        // Right side items
                         Row(
                             modifier = Modifier.weight(1f),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            NavBarItem(
-                                item = navItems[2],
-                                isSelected = currentRoute == navItems[2].route,
-                                activeColor = activeGreen,
-                                inactiveColor = inactiveGray,
-                                onClick = {
-                                    isFabMenuExpanded = false
-                                    navController.navigate(navItems[2].route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
+                            navItems.drop(2).forEach { item ->
+                                NavBarItem(
+                                    item = item,
+                                    isSelected = currentRoute == item.route,
+                                    activeColor = activeGreen,
+                                    inactiveColor = inactiveGray,
+                                    onClick = {
+                                        isFabMenuExpanded = false
+                                        navController.navigate(item.route) {
+                                            popUpTo(navController.graph.findStartDestination().id) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
                                         }
-                                        launchSingleTop = true
-                                        restoreState = true
                                     }
-                                }
-                            )
-                            NavBarItem(
-                                item = navItems[3],
-                                isSelected = currentRoute == navItems[3].route,
-                                activeColor = activeGreen,
-                                inactiveColor = inactiveGray,
-                                onClick = {
-                                    isFabMenuExpanded = false
-                                    navController.navigate(navItems[3].route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 }
@@ -304,7 +277,6 @@ private fun NavBarItem(
             text = item.label,
             color = color,
             fontSize = 12.sp,
-            fontWeight = FontWeight.Medium
         )
     }
 }
@@ -335,7 +307,6 @@ private fun FabMenuItem(
             text = label,
             color = Color(0xFF1F1F1F),
             fontSize = 14.sp,
-            fontWeight = FontWeight.Medium
         )
     }
 }
