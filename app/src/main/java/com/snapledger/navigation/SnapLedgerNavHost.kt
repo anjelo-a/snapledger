@@ -62,15 +62,11 @@ fun SnapLedgerNavHost(
                 }
             )
         }
-
-        //review screen
         composable("review") {
             val context = LocalContext.current
 
-            // get the local database repository so the ViewModel can save receipts
             val repository = LocalFirstReviewRepository.getInstance(context)
 
-            // build ReviewViewModel using the factory
             val reviewViewModel: ReviewViewModel = viewModel(
                 factory = ReviewViewModel.factory(repository)
             )
@@ -83,14 +79,9 @@ fun SnapLedgerNavHost(
             )
         }
         composable(SnapLedgerDestination.History.route) {
-            // grab the ViewModel here just like for Scan:
-            // val historyViewModel: HistoryViewModel = viewModel()
-
             HistoryRoute(
-                // viewModel = historyViewModel, // Uncomment when backend is ready
                 onNavigateToDetail = { transactionId ->
-                    // This is where you will navigate to a Transaction Detail screen later
-                    // navController.navigate("transaction_detail/$transactionId")
+
                 }
             )
         }
@@ -98,15 +89,16 @@ fun SnapLedgerNavHost(
             BudgetRoute()
         }
         composable(SnapLedgerDestination.AddTransaction.route) {
-
-            // val addTransactionViewModel: AddTransactionViewModel = viewModel() // For later
-
             AddTransactionRoute(
-                // viewModel = addTransactionViewModel,
                 onBack = {
                     navController.popBackStack()
                 }
             )
+        }
+        composable("settings") {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(text = "Settings Screen Under Construction")
+            }
         }
     }
 }
