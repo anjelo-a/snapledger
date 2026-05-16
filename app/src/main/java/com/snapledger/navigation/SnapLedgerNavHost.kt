@@ -22,6 +22,9 @@ import com.snapledger.feature.review.ui.ReviewRoute
 import com.snapledger.feature.review.vm.ReviewViewModel
 import com.snapledger.feature.scan.ui.ScanRoute
 import com.snapledger.feature.scan.vm.ScanViewModel
+import com.snapledger.feature.settings.ui.SettingsRoute
+import com.snapledger.feature.settings.vm.SettingsViewModel
+import com.snapledger.feature.settings.vm.SettingsUiState
 
 @Composable
 fun SnapLedgerNavHost(
@@ -96,9 +99,10 @@ fun SnapLedgerNavHost(
             )
         }
         composable("settings") {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = "Settings Screen")
-            }
+            SettingsRoute(
+                initialUserName = profile.displayName,
+                onNameChanged = onDisplayNameChange
+            )
         }
     }
 }
