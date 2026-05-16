@@ -56,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
@@ -151,112 +152,134 @@ fun BudgetScreen(
     var isAddingCategory by remember { mutableStateOf(false) }
     var categoryToEdit by remember { mutableStateOf<BudgetCategoryUiModel?>(null) }
 
-    LazyColumn(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF8F9FA)),
-        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 120.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .background(Color(0xFFF8F9FA))
+            .padding(top = 24.dp)
     ) {
-        // Header Area
-        item {
-            Column {
-                Text(
-                    text = "Budget",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1F1F1F)
-                )
-                Text(
-                    text = uiState.currentMonth,
-                    fontSize = 12.sp,
-                    color = Color(0xFF757575),
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-        }
-
-        // Period Switcher
-        item {
-            BudgetPeriodSwitcher(
-                currentPeriod = uiState.period,
-                onPeriodChanged = onPeriodChanged
+        // --- 1. STICKY HEADER ---
+        Column(modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 16.dp)) {
+            Text(
+                text = "Budget",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1F1F1F)
+            )
+            Text(
+                text = uiState.currentMonth,
+                fontSize = 12.sp,
+                color = Color(0xFF757575),
+                modifier = Modifier.padding(top = 4.dp)
             )
         }
 
-        // Main Budget Summary Card (Only show if there are categories)
-        if (uiState.categories.isNotEmpty()) {
-            item {
-                MainBudgetCard(uiState)
-            }
-        }
-
-        // Categories Header
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        // --- 2. SCROLLABLE AREA WITH FADE ---
+        Box(modifier = Modifier.weight(1f)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 120.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Text(
-                    text = "Categories",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFF1F1F1F)
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .noRippleClickable { isAddingCategory = !isAddingCategory }
-                        .padding(4.dp)
-                ) {
-                    Icon(
-                        imageVector = if (isAddingCategory) Icons.Rounded.Close else Icons.Rounded.Add,
-                        contentDescription = "Toggle category",
-                        tint = Color(0xFF00C875),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = if (isAddingCategory) "Cancel" else "Add category",
-                        color = Color(0xFF00C875),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(start = 4.dp)
+                // Period Switcher
+                item {
+                    BudgetPeriodSwitcher(
+                        currentPeriod = uiState.period,
+                        onPeriodChanged = onPeriodChanged
                     )
                 }
-            }
-        }
 
-        // Animated Add Category Card
-        item {
-            AnimatedVisibility(
-                visible = isAddingCategory,
-                enter = expandVertically(),
-                exit = shrinkVertically()
-            ) {
-                AddCategoryInlineCard(
-                    onSave = { name, amount ->
-                        onSaveNewCategory(name, amount)
-                        isAddingCategory = false
+                // Main Budget Summary Card (Only show if there are categories)
+                if (uiState.categories.isNotEmpty()) {
+                    item {
+                        MainBudgetCard(uiState)
                     }
-                )
-            }
-        }
+                }
 
-        // Category List or Empty State
-        if (uiState.categories.isEmpty() && !isAddingCategory) {
-            item {
-                BudgetEmptyState()
+                // Categories Header
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Categories",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF1F1F1F)
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .noRippleClickable { isAddingCategory = !isAddingCategory }
+                                .padding(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isAddingCategory) Icons.Rounded.Close else Icons.Rounded.Add,
+                                contentDescription = "Toggle category",
+                                tint = Color(0xFF00C875),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = if (isAddingCategory) "Cancel" else "Add category",
+                                color = Color(0xFF00C875),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Animated Add Category Card
+                item {
+                    // FIX: Wrapped in Column to provide the required ColumnScope
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        AnimatedVisibility(
+                            visible = isAddingCategory,
+                            enter = expandVertically(),
+                            exit = shrinkVertically()
+                        ) {
+                            AddCategoryInlineCard(
+                                onSave = { name, amount ->
+                                    onSaveNewCategory(name, amount)
+                                    isAddingCategory = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // Category List or Empty State
+                if (uiState.categories.isEmpty() && !isAddingCategory) {
+                    item {
+                        BudgetEmptyState()
+                    }
+                } else {
+                    items(uiState.categories, key = { it.id }) { category ->
+                        BudgetCategoryCard(
+                            category = category,
+                            onEditClicked = { categoryToEdit = category }
+                        )
+                    }
+                }
             }
-        } else {
-            items(uiState.categories, key = { it.id }) { category ->
-                BudgetCategoryCard(
-                    category = category,
-                    onEditClicked = { categoryToEdit = category }
-                )
-            }
+
+            // The 12.dp Fading Gradient Overlay
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(12.dp)
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFFF8F9FA), Color(0x00F8F9FA))
+                        )
+                    )
+            )
         }
     }
 
