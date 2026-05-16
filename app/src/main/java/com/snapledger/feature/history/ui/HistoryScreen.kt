@@ -98,10 +98,12 @@ sealed class HistoryEvent {
     data class OnEndDateChanged(val date: String) : HistoryEvent()
     data class OnMinAmountChanged(val amount: String) : HistoryEvent()
     data class OnMaxAmountChanged(val amount: String) : HistoryEvent()
-
-    // NEW EVENT: Added clear functionality for Advanced Search
     object OnClearAdvancedFilters : HistoryEvent()
 }
+
+// OPTIMIZATION: Hoist formatters globally to avoid recreating them
+private val phCurrencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
+private val filterDateFormatter = SimpleDateFormat("MM/dd/yyyy", Locale.US)
 
 @Composable
 fun HistoryRoute(
@@ -121,22 +123,32 @@ fun HistoryRoute(
         listOf<HistoryTransactionUiModel>()
     }
 
-    val filteredTransactions = allTransactions.filter { transaction ->
-        val matchesSearch = transaction.title.contains(searchQuery, ignoreCase = true) ||
-                transaction.category.contains(searchQuery, ignoreCase = true)
+    // OPTIMIZATION: Wrap heavy filtering logic in a remember block tied to its dependencies
+    val filteredTransactions = remember(
+        allTransactions, searchQuery, quickFilter, selectedCategory, startDate, endDate, minAmount, maxAmount
+    ) {
+        allTransactions.filter { transaction ->
+            val matchesSearch = transaction.title.contains(searchQuery, ignoreCase = true) ||
+                    transaction.category.contains(searchQuery, ignoreCase = true)
 
-        val matchesQuickFilter = when (quickFilter) {
-            QuickFilter.ALL -> true
-            QuickFilter.EXPENSE -> !transaction.isIncome
-            QuickFilter.INCOME -> transaction.isIncome
+            val matchesQuickFilter = when (quickFilter) {
+                QuickFilter.ALL -> true
+                QuickFilter.EXPENSE -> !transaction.isIncome
+                QuickFilter.INCOME -> transaction.isIncome
+            }
+
+            val matchesCategory = if (selectedCategory == "All") true else transaction.category.equals(selectedCategory, ignoreCase = true)
+
+            // Further advanced filter matching would go here (e.g., date ranges, amount bounds)
+
+            matchesSearch && matchesQuickFilter && matchesCategory
         }
-
-        val matchesCategory = if (selectedCategory == "All") true else transaction.category.equals(selectedCategory, ignoreCase = true)
-
-        matchesSearch && matchesQuickFilter && matchesCategory
     }
 
-    val grouped = filteredTransactions.groupBy { it.dateString }
+    // OPTIMIZATION: Memoize the grouping operation
+    val grouped = remember(filteredTransactions) {
+        filteredTransactions.groupBy { it.dateString }
+    }
 
     val currentState = HistoryUiState(
         searchQuery = searchQuery,
@@ -164,7 +176,6 @@ fun HistoryRoute(
                 is HistoryEvent.OnMinAmountChanged -> minAmount = event.amount
                 is HistoryEvent.OnMaxAmountChanged -> maxAmount = event.amount
                 is HistoryEvent.OnTransactionClicked -> onNavigateToDetail(event.id)
-                // clear advanced search shits
                 is HistoryEvent.OnClearAdvancedFilters -> {
                     startDate = ""
                     endDate = ""
@@ -224,7 +235,7 @@ fun HistoryScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 24.dp, end = 24.dp, bottom = 100.dp
+                    start = 24.dp, end = 24.dp, bottom = 120.dp
                 )
             ) {
                 uiState.groupedTransactions.forEach { (dateString, transactions) ->
@@ -322,9 +333,9 @@ private fun SearchAndFilterRow(
         Box(
             modifier = Modifier
                 .size(48.dp)
+                .clip(RoundedCornerShape(12.dp)) // FIX: Applied clip before background/clickable
                 .background(
-                    if (uiState.isAdvancedFilterVisible) Color(0xFF00C875) else Color.White,
-                    RoundedCornerShape(12.dp)
+                    if (uiState.isAdvancedFilterVisible) Color(0xFF00C875) else Color.White
                 )
                 .border(
                     1.dp,
@@ -382,7 +393,9 @@ private fun FilterPill(
         color = bgColor,
         shape = RoundedCornerShape(20.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
-        modifier = Modifier.clickable { onClick() }
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp)) // FIX: Contains the ripple perfectly
+            .clickable { onClick() }
     ) {
         Text(
             text = text,
@@ -458,7 +471,9 @@ private fun AdvancedFilterCard(
                         color = if (isSelected) Color(0xFF00C875) else Color.White,
                         shape = RoundedCornerShape(20.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) Color.Transparent else Color(0xFFE0E0E0)),
-                        modifier = Modifier.clickable { onEvent(HistoryEvent.OnCategorySelected(category)) }
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp)) // FIX: Ripple protection
+                            .clickable { onEvent(HistoryEvent.OnCategorySelected(category)) }
                     ) {
                         Text(
                             text = category,
@@ -470,7 +485,6 @@ private fun AdvancedFilterCard(
                 }
             }
 
-            // NEW: Clear Filters Button
             Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -501,8 +515,7 @@ private fun AdvancedFilterDateInput(
             confirmButton = {
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let { millis ->
-                        val formatter = SimpleDateFormat("MM/dd/yyyy", Locale.US)
-                        onValueChange(formatter.format(Date(millis)))
+                        onValueChange(filterDateFormatter.format(Date(millis)))
                     }
                     showDialog = false
                 }) {
@@ -522,7 +535,8 @@ private fun AdvancedFilterDateInput(
     Box(
         modifier = modifier
             .height(40.dp)
-            .background(Color(0xFFF8F9FA), RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFFF8F9FA))
             .clickable { showDialog = true }
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.CenterStart
@@ -533,7 +547,7 @@ private fun AdvancedFilterDateInput(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = if (value.isEmpty()) "MM/DD/YYYY" else value,
+                text = if (value.isEmpty()) hint else value,
                 color = if (value.isEmpty()) Color(0xFFBDBDBD) else Color(0xFF1F1F1F),
                 fontSize = 14.sp
             )
@@ -547,7 +561,6 @@ private fun AdvancedFilterDateInput(
     }
 }
 
-// NEW: Updated to restrict input to numbers and decimals only
 @Composable
 private fun AdvancedFilterNumberInput(
     modifier: Modifier,
@@ -565,7 +578,6 @@ private fun AdvancedFilterNumberInput(
         BasicTextField(
             value = value,
             onValueChange = { newValue ->
-                // Regex ensures only numbers and up to one decimal point can be typed
                 if (newValue.isEmpty() || newValue.matches(Regex("^\\d*\\.?\\d*\$"))) {
                     onValueChange(newValue)
                 }
@@ -592,18 +604,22 @@ private fun TransactionItemRow(
     transaction: HistoryTransactionUiModel,
     onClick: () -> Unit
 ) {
-    val iconData = when (transaction.category.lowercase()) {
-        "food" -> Pair(R.drawable.utensils, Color(0xFF4CAF50))
-        "transport" -> Pair(R.drawable.car, Color(0xFF009688))
-        "income", "salary" -> Pair(R.drawable.hand_coins, Color(0xFF00A86B))
-        "entertainment" -> Pair(R.drawable.film, Color(0xFF673AB7))
-        "health" -> Pair(R.drawable.heart_pulse, Color(0xFFFF9800))
-        else -> Pair(R.drawable.receipt, Color(0xFF757575))
+    val iconData = remember(transaction.category) {
+        when (transaction.category.lowercase()) {
+            "food" -> Pair(R.drawable.utensils, Color(0xFF4CAF50))
+            "transport" -> Pair(R.drawable.car, Color(0xFF009688))
+            "income", "salary" -> Pair(R.drawable.hand_coins, Color(0xFF00A86B))
+            "shopping" -> Pair(R.drawable.shopping_basket, Color(0xFFE91E63))
+            "entertainment" -> Pair(R.drawable.film, Color(0xFF673AB7))
+            "health" -> Pair(R.drawable.heart_pulse, Color(0xFFFF9800))
+            "bills" -> Pair(R.drawable.receipt, Color(0xFFD32F2F))
+            else -> Pair(R.drawable.box, Color(0xFF9E9E9E))
+        }
     }
 
     val iconResId = iconData.first
     val iconTint = iconData.second
-    val iconBgColor = iconTint.copy(alpha = 0.15f)
+    val iconBgColor = remember(iconTint) { iconTint.copy(alpha = 0.15f) }
 
     val amountPrefix = if (transaction.isIncome) "+" else "-"
     val amountColor = if (transaction.isIncome) Color(0xFF00C875) else Color(0xFF1F1F1F)
@@ -642,7 +658,7 @@ private fun TransactionItemRow(
         }
 
         Text(
-            text = "$amountPrefix${formatMoney(transaction.amount)}",
+            text = "$amountPrefix${phCurrencyFormatter.format(transaction.amount)}",
             color = amountColor,
             fontSize = 16.sp,
             fontWeight = FontWeight.Medium
@@ -676,12 +692,9 @@ private fun EmptyStateView() {
             color = Color(0xFF9E9E9E),
             fontSize = 14.sp,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 32.dp).padding(top = 4.dp)
+            modifier = Modifier
+                .padding(horizontal = 32.dp)
+                .padding(top = 4.dp)
         )
     }
-}
-
-private fun formatMoney(amount: Double): String {
-    val format = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
-    return format.format(amount)
 }
