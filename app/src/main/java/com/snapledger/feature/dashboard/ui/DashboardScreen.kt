@@ -93,6 +93,7 @@ data class TransactionSummary(
     val isIncome: Boolean
 )
 
+// Reusable formatter hoisted outside to prevent multiple instances
 private val phFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
 fun formatCurrency(amount: Double): String = phFormatter.format(amount)
 
@@ -100,7 +101,7 @@ fun formatCurrency(amount: Double): String = phFormatter.format(amount)
 fun DashboardScreen(
     state: DashboardUiState = DashboardUiState(),
     onDisplayNameChange: (String) -> Unit = {},
-    onManageBudgetClick: () -> Unit = {} // NEW: Callback for navigation
+    onManageBudgetClick: () -> Unit = {}
 ) {
     var isEditingName by remember { mutableStateOf(false) }
     var nameDraft by remember { mutableStateOf(state.userName) }
