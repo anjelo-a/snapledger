@@ -39,6 +39,9 @@ fun SnapLedgerNavHost(
                 DashboardScreen(
                     state = DashboardUiState(userName = profile.displayName),
                     onDisplayNameChange = onDisplayNameChange,
+                    onManageBudgetClick = {
+                        navController.navigate(SnapLedgerDestination.Budgets.route)
+                    }
                 )
             }
         }
