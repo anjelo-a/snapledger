@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,20 +13,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,7 +45,6 @@ import androidx.compose.ui.unit.sp
 import com.snapledger.R
 import java.text.NumberFormat
 import java.util.Locale
-
 
 data class DashboardUiState(
     val userName: String = "",
@@ -94,15 +93,14 @@ data class TransactionSummary(
     val isIncome: Boolean
 )
 
-fun formatCurrency(amount: Double): String {
-    val format = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
-    return format.format(amount)
-}
+private val phFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
+fun formatCurrency(amount: Double): String = phFormatter.format(amount)
 
 @Composable
 fun DashboardScreen(
     state: DashboardUiState = DashboardUiState(),
     onDisplayNameChange: (String) -> Unit = {},
+    onManageBudgetClick: () -> Unit = {} // NEW: Callback for navigation
 ) {
     var isEditingName by remember { mutableStateOf(false) }
     var nameDraft by remember { mutableStateOf(state.userName) }
@@ -111,41 +109,47 @@ fun DashboardScreen(
         nameDraft = state.userName
     }
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF8F9FA))
-            .verticalScroll(rememberScrollState())
-            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp)
+            .background(Color(0xFFF8F9FA)),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 50.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        GreetingSection(
-            userName = state.userName,
-            onNameClick = { isEditingName = true },
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        BudgetCard(budget = state.budget)
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Alerts remain conditionally hidden (you don't want an "Empty Alert" card)
-        if (state.alert != null) {
-            AlertCard(alert = state.alert)
-            Spacer(modifier = Modifier.height(16.dp))
+        item {
+            GreetingSection(
+                userName = state.userName,
+                onNameClick = { isEditingName = true },
+            )
         }
 
-        TrendCard(trend = state.trend)
-        Spacer(modifier = Modifier.height(16.dp))
+        item {
+            BudgetCard(budget = state.budget, onManageClick = onManageBudgetClick)
+        }
 
-        // Render Insight Card (Empty or Filled)
-        InsightCard(insightText = state.insight)
-        Spacer(modifier = Modifier.height(24.dp))
+        if (state.alert != null) {
+            item {
+                AlertCard(alert = state.alert)
+            }
+        }
 
-        // Render Categories (Empty or Filled)
-        CategoriesSection(categories = state.categories)
-        Spacer(modifier = Modifier.height(24.dp))
+        item {
+            TrendCard(trend = state.trend)
+        }
 
-        // Render Recent Activity (Empty or Filled)
-        RecentActivitySection(transactions = state.recentActivity)
+        item {
+            InsightCard(insightText = state.insight)
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(8.dp))
+            CategoriesSection(categories = state.categories)
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(8.dp))
+            RecentActivitySection(transactions = state.recentActivity)
+        }
     }
 
     if (isEditingName) {
@@ -222,12 +226,15 @@ private fun GreetingSection(
 }
 
 @Composable
-private fun BudgetCard(budget: BudgetSummary) {
+private fun BudgetCard(
+    budget: BudgetSummary,
+    onManageClick: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF00A86B)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp) // Optimized elevation
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(
@@ -236,7 +243,15 @@ private fun BudgetCard(budget: BudgetSummary) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(text = "Monthly budget", color = Color.White, fontSize = 14.sp)
-                Row(verticalAlignment = Alignment.CenterVertically) {
+
+                // NEW: Clickable Manage Button
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onManageClick() }
+                        .padding(4.dp)
+                ) {
                     Text(text = "Manage", color = Color.White, fontSize = 14.sp)
                     Icon(
                         painter = painterResource(id = R.drawable.chevron_right),
@@ -431,7 +446,6 @@ private fun TrendCard(trend: TrendSummary) {
 
 @Composable
 private fun InsightCard(insightText: String?) {
-    // Determine if we are showing real data or an empty state
     val isDataEmpty = insightText.isNullOrBlank()
     val displayColor = if (isDataEmpty) Color(0xFF9E9E9E) else Color(0xFF1F1F1F)
     val cardColor = if (isDataEmpty) Color.White else Color(0xFFF5F3FF)
@@ -513,7 +527,6 @@ private fun CategoriesSection(categories: List<CategorySummary>) {
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             if (categories.isEmpty()) {
-                // Empty State for Categories
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -541,7 +554,6 @@ private fun CategoriesSection(categories: List<CategorySummary>) {
                     )
                 }
             } else {
-                // Filled State for Categories
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -612,7 +624,6 @@ private fun RecentActivitySection(transactions: List<TransactionSummary>) {
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             if (transactions.isEmpty()) {
-                // Empty State for Recent Activity
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -641,7 +652,6 @@ private fun RecentActivitySection(transactions: List<TransactionSummary>) {
                     )
                 }
             } else {
-                // Filled State for Recent Activity
                 Column {
                     transactions.forEachIndexed { index, transaction ->
                         TransactionItem(transaction = transaction)
@@ -657,20 +667,22 @@ private fun RecentActivitySection(transactions: List<TransactionSummary>) {
 
 @Composable
 private fun TransactionItem(transaction: TransactionSummary) {
-    val iconData = when (transaction.category.lowercase()) {
-        "food" -> Pair(R.drawable.utensils, Color(0xFF4CAF50))
-        "transport" -> Pair(R.drawable.car, Color(0xFF009688))
-        "income", "salary" -> Pair(R.drawable.hand_coins, Color(0xFF00A86B))
-        "shopping" -> Pair(R.drawable.shopping_basket, Color(0xFFF57F17))
-        "entertainment" -> Pair(R.drawable.film, Color(0xFF673AB7))
-        "bills" -> Pair(R.drawable.banknote_arrow_up, Color(0xFFD32F2F))
-        "health" -> Pair(R.drawable.heart_pulse, Color(0xFFE91E63))
-        else -> Pair(R.drawable.receipt, Color(0xFF757575))
+    val iconData = remember(transaction.category) {
+        when (transaction.category.lowercase()) {
+            "food" -> Pair(R.drawable.utensils, Color(0xFF4CAF50))
+            "transport" -> Pair(R.drawable.car, Color(0xFF009688))
+            "income", "salary" -> Pair(R.drawable.hand_coins, Color(0xFF00A86B))
+            "shopping" -> Pair(R.drawable.shopping_basket, Color(0xFFF57F17))
+            "entertainment" -> Pair(R.drawable.film, Color(0xFF673AB7))
+            "bills" -> Pair(R.drawable.banknote_arrow_up, Color(0xFFD32F2F))
+            "health" -> Pair(R.drawable.heart_pulse, Color(0xFFE91E63))
+            else -> Pair(R.drawable.receipt, Color(0xFF757575))
+        }
     }
 
     val iconResId = iconData.first
     val iconTint = iconData.second
-    val iconBgColor = iconTint.copy(alpha = 0.1f)
+    val iconBgColor = remember(iconTint) { iconTint.copy(alpha = 0.1f) }
 
     val amountPrefix = if (transaction.isIncome) "+" else "-"
     val amountColor = if (transaction.isIncome) Color(0xFF00A86B) else Color(0xFF1F1F1F)
