@@ -23,7 +23,6 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
-import com.snapledger.core.profile.ProfileRepository
 import com.snapledger.core.profile.UserProfile
 import com.snapledger.navigation.SnapLedgerDestination
 import com.snapledger.navigation.SnapLedgerNavHost
@@ -32,14 +31,13 @@ import com.snapledger.navigation.SnapLedgerNavHost
 fun AppHomeScreen(
     navController: NavHostController,
     profile: UserProfile,
-    profileRepository: ProfileRepository,
+    onDisplayNameChange: (String) -> Unit,
 ) {
     val items = listOf(
         SnapLedgerDestination.Home,
         SnapLedgerDestination.Scan,
         SnapLedgerDestination.History,
         SnapLedgerDestination.Budgets,
-        SnapLedgerDestination.Profile,
     )
 
     val activeGreen = Color(0xFF00A86B)
@@ -124,7 +122,7 @@ fun AppHomeScreen(
         SnapLedgerNavHost(
             navController = navController,
             profile = profile,
-            profileRepository = profileRepository,
+            onDisplayNameChange = onDisplayNameChange,
             modifier = Modifier.padding(innerPadding)
         )
     }

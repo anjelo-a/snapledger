@@ -9,10 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import com.snapledger.core.profile.ProfileRepository
 import com.snapledger.core.profile.UserProfile
-import com.snapledger.feature.account.ui.ProfileRoute
-import com.snapledger.feature.account.vm.ProfileViewModel
 import com.snapledger.feature.dashboard.ui.DashboardScreen
 import com.snapledger.feature.dashboard.ui.DashboardUiState
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -29,7 +26,7 @@ import com.snapledger.feature.review.vm.ReviewViewModel
 fun SnapLedgerNavHost(
     navController: NavHostController,
     profile: UserProfile,
-    profileRepository: ProfileRepository,
+    onDisplayNameChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     NavHost(
@@ -39,7 +36,10 @@ fun SnapLedgerNavHost(
     ) {
         composable(SnapLedgerDestination.Home.route) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                DashboardScreen(state = DashboardUiState(userName = profile.displayName))
+                DashboardScreen(
+                    state = DashboardUiState(userName = profile.displayName),
+                    onDisplayNameChange = onDisplayNameChange,
+                )
             }
         }
         composable(SnapLedgerDestination.Scan.route) {
@@ -94,13 +94,6 @@ fun SnapLedgerNavHost(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("Budget Screen")
             }
-        }
-        composable(SnapLedgerDestination.Profile.route) {
-            val profileViewModel: ProfileViewModel = viewModel(
-                factory = ProfileViewModel.factory(profileRepository)
-            )
-
-            ProfileRoute(viewModel = profileViewModel)
         }
         composable(SnapLedgerDestination.AddTransaction.route) {
 

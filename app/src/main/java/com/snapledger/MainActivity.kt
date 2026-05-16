@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
 import com.snapledger.core.profile.DataStoreProfileRepository
@@ -24,6 +25,7 @@ import com.snapledger.core.profile.UserProfile
 import com.snapledger.feature.account.ui.AccountSetupRoute
 import com.snapledger.feature.account.vm.AccountSetupViewModel
 import com.snapledger.ui.AppHomeScreen
+import kotlinx.coroutines.launch
 import android.graphics.Color as AndroidColor
 
 class MainActivity : ComponentActivity() {
@@ -52,6 +54,11 @@ class MainActivity : ComponentActivity() {
                     }
                     SnapLedgerAppRoot(
                         profileRepository = profileRepository,
+                        onDisplayNameChange = { displayName ->
+                            lifecycleScope.launch {
+                                profileRepository.updateDisplayName(displayName)
+                            }
+                        },
                     )
                 }
             }
@@ -60,7 +67,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun SnapLedgerAppRoot(profileRepository: ProfileRepository) {
+private fun SnapLedgerAppRoot(
+    profileRepository: ProfileRepository,
+    onDisplayNameChange: (String) -> Unit,
+) {
     val gateState = remember { mutableStateOf<ProfileGateState>(ProfileGateState.Loading) }
     val navController = rememberNavController()
 
@@ -92,7 +102,7 @@ private fun SnapLedgerAppRoot(profileRepository: ProfileRepository) {
             AppHomeScreen(
                 navController = navController,
                 profile = state.profile,
-                profileRepository = profileRepository,
+                onDisplayNameChange = onDisplayNameChange,
             )
         }
     }
