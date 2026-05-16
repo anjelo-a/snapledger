@@ -13,11 +13,13 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -29,12 +31,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
@@ -58,6 +59,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -72,6 +74,9 @@ import com.snapledger.R
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private val amountRegex = Regex("^\\d*\\.?\\d*\$")
+private val dateFormatter = SimpleDateFormat("MM/dd/yyyy", Locale.US)
 
 enum class TransactionType { EXPENSE, INCOME }
 
@@ -117,18 +122,19 @@ sealed class AddTransactionEvent {
 
 @Composable
 fun AddTransactionRoute(
-    // viewModel: AddTransactionViewModel, // Uncomment when backend is ready
     onBack: () -> Unit
 ) {
-    val defaultCategories = listOf(
-        CategoryUiModel("Food", R.drawable.utensils, Color(0xFF4CAF50)),
-        CategoryUiModel("Transport", R.drawable.car, Color(0xFF009688)),
-        CategoryUiModel("Shopping", R.drawable.shopping_basket, Color(0xFFE91E63)),
-        CategoryUiModel("Bills", R.drawable.receipt, Color(0xFFFFC107)),
-        CategoryUiModel("Entertainment", R.drawable.film, Color(0xFF9C27B0)),
-        CategoryUiModel("Health", R.drawable.heart_pulse, Color(0xFFFF9800)),
-        CategoryUiModel("Other", R.drawable.astroid, Color(0xFF9E9E9E))
-    )
+    val defaultCategories = remember {
+        listOf(
+            CategoryUiModel("Food", R.drawable.utensils, Color(0xFF4CAF50)),
+            CategoryUiModel("Transport", R.drawable.car, Color(0xFF009688)),
+            CategoryUiModel("Shopping", R.drawable.shopping_basket, Color(0xFFE91E63)),
+            CategoryUiModel("Bills", R.drawable.receipt, Color(0xFFFFC107)),
+            CategoryUiModel("Entertainment", R.drawable.film, Color(0xFF9C27B0)),
+            CategoryUiModel("Health", R.drawable.heart_pulse, Color(0xFFFF9800)),
+            CategoryUiModel("Other", R.drawable.box, Color(0xFF9E9E9E))
+        )
+    }
 
     var state by remember { mutableStateOf(AddTransactionUiState(categories = defaultCategories)) }
 
@@ -172,8 +178,6 @@ fun AddTransactionRoute(
     )
 }
 
-// ui composables
-
 @Composable
 fun AddTransactionScreen(
     uiState: AddTransactionUiState,
@@ -199,7 +203,7 @@ fun AddTransactionScreen(
                     .clip(CircleShape)
                     .background(Color.White)
                     .border(1.dp, Color(0xFFE0E0E0), CircleShape)
-                    .clickable { onBack() },
+                    .noRippleClickable { onBack() },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color(0xFF424242))
@@ -224,30 +228,27 @@ fun AddTransactionScreen(
                     .size(48.dp)
                     .clip(CircleShape)
                     .background(checkBgColor)
-                    .clickable(enabled = uiState.isSaveEnabled) { onEvent(AddTransactionEvent.OnSaveClicked) },
+                    .noRippleClickable(enabled = uiState.isSaveEnabled) { onEvent(AddTransactionEvent.OnSaveClicked) },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Rounded.Check, contentDescription = "Save", tint = Color.White)
             }
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 8.dp),
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            TransactionTypeSwitcher(uiState.type, onEvent)
-            AmountCard(uiState.amount, onEvent)
-            DetailsCard(uiState, onEvent)
-            CategoryCard(uiState, onEvent)
-            Spacer(modifier = Modifier.height(32.dp))
+            item { TransactionTypeSwitcher(uiState.type, onEvent) }
+            item { AmountCard(uiState.amount, onEvent) }
+            item { DetailsCard(uiState, onEvent) }
+            item { CategoryCard(uiState, onEvent) }
+            item { Spacer(modifier = Modifier.height(32.dp)) }
         }
     }
 }
 
-// Sliding Animation for the switcher
 @Composable
 private fun TransactionTypeSwitcher(
     currentType: TransactionType,
@@ -276,7 +277,6 @@ private fun TransactionTypeSwitcher(
             label = "ColorAnimation"
         )
 
-        // The colored sliding background pill
         Box(
             modifier = Modifier
                 .width(pillWidth)
@@ -285,13 +285,12 @@ private fun TransactionTypeSwitcher(
                 .background(bgColor, RoundedCornerShape(24.dp))
         )
 
-        // The clickable text labels floating on top
         Row(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .clickable { onEvent(AddTransactionEvent.OnTypeChanged(TransactionType.EXPENSE)) },
+                    .noRippleClickable { onEvent(AddTransactionEvent.OnTypeChanged(TransactionType.EXPENSE)) },
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -305,7 +304,7 @@ private fun TransactionTypeSwitcher(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .clickable { onEvent(AddTransactionEvent.OnTypeChanged(TransactionType.INCOME)) },
+                    .noRippleClickable { onEvent(AddTransactionEvent.OnTypeChanged(TransactionType.INCOME)) },
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -346,7 +345,7 @@ private fun AmountCard(
                 BasicTextField(
                     value = amount,
                     onValueChange = { newValue ->
-                        if (newValue.isEmpty() || newValue.matches(Regex("^\\d*\\.?\\d*\$"))) {
+                        if (newValue.isEmpty() || newValue.matches(amountRegex)) {
                             onEvent(AddTransactionEvent.OnAmountChanged(newValue))
                         }
                     },
@@ -354,7 +353,7 @@ private fun AmountCard(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     cursorBrush = SolidColor(Color(0xFF00A86B)),
-                    modifier = Modifier.width(IntrinsicSize.Min).widthIn(min = 40.dp), // Wraps tightly but guarantees minimum space
+                    modifier = Modifier.width(IntrinsicSize.Min).widthIn(min = 40.dp),
                     decorationBox = { innerTextField ->
                         Box(contentAlignment = Alignment.CenterStart) {
                             if (amount.isEmpty()) {
@@ -422,10 +421,8 @@ private fun CategoryCard(
         Column(modifier = Modifier.padding(24.dp)) {
             Text("Category", fontSize = 14.sp, color = Color(0xFF757575), modifier = Modifier.padding(bottom = 16.dp))
 
-            // FIX: Safely calculate total items (categories + 1 for the "New" button)
             val totalItems = uiState.categories.size + 1
-            // Create a list of indices and chunk them into rows of 4
-            val rows = (0 until totalItems).chunked(4)
+            val rows = remember(uiState.categories) { (0 until totalItems).chunked(4) }
 
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 rows.forEach { rowIndices ->
@@ -436,7 +433,6 @@ private fun CategoryCard(
                         rowIndices.forEach { index ->
                             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
                                 if (index < uiState.categories.size) {
-                                    // Render normal category
                                     val category = uiState.categories[index]
                                     CategoryItem(
                                         category = category,
@@ -444,10 +440,11 @@ private fun CategoryCard(
                                         onClick = { onEvent(AddTransactionEvent.OnCategorySelected(category.name)) }
                                     )
                                 } else {
-                                    // Render "New" button at the very end
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.clickable { onEvent(AddTransactionEvent.OnCategorySelected("New")) }
+                                        modifier = Modifier
+                                            .noRippleClickable { onEvent(AddTransactionEvent.OnCategorySelected("New")) }
+                                            .padding(4.dp)
                                     ) {
                                         Box(
                                             modifier = Modifier
@@ -462,7 +459,6 @@ private fun CategoryCard(
                                 }
                             }
                         }
-                        // Fill empty spots if a row has less than 4 items to keep alignment perfect
                         repeat(4 - rowIndices.size) {
                             Spacer(modifier = Modifier.weight(1f))
                         }
@@ -515,7 +511,9 @@ private fun CategoryItem(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable { onClick() }
+        modifier = Modifier
+            .noRippleClickable { onClick() }
+            .padding(4.dp)
     ) {
         Box(
             modifier = Modifier
@@ -595,8 +593,7 @@ private fun AddTransactionDateField(
             confirmButton = {
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let { millis ->
-                        val formatter = SimpleDateFormat("MM/dd/yyyy", Locale.US)
-                        onValueChange(formatter.format(Date(millis)))
+                        onValueChange(dateFormatter.format(Date(millis)))
                     }
                     showDialog = false
                 }) {
@@ -618,7 +615,7 @@ private fun AddTransactionDateField(
             .fillMaxWidth()
             .height(48.dp)
             .background(Color(0xFFF8F9FA), RoundedCornerShape(12.dp))
-            .clickable { showDialog = true }
+            .noRippleClickable { showDialog = true }
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.CenterStart
     ) {
@@ -633,4 +630,18 @@ private fun AddTransactionDateField(
             }
         }
     }
+}
+
+//custom modifier to remove ripples
+
+fun Modifier.noRippleClickable(
+    enabled: Boolean = true,
+    onClick: () -> Unit
+): Modifier = composed {
+    this.clickable(
+        interactionSource = remember { MutableInteractionSource() },
+        indication = null,
+        enabled = enabled,
+        onClick = onClick
+    )
 }
