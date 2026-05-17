@@ -27,6 +27,7 @@ data class ReviewUiState(
         label = "Total amount",
         value = "",
     ),
+    val category: String = "Food",
     val items: List<ReviewItemFieldState> = emptyList(),
     val warnings: List<String> = emptyList(),
     val saveEnabled: Boolean = false,

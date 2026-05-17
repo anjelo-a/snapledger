@@ -1,6 +1,9 @@
 package com.snapledger.feature.review.domain
 
 import android.content.Context
+import com.snapledger.core.ledger.DataStoreLedgerRepository
+import com.snapledger.core.ledger.LedgerRepository
+import com.snapledger.core.ledger.LedgerTransactionType
 import com.snapledger.feature.review.data.ReviewLocalDatabase
 import com.snapledger.feature.review.data.RoomReviewAtomicSaveStore
 import com.snapledger.core.sync.WorkManagerReviewSyncDispatcher
@@ -94,6 +97,7 @@ interface ReviewSyncDispatcher {
 class LocalFirstReviewRepository(
     private val atomicSaveStore: ReviewAtomicSaveStore,
     private val syncDispatcher: ReviewSyncDispatcher,
+    private val ledgerRepository: LedgerRepository? = null,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : ReviewRepository {
@@ -130,6 +134,14 @@ class LocalFirstReviewRepository(
         atomicSaveStore.saveReceiptAndQueue(
             receiptRecord = receiptRecord,
             syncRecord = syncRecord,
+        )
+        ledgerRepository?.saveTransaction(
+            type = LedgerTransactionType.EXPENSE,
+            amount = receiptRecord.totalAmountMinor.toDouble() / 100.0,
+            merchant = receiptRecord.merchant,
+            date = receiptRecord.expenseDate,
+            note = null,
+            category = validatedState.category,
         )
 
         return try {
@@ -191,6 +203,7 @@ class LocalFirstReviewRepository(
             return LocalFirstReviewRepository(
                 atomicSaveStore = RoomReviewAtomicSaveStore(database),
                 syncDispatcher = WorkManagerReviewSyncDispatcher(applicationContext),
+                ledgerRepository = DataStoreLedgerRepository.getInstance(applicationContext),
             )
         }
     }
