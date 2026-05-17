@@ -34,6 +34,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -71,7 +72,8 @@ data class NotificationSummary(
 
 data class DashboardUiState(
     val userName: String = "",
-    val budget: BudgetSummary = BudgetSummary(),
+    val monthlyBudget: BudgetSummary = BudgetSummary(),
+    val weeklyBudget: BudgetSummary = BudgetSummary(),
     val alert: AlertSummary? = null,
     val trend: TrendSummary = TrendSummary(),
     val insight: String? = null,
@@ -83,6 +85,8 @@ data class DashboardUiState(
 ) {
     val hasUnreadNotifications: Boolean get() = notifications.any { it.isUnread }
 }
+
+enum class DashboardBudgetPeriod { WEEKLY, MONTHLY }
 
 data class BudgetSummary(
     val limit: Double = 0.0,
@@ -121,7 +125,7 @@ data class TransactionSummary(
 )
 
 private val phFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
-fun formatCurrency(amount: Double): String = phFormatter.format(amount)
+fun formatCurrency(amount: Double): String = phFormatter.format(amount).replace("₱", "PHP ")
 
 fun Modifier.noRippleClickable(
     enabled: Boolean = true,
@@ -145,6 +149,11 @@ fun DashboardScreen(
     var isEditingName by remember { mutableStateOf(false) }
     var nameDraft by remember { mutableStateOf(state.userName) }
     var showNotifications by remember { mutableStateOf(false) }
+    var selectedBudgetPeriod by remember { mutableStateOf(DashboardBudgetPeriod.MONTHLY) }
+    val selectedBudget = when (selectedBudgetPeriod) {
+        DashboardBudgetPeriod.WEEKLY -> state.weeklyBudget
+        DashboardBudgetPeriod.MONTHLY -> state.monthlyBudget
+    }
 
     LaunchedEffect(state.userName) {
         nameDraft = state.userName
@@ -164,7 +173,12 @@ fun DashboardScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                BudgetCard(budget = state.budget, onManageClick = onManageBudgetClick)
+                BudgetCard(
+                    budget = selectedBudget,
+                    selectedPeriod = selectedBudgetPeriod,
+                    onPeriodChanged = { selectedBudgetPeriod = it },
+                    onManageClick = onManageBudgetClick
+                )
             }
 
             if (state.alert != null) {
@@ -458,6 +472,8 @@ private fun NotificationItemRow(notification: NotificationSummary) {
 @Composable
 private fun BudgetCard(
     budget: BudgetSummary,
+    selectedPeriod: DashboardBudgetPeriod,
+    onPeriodChanged: (DashboardBudgetPeriod) -> Unit,
     onManageClick: () -> Unit
 ) {
     Card(
@@ -472,7 +488,11 @@ private fun BudgetCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "Monthly budget", color = Color.White, fontSize = 14.sp)
+                Text(
+                    text = if (selectedPeriod == DashboardBudgetPeriod.WEEKLY) "Weekly budget" else "Monthly budget",
+                    color = Color.White,
+                    fontSize = 14.sp
+                )
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -489,6 +509,25 @@ private fun BudgetCard(
                         modifier = Modifier.size(16.dp)
                     )
                 }
+            }
+
+            Row(
+                modifier = Modifier
+                    .padding(top = 14.dp)
+                    .background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(18.dp))
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                DashboardPeriodPill(
+                    text = "Weekly",
+                    isSelected = selectedPeriod == DashboardBudgetPeriod.WEEKLY,
+                    onClick = { onPeriodChanged(DashboardBudgetPeriod.WEEKLY) }
+                )
+                DashboardPeriodPill(
+                    text = "Monthly",
+                    isSelected = selectedPeriod == DashboardBudgetPeriod.MONTHLY,
+                    onClick = { onPeriodChanged(DashboardBudgetPeriod.MONTHLY) }
+                )
             }
 
             Row(
@@ -578,6 +617,34 @@ private fun BudgetCard(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DashboardPeriodPill(
+    text: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = if (isSelected) Color.White else Color.Transparent,
+        shape = RoundedCornerShape(15.dp),
+        modifier = Modifier
+            .height(30.dp)
+            .clip(RoundedCornerShape(15.dp))
+            .clickable { onClick() }
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 14.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                color = if (isSelected) Color(0xFF00A86B) else Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
         }
     }
 }

@@ -47,10 +47,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,15 +69,36 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
+import com.snapledger.core.ledger.LedgerBudgetPeriod
+import com.snapledger.core.ledger.LedgerRepository
+import com.snapledger.core.ledger.LedgerSnapshot
+import com.snapledger.core.ledger.LedgerTransactionType
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.UUID
+import kotlinx.coroutines.launch
 
 // OPTIMIZATION: Hoisted formatters and Regex
-private val currencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "US"))
-private val amountRegex = Regex("^\\d*\\.?\\d*\$")
+private val currencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
+private val amountInputRegex = Regex("^\\d{0,3}(,\\d{3})*(\\.\\d*)?$|^\\d*(\\.\\d*)?$")
+private fun formatPhp(amount: Double): String = currencyFormatter.format(amount).replace("₱", "PHP ")
+
+private data class BudgetCategoryOption(
+    val name: String,
+    val iconResId: Int,
+    val tintColor: Color,
+)
+
+private val budgetCategoryOptions = listOf(
+    BudgetCategoryOption("Food", R.drawable.utensils, Color(0xFF4CAF50)),
+    BudgetCategoryOption("Transport", R.drawable.car, Color(0xFF009688)),
+    BudgetCategoryOption("Shopping", R.drawable.shopping_basket, Color(0xFFE91E63)),
+    BudgetCategoryOption("Bills", R.drawable.receipt, Color(0xFFFFC107)),
+    BudgetCategoryOption("Entertainment", R.drawable.film, Color(0xFF9C27B0)),
+    BudgetCategoryOption("Health", R.drawable.heart_pulse, Color(0xFFFF9800)),
+    BudgetCategoryOption("Other", R.drawable.box, Color(0xFF9E9E9E)),
+)
 
 enum class BudgetPeriod { WEEKLY, MONTHLY }
 
@@ -105,9 +127,33 @@ data class BudgetUiState(
 }
 
 @Composable
-fun BudgetRoute() {
-    val categories = remember { mutableStateListOf<BudgetCategoryUiModel>() }
+fun BudgetRoute(ledgerRepository: LedgerRepository) {
+    val snapshot by ledgerRepository.snapshotFlow.collectAsState(initial = LedgerSnapshot())
+    val coroutineScope = rememberCoroutineScope()
     var period by remember { mutableStateOf(BudgetPeriod.MONTHLY) }
+    val ledgerPeriod = period.toLedgerPeriod()
+    val categories = remember(snapshot, ledgerPeriod) {
+        snapshot.budgetCategories
+            .filter { it.period == ledgerPeriod }
+            .map { category ->
+                val option = category.toBudgetCategoryOption()
+                val spent = snapshot.transactions
+                    .filter {
+                        it.type == LedgerTransactionType.EXPENSE &&
+                            it.category.equals(category.name, ignoreCase = true)
+                    }
+                    .sumOf { it.amount }
+
+                BudgetCategoryUiModel(
+                    id = category.id,
+                    name = category.name,
+                    iconResId = option.iconResId,
+                    tintColor = option.tintColor,
+                    spent = spent,
+                    allocated = category.allocated
+                )
+            }
+    }
 
     val state = BudgetUiState(
         period = period,
@@ -118,25 +164,23 @@ fun BudgetRoute() {
         uiState = state,
         onPeriodChanged = { period = it },
         onSaveNewCategory = { name, allocated ->
-            categories.add(
-                BudgetCategoryUiModel(
-                    id = UUID.randomUUID().toString(),
+            coroutineScope.launch {
+                ledgerRepository.saveBudgetCategory(
                     name = name,
-                    iconResId = R.drawable.box, // Default icon requested
-                    tintColor = Color(0xFF00C875),
-                    spent = 0.0,
-                    allocated = allocated
+                    period = period.toLedgerPeriod(),
+                    allocated = allocated,
                 )
-            )
+            }
         },
         onSaveEditedCategory = { id, name, allocated ->
-            val index = categories.indexOfFirst { it.id == id }
-            if (index != -1) {
-                categories[index] = categories[index].copy(name = name, allocated = allocated)
+            coroutineScope.launch {
+                ledgerRepository.updateBudgetCategory(id = id, name = name, allocated = allocated)
             }
         },
         onDeleteCategory = { id ->
-            categories.removeAll { it.id == id }
+            coroutineScope.launch {
+                ledgerRepository.deleteBudgetCategory(id)
+            }
         }
     )
 }
@@ -341,9 +385,9 @@ private fun BudgetEmptyState() {
 
 @Composable
 private fun AddCategoryInlineCard(onSave: (String, Double) -> Unit) {
-    var name by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf(budgetCategoryOptions.first()) }
     var amount by remember { mutableStateOf("") }
-    val isFormValid = name.isNotBlank() && amount.toDoubleOrNull() ?: 0.0 > 0.0
+    val isFormValid = (amount.toAmountOrNull() ?: 0.0) > 0.0
 
     Card(
         modifier = Modifier
@@ -354,19 +398,21 @@ private fun AddCategoryInlineCard(onSave: (String, Double) -> Unit) {
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("New Category Name", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
-            BudgetInputField(
-                value = name,
-                onValueChange = { name = it },
-                hint = "e.g. Groceries"
+            Text("Category", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+            BudgetCategoryPicker(
+                selectedCategory = selectedCategory,
+                onCategorySelected = { selectedCategory = it }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text("Monthly Limit ($)", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+            Text("Monthly Limit (PHP)", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
             BudgetInputField(
                 value = amount,
-                onValueChange = { if (it.isEmpty() || it.matches(amountRegex)) amount = it },
+                onValueChange = {
+                    val formatted = it.toFormattedAmountInput()
+                    if (formatted.isEmpty() || formatted.matches(amountInputRegex)) amount = formatted
+                },
                 hint = "0.00",
                 keyboardType = KeyboardType.Decimal
             )
@@ -374,7 +420,7 @@ private fun AddCategoryInlineCard(onSave: (String, Double) -> Unit) {
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(
-                onClick = { onSave(name, amount.toDouble()) },
+                onClick = { onSave(selectedCategory.name, amount.toAmountOrNull() ?: 0.0) },
                 enabled = isFormValid,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C875)),
                 shape = RoundedCornerShape(12.dp),
@@ -395,9 +441,9 @@ private fun EditCategoryDialog(
     onSave: (String, Double) -> Unit,
     onDelete: () -> Unit
 ) {
-    var name by remember { mutableStateOf(category.name) }
-    var amount by remember { mutableStateOf(category.allocated.toString()) }
-    val isFormValid = name.isNotBlank() && amount.toDoubleOrNull() ?: 0.0 > 0.0
+    var selectedCategory by remember { mutableStateOf(category.toBudgetCategoryOption()) }
+    var amount by remember { mutableStateOf(category.allocated.toFormattedAmountValue()) }
+    val isFormValid = (amount.toAmountOrNull() ?: 0.0) > 0.0
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -407,11 +453,10 @@ private fun EditCategoryDialog(
         },
         text = {
             Column {
-                Text("Name", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 4.dp))
-                BudgetInputField(
-                    value = name,
-                    onValueChange = { name = it },
-                    hint = "Category name"
+                Text("Category", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+                BudgetCategoryPicker(
+                    selectedCategory = selectedCategory,
+                    onCategorySelected = { selectedCategory = it }
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -419,7 +464,10 @@ private fun EditCategoryDialog(
                 Text("Budget Limit", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 4.dp))
                 BudgetInputField(
                     value = amount,
-                    onValueChange = { if (it.isEmpty() || it.matches(amountRegex)) amount = it },
+                    onValueChange = {
+                        val formatted = it.toFormattedAmountInput()
+                        if (formatted.isEmpty() || formatted.matches(amountInputRegex)) amount = formatted
+                    },
                     hint = "0.00",
                     keyboardType = KeyboardType.Decimal
                 )
@@ -427,7 +475,7 @@ private fun EditCategoryDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(name, amount.toDouble()) },
+                onClick = { onSave(selectedCategory.name, amount.toAmountOrNull() ?: 0.0) },
                 enabled = isFormValid
             ) {
                 Text("Save", color = if (isFormValid) Color(0xFF00C875) else Color(0xFFBDBDBD))
@@ -478,6 +526,62 @@ private fun BudgetInputField(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun BudgetCategoryPicker(
+    selectedCategory: BudgetCategoryOption,
+    onCategorySelected: (BudgetCategoryOption) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        budgetCategoryOptions.chunked(3).forEach { rowOptions ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                rowOptions.forEach { option ->
+                    val isSelected = option.name == selectedCategory.name
+                    Surface(
+                        color = if (isSelected) option.tintColor.copy(alpha = 0.16f) else Color(0xFFF8F9FA),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = 1.dp,
+                            color = if (isSelected) option.tintColor else Color(0xFFE0E0E0),
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { onCategorySelected(option) }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(id = option.iconResId),
+                                contentDescription = option.name,
+                                tint = if (isSelected) option.tintColor else Color(0xFF757575),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = option.name,
+                                color = if (isSelected) Color(0xFF1F1F1F) else Color(0xFF757575),
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1,
+                                modifier = Modifier.padding(start = 6.dp)
+                            )
+                        }
+                    }
+                }
+                repeat(3 - rowOptions.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
     }
 }
 
@@ -573,7 +677,7 @@ private fun MainBudgetCard(uiState: BudgetUiState) {
                 Column {
                     Text(text = "Remaining this month", fontSize = 14.sp, color = Color(0xFF9E9E9E))
                     Text(
-                        text = currencyFormatter.format(uiState.totalRemaining).replace(".00", ""),
+                        text = formatPhp(uiState.totalRemaining).replace(".00", ""),
                         fontSize = 36.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF1F1F1F),
@@ -581,7 +685,7 @@ private fun MainBudgetCard(uiState: BudgetUiState) {
                     )
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(text = "of ${currencyFormatter.format(uiState.totalAllocated).replace(".00", "")}", fontSize = 14.sp, color = Color(0xFF757575))
+                    Text(text = "of ${formatPhp(uiState.totalAllocated).replace(".00", "")}", fontSize = 14.sp, color = Color(0xFF757575))
                     Text(
                         text = "${(100 - (uiState.totalPercentage * 100)).coerceAtLeast(0f).toInt()}% left",
                         fontSize = 14.sp,
@@ -695,8 +799,8 @@ private fun BudgetCategoryCard(
                             }
                         }
 
-                        val spentFormatted = currencyFormatter.format(category.spent).replace(".00", "")
-                        val allocFormatted = currencyFormatter.format(category.allocated).replace(".00", "")
+                        val spentFormatted = formatPhp(category.spent).replace(".00", "")
+                        val allocFormatted = formatPhp(category.allocated).replace(".00", "")
                         Text(
                             text = "$spentFormatted / $allocFormatted",
                             fontSize = 14.sp,
@@ -724,9 +828,9 @@ private fun BudgetCategoryCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val remainingText = if (category.remaining < 0) {
-                            "-${currencyFormatter.format(category.remaining * -1)} over"
+                            "-${formatPhp(category.remaining * -1)} over"
                         } else {
-                            "-${currencyFormatter.format(category.remaining)} left"
+                            "-${formatPhp(category.remaining)} left"
                         }
 
                         Text(
@@ -760,6 +864,55 @@ private fun BudgetCategoryCard(
             }
         }
     }
+}
+
+private fun BudgetPeriod.toLedgerPeriod(): LedgerBudgetPeriod {
+    return when (this) {
+        BudgetPeriod.WEEKLY -> LedgerBudgetPeriod.WEEKLY
+        BudgetPeriod.MONTHLY -> LedgerBudgetPeriod.MONTHLY
+    }
+}
+
+private fun BudgetCategoryUiModel.toBudgetCategoryOption(): BudgetCategoryOption {
+    return budgetCategoryOptions.firstOrNull { it.name.equals(name, ignoreCase = true) }
+        ?: budgetCategoryOptions.last()
+}
+
+private fun com.snapledger.core.ledger.LedgerBudgetCategory.toBudgetCategoryOption(): BudgetCategoryOption {
+    return budgetCategoryOptions.firstOrNull { it.name.equals(name, ignoreCase = true) }
+        ?: budgetCategoryOptions.last()
+}
+
+private fun String.toAmountOrNull(): Double? {
+    return replace(",", "").toDoubleOrNull()
+}
+
+private fun String.toFormattedAmountInput(): String {
+    val raw = replace(",", "")
+        .filterIndexed { index, char -> char.isDigit() || (char == '.' && substring(0, index).none { it == '.' }) }
+    if (raw.isBlank()) return ""
+
+    val whole = raw.substringBefore(".").trimStart('0').ifBlank { "0" }
+    val decimal = raw.substringAfter(".", missingDelimiterValue = "")
+    val groupedWhole = whole.reversed()
+        .chunked(3)
+        .joinToString(",")
+        .reversed()
+
+    return if (raw.contains(".")) {
+        "$groupedWhole.$decimal"
+    } else {
+        groupedWhole
+    }
+}
+
+private fun Double.toFormattedAmountValue(): String {
+    val text = if (this % 1.0 == 0.0) {
+        toLong().toString()
+    } else {
+        toString()
+    }
+    return text.toFormattedAmountInput()
 }
 
 fun Modifier.noRippleClickable(

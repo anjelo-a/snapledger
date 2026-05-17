@@ -83,7 +83,8 @@ fun AppHomeScreen(
     val currentRoute = navBackStackEntry?.destination?.route
 
     val isFabVisible = currentRoute != SnapLedgerDestination.Scan.route &&
-            currentRoute != SnapLedgerDestination.AddTransaction.route &&
+            currentRoute != SnapLedgerDestination.AddExpense.route &&
+            currentRoute != SnapLedgerDestination.AddIncome.route &&
             currentRoute != "review"
 
     var isFabMenuExpanded by remember { mutableStateOf(false) }
@@ -184,10 +185,19 @@ fun AppHomeScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                             FabMenuItem(
                                 iconResId = android.R.drawable.ic_input_add,
-                                label = "Add new transaction",
+                                label = "Add expense",
                                 onClick = {
                                     isFabMenuExpanded = false
-                                    navController.navigate(SnapLedgerDestination.AddTransaction.route)
+                                    navController.navigate(SnapLedgerDestination.AddExpense.route)
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            FabMenuItem(
+                                iconResId = R.drawable.hand_coins,
+                                label = "Add income",
+                                onClick = {
+                                    isFabMenuExpanded = false
+                                    navController.navigate(SnapLedgerDestination.AddIncome.route)
                                 }
                             )
                         }
