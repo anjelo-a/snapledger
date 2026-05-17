@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
+import com.snapledger.core.categories.transactionCategoryOptionForName
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -82,6 +84,8 @@ data class DashboardUiState(
     val alert: AlertSummary? = null,
     val trend: TrendSummary = TrendSummary(),
     val insight: String? = null,
+    val insightActionTip: String? = null,
+    val isInsightLoading: Boolean = false,
     val categories: List<CategorySummary> = emptyList(),
     val recentActivity: List<TransactionSummary> = emptyList(),
     val notifications: List<NotificationSummary> = emptyList(),
@@ -120,6 +124,10 @@ data class CategorySummary(
     val percentage: Float
 )
 
+private data class CategoryChartStyle(
+    val color: Color,
+)
+
 data class TransactionSummary(
     val id: String,
     val title: String,
@@ -131,6 +139,17 @@ data class TransactionSummary(
 
 private val phFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
 fun formatCurrency(amount: Double): String = phFormatter.format(amount).replace("₱", "PHP ")
+
+private val categoryChartPalette = listOf(
+    Color(0xFF00A86B),
+    Color(0xFF4CAF50),
+    Color(0xFF009688),
+    Color(0xFF5C6BC0),
+    Color(0xFFF57F17),
+    Color(0xFFE91E63),
+    Color(0xFF8E24AA),
+    Color(0xFF78909C),
+)
 
 fun Modifier.noRippleClickable(
     enabled: Boolean = true,
@@ -156,9 +175,13 @@ fun DashboardScreen(
     var nameDraft by remember { mutableStateOf(state.userName) }
     var showNotifications by remember { mutableStateOf(false) }
     var selectedBudgetPeriod by remember { mutableStateOf(DashboardBudgetPeriod.MONTHLY) }
-    val selectedBudget = when (selectedBudgetPeriod) {
-        DashboardBudgetPeriod.WEEKLY -> state.weeklyBudget
-        DashboardBudgetPeriod.MONTHLY -> state.monthlyBudget
+    val selectedBudget by remember(state.weeklyBudget, state.monthlyBudget, selectedBudgetPeriod) {
+        derivedStateOf {
+            when (selectedBudgetPeriod) {
+                DashboardBudgetPeriod.WEEKLY -> state.weeklyBudget
+                DashboardBudgetPeriod.MONTHLY -> state.monthlyBudget
+            }
+        }
     }
 
     LaunchedEffect(state.userName) {
@@ -190,7 +213,13 @@ fun DashboardScreen(
 
             item { TrendCard(trend = state.trend) }
 
-            item { InsightCard(insightText = state.insight) }
+            item {
+                InsightCard(
+                    insightText = state.insight,
+                    actionTip = state.insightActionTip,
+                    isLoading = state.isInsightLoading,
+                )
+            }
 
             item {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -673,10 +702,9 @@ private fun BudgetMetricCard(
             Text(
                 text = value,
                 color = Color.White,
-                fontSize = 18.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                maxLines = 2,
             )
         }
     }
@@ -832,8 +860,12 @@ private fun TrendCard(trend: TrendSummary) {
 }
 
 @Composable
-private fun InsightCard(insightText: String?) {
-    val isDataEmpty = insightText.isNullOrBlank()
+private fun InsightCard(
+    insightText: String?,
+    actionTip: String?,
+    isLoading: Boolean,
+) {
+    val isDataEmpty = insightText.isNullOrBlank() && !isLoading
     val displayColor = if (isDataEmpty) Color(0xFF9E9E9E) else Color(0xFF1F1F1F)
     val cardColor = if (isDataEmpty) Color.White else Color(0xFFF5F3FF)
     val iconBgColor = if (isDataEmpty) Color(0xFFF5F5F5) else Color.White
@@ -873,12 +905,24 @@ private fun InsightCard(insightText: String?) {
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = insightText ?: "No insights yet. Keep tracking your spending to unlock AI analysis.",
+                    text = when {
+                        isLoading -> "Generating your latest spending insight..."
+                        insightText != null -> insightText
+                        else -> "No insights yet. Keep tracking your spending to unlock AI analysis."
+                    },
                     color = displayColor,
                     fontSize = 14.sp,
                     modifier = Modifier.padding(top = 6.dp)
                 )
-                if (!isDataEmpty) {
+                if (!actionTip.isNullOrBlank()) {
+                    Text(
+                        text = actionTip,
+                        color = Color(0xFF5E35B1),
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+                if (!isDataEmpty && !isLoading) {
                     Text(
                         text = "Powered by AI",
                         color = Color(0xFF9E9E9E),
@@ -893,6 +937,14 @@ private fun InsightCard(insightText: String?) {
 
 @Composable
 private fun CategoriesSection(categories: List<CategorySummary>) {
+    val categoryStyles = remember(categories) {
+        categories.associate { category ->
+            category.name to CategoryChartStyle(
+                color = categoryColorForName(category.name)
+            )
+        }
+    }
+
     Column {
         Row(
             modifier = Modifier
@@ -942,29 +994,26 @@ private fun CategoriesSection(categories: List<CategorySummary>) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(100.dp)
-                            .background(Color(0xFFEEEEEE), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "100%",
-                            color = Color(0xFF1F1F1F),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    CategoryDonutChart(
+                        categories = categories,
+                        categoryStyles = categoryStyles,
+                        modifier = Modifier.size(120.dp)
+                    )
 
                     Column(
                         modifier = Modifier
-                            .padding(start = 24.dp)
                             .weight(1f)
                     ) {
                         categories.forEach { category ->
-                            CategoryItem(name = category.name, amount = formatCurrency(category.amount))
+                            CategoryItem(
+                                name = category.name,
+                                amount = formatCurrency(category.amount),
+                                percentage = category.percentage,
+                                color = categoryStyles.getValue(category.name).color
+                            )
                             Spacer(modifier = Modifier.height(8.dp))
                         }
                     }
@@ -975,13 +1024,88 @@ private fun CategoriesSection(categories: List<CategorySummary>) {
 }
 
 @Composable
-private fun CategoryItem(name: String, amount: String) {
+private fun CategoryDonutChart(
+    categories: List<CategorySummary>,
+    categoryStyles: Map<String, CategoryChartStyle>,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val strokeWidth = size.minDimension * 0.20f
+            val gapDegrees = 2.5f
+            var startAngle = -90f
+
+            categories.forEach { category ->
+                val rawSweep = (category.percentage / 100f) * 360f
+                val sweepAngle = (rawSweep - gapDegrees).coerceAtLeast(0f)
+                drawArc(
+                    color = categoryStyles.getValue(category.name).color,
+                    startAngle = startAngle,
+                    sweepAngle = sweepAngle,
+                    useCenter = false,
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Butt)
+                )
+                startAngle += rawSweep
+            }
+        }
+
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "100%",
+                color = Color(0xFF1F1F1F),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "spent",
+                color = Color(0xFF9E9E9E),
+                fontSize = 11.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun CategoryItem(name: String, amount: String, percentage: Float, color: Color) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = "• $name", color = Color(0xFF424242), fontSize = 14.sp)
-        Text(text = amount, color = Color(0xFF757575), fontSize = 14.sp)
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .background(color = color, shape = CircleShape)
+            )
+            Text(
+                text = name,
+                color = Color(0xFF424242),
+                fontSize = 14.sp,
+                modifier = Modifier.padding(start = 10.dp)
+            )
+        }
+        Text(
+            text = "${percentage.toInt()}% · $amount",
+            color = Color(0xFF757575),
+            fontSize = 13.sp
+        )
+    }
+}
+
+private fun categoryColorForName(name: String): Color {
+    val sharedColor = transactionCategoryOptionForName(name).tintColor
+    return if (sharedColor != Color(0xFF9E9E9E) || name.equals("Other", ignoreCase = true)) {
+        sharedColor
+    } else {
+        val normalized = name.trim().ifBlank { "other" }
+        categoryChartPalette[normalized.hashCode().mod(categoryChartPalette.size)]
     }
 }
 
@@ -1063,15 +1187,8 @@ private fun RecentActivitySection(
 @Composable
 private fun TransactionItem(transaction: TransactionSummary) {
     val iconData = remember(transaction.category) {
-        when (transaction.category.lowercase()) {
-            "food" -> Pair(R.drawable.utensils, Color(0xFF4CAF50))
-            "transport" -> Pair(R.drawable.car, Color(0xFF009688))
-            "income", "salary" -> Pair(R.drawable.hand_coins, Color(0xFF00A86B))
-            "shopping" -> Pair(R.drawable.shopping_basket, Color(0xFFF57F17))
-            "entertainment" -> Pair(R.drawable.film, Color(0xFF673AB7))
-            "bills" -> Pair(R.drawable.banknote_arrow_up, Color(0xFFD32F2F))
-            "health" -> Pair(R.drawable.heart_pulse, Color(0xFFE91E63))
-            else -> Pair(R.drawable.receipt, Color(0xFF757575))
+        transactionCategoryOptionForName(transaction.category).let { option ->
+            Pair(option.iconResId, option.tintColor)
         }
     }
 

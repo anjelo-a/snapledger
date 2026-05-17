@@ -69,6 +69,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
+import com.snapledger.core.categories.expenseTransactionCategories
 import com.snapledger.core.ledger.LedgerBudgetPeriod
 import com.snapledger.core.ledger.LedgerRepository
 import com.snapledger.core.ledger.LedgerSnapshot
@@ -90,15 +91,13 @@ private data class BudgetCategoryOption(
     val tintColor: Color,
 )
 
-private val budgetCategoryOptions = listOf(
-    BudgetCategoryOption("Food", R.drawable.utensils, Color(0xFF4CAF50)),
-    BudgetCategoryOption("Transport", R.drawable.car, Color(0xFF009688)),
-    BudgetCategoryOption("Shopping", R.drawable.shopping_basket, Color(0xFFE91E63)),
-    BudgetCategoryOption("Bills", R.drawable.receipt, Color(0xFFFFC107)),
-    BudgetCategoryOption("Entertainment", R.drawable.film, Color(0xFF9C27B0)),
-    BudgetCategoryOption("Health", R.drawable.heart_pulse, Color(0xFFFF9800)),
-    BudgetCategoryOption("Other", R.drawable.box, Color(0xFF9E9E9E)),
-)
+private val budgetCategoryOptions = expenseTransactionCategories().map { category ->
+    BudgetCategoryOption(
+        name = category.name,
+        iconResId = category.iconResId,
+        tintColor = category.tintColor,
+    )
+}
 
 enum class BudgetPeriod { WEEKLY, MONTHLY }
 

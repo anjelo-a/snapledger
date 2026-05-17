@@ -35,6 +35,7 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,10 +60,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
+import com.snapledger.core.categories.historyTransactionCategoryNames
+import com.snapledger.core.categories.expenseTransactionCategoryNames
+import com.snapledger.core.categories.incomeTransactionCategories
+import com.snapledger.core.categories.transactionCategoryOptionForName
+import com.snapledger.core.ledger.LedgerRepository
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 enum class QuickFilter { ALL, EXPENSE, INCOME }
 
@@ -110,12 +118,14 @@ private fun formatPhp(amount: Double): String = phCurrencyFormatter.format(amoun
 @Composable
 fun HistoryRoute(
     transactions: List<HistoryTransactionUiModel>,
-    onNavigateToDetail: (String) -> Unit
+    ledgerRepository: LedgerRepository,
 ) {
+    val coroutineScope = rememberCoroutineScope()
     var searchQuery by remember { mutableStateOf("") }
     var quickFilter by remember { mutableStateOf(QuickFilter.ALL) }
     var isAdvancedFilterVisible by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf("All") }
+    var selectedTransaction by remember { mutableStateOf<HistoryTransactionUiModel?>(null) }
 
     var startDate by remember { mutableStateOf("") }
     var endDate by remember { mutableStateOf("") }
@@ -174,7 +184,9 @@ fun HistoryRoute(
                 is HistoryEvent.OnEndDateChanged -> endDate = event.date
                 is HistoryEvent.OnMinAmountChanged -> minAmount = event.amount
                 is HistoryEvent.OnMaxAmountChanged -> maxAmount = event.amount
-                is HistoryEvent.OnTransactionClicked -> onNavigateToDetail(event.id)
+                is HistoryEvent.OnTransactionClicked -> {
+                    selectedTransaction = allTransactions.firstOrNull { it.id == event.id }
+                }
                 is HistoryEvent.OnClearAdvancedFilters -> {
                     startDate = ""
                     endDate = ""
@@ -185,6 +197,32 @@ fun HistoryRoute(
             }
         }
     )
+
+    selectedTransaction?.let { transaction ->
+        EditTransactionDialog(
+            transaction = transaction,
+            onDismiss = { selectedTransaction = null },
+            onSave = { amount, merchant, date, note, category ->
+                coroutineScope.launch {
+                    ledgerRepository.updateTransaction(
+                        id = transaction.id,
+                        amount = amount,
+                        merchant = merchant,
+                        date = date,
+                        note = note,
+                        category = category,
+                    )
+                    selectedTransaction = null
+                }
+            },
+            onDelete = {
+                coroutineScope.launch {
+                    ledgerRepository.deleteTransaction(transaction.id)
+                    selectedTransaction = null
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -432,7 +470,7 @@ private fun AdvancedFilterCard(
     uiState: HistoryUiState,
     onEvent: (HistoryEvent) -> Unit
 ) {
-    val categories = listOf("All", "Food", "Transport", "Shopping", "Bills", "Entertainment", "Health", "Income", "Other")
+    val categories = remember { historyTransactionCategoryNames() }
 
     Card(
         modifier = Modifier
@@ -625,15 +663,8 @@ private fun TransactionItemRow(
     onClick: () -> Unit
 ) {
     val iconData = remember(transaction.category) {
-        when (transaction.category.lowercase()) {
-            "food" -> Pair(R.drawable.utensils, Color(0xFF4CAF50))
-            "transport" -> Pair(R.drawable.car, Color(0xFF009688))
-            "income", "salary" -> Pair(R.drawable.hand_coins, Color(0xFF00A86B))
-            "shopping" -> Pair(R.drawable.shopping_basket, Color(0xFFE91E63))
-            "entertainment" -> Pair(R.drawable.film, Color(0xFF673AB7))
-            "health" -> Pair(R.drawable.heart_pulse, Color(0xFFFF9800))
-            "bills" -> Pair(R.drawable.receipt, Color(0xFFD32F2F))
-            else -> Pair(R.drawable.box, Color(0xFF9E9E9E))
+        transactionCategoryOptionForName(transaction.category).let { option ->
+            Pair(option.iconResId, option.tintColor)
         }
     }
 
@@ -684,6 +715,190 @@ private fun TransactionItemRow(
             fontWeight = FontWeight.Medium
         )
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EditTransactionDialog(
+    transaction: HistoryTransactionUiModel,
+    onDismiss: () -> Unit,
+    onSave: (amount: Double, merchant: String, date: String, note: String?, category: String) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var merchant by remember(transaction.id) { mutableStateOf(transaction.title) }
+    var date by remember(transaction.id) { mutableStateOf(transaction.dateString) }
+    var amount by remember(transaction.id) { mutableStateOf(transaction.amount.toEditableAmount()) }
+    var note by remember(transaction.id) { mutableStateOf(transaction.note.orEmpty()) }
+    val categoryOptions = remember(transaction.isIncome) {
+        if (transaction.isIncome) {
+            incomeTransactionCategories().map { it.name }
+        } else {
+            expenseTransactionCategoryNames()
+        }
+    }
+    var selectedCategory by remember(transaction.id) {
+        mutableStateOf(
+            transaction.category.takeIf { category ->
+                categoryOptions.any { it.equals(category, ignoreCase = true) }
+            } ?: categoryOptions.first(),
+        )
+    }
+
+    val parsedAmount = amount.toDoubleOrNull()
+    val isFormValid = merchant.isNotBlank() && date.isNotBlank() && selectedCategory.isNotBlank() &&
+        parsedAmount != null && parsedAmount > 0.0
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White,
+        title = {
+            Text(
+                text = if (transaction.isIncome) "Edit income" else "Edit transaction",
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1F1F1F),
+            )
+        },
+        text = {
+            Column {
+                Text("Merchant", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+                DialogInputField(
+                    value = merchant,
+                    onValueChange = { merchant = it },
+                    hint = "Merchant"
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text("Date", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+                DialogInputField(
+                    value = date,
+                    onValueChange = { date = it },
+                    hint = "MM/DD/YYYY"
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text("Amount", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+                DialogInputField(
+                    value = amount,
+                    onValueChange = {
+                        if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d{0,2}\$"))) {
+                            amount = it
+                        }
+                    },
+                    hint = "0.00",
+                    keyboardType = KeyboardType.Decimal
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text("Category", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    categoryOptions.forEach { category ->
+                        val isSelected = category.equals(selectedCategory, ignoreCase = true)
+                        Surface(
+                            color = if (isSelected) Color(0xFF00C875) else Color.White,
+                            shape = RoundedCornerShape(20.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSelected) Color.Transparent else Color(0xFFE0E0E0),
+                            ),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .clickable { selectedCategory = category }
+                        ) {
+                            Text(
+                                text = category,
+                                color = if (isSelected) Color.White else Color(0xFF757575),
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text("Note", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+                DialogInputField(
+                    value = note,
+                    onValueChange = { note = it },
+                    hint = "Optional"
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onSave(
+                        parsedAmount ?: 0.0,
+                        merchant,
+                        date,
+                        note.ifBlank { null },
+                        selectedCategory,
+                    )
+                },
+                enabled = isFormValid,
+            ) {
+                Text(
+                    "Save",
+                    color = if (isFormValid) Color(0xFF00C875) else Color(0xFFBDBDBD),
+                )
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onDelete) {
+                    Text("Delete", color = Color(0xFFFF5252))
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel", color = Color(0xFF757575))
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun DialogInputField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    hint: String,
+    keyboardType: KeyboardType = KeyboardType.Text,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .background(Color(0xFFF8F9FA), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            textStyle = TextStyle(fontSize = 14.sp, color = Color(0xFF1F1F1F)),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            cursorBrush = SolidColor(Color(0xFF00A86B)),
+            modifier = Modifier.fillMaxWidth(),
+            decorationBox = { innerTextField ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (value.isEmpty()) {
+                        Text(text = hint, color = Color(0xFFBDBDBD), fontSize = 14.sp)
+                    }
+                    innerTextField()
+                }
+            }
+        )
+    }
+}
+
+private fun Double.toEditableAmount(): String {
+    return if (this % 1.0 == 0.0) toLong().toString() else toString()
 }
 
 @Composable

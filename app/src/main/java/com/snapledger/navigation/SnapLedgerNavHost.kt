@@ -3,9 +3,12 @@ package com.snapledger.navigation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -21,6 +24,8 @@ import com.snapledger.core.ledger.LedgerTransactionType
 import com.snapledger.core.profile.UserProfile
 import com.snapledger.feature.budget.ui.BudgetRoute
 import com.snapledger.feature.dashboard.ui.BudgetSummary
+import com.snapledger.feature.dashboard.network.DashboardInsightResult
+import com.snapledger.feature.dashboard.network.DashboardInsightService
 import com.snapledger.feature.dashboard.ui.DashboardScreen
 import com.snapledger.feature.dashboard.ui.DashboardUiState
 import com.snapledger.feature.dashboard.ui.CategorySummary
@@ -41,6 +46,8 @@ import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.time.temporal.WeekFields
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SnapLedgerNavHost(
@@ -54,6 +61,36 @@ fun SnapLedgerNavHost(
         DataStoreLedgerRepository.getInstance(context)
     }
     val ledgerSnapshot by ledgerRepository.snapshotFlow.collectAsState(initial = LedgerSnapshot())
+    val insightService = remember { DashboardInsightService() }
+    var insightText by remember { mutableStateOf<String?>(null) }
+    var insightActionTip by remember { mutableStateOf<String?>(null) }
+    var isInsightLoading by remember { mutableStateOf(false) }
+    val insightRefreshTotal = remember(ledgerSnapshot.transactions) {
+        ledgerSnapshot.transactions.sumOf { it.amount }
+    }
+    val dashboardBaseState = remember(ledgerSnapshot, profile.displayName) {
+        ledgerSnapshot.toDashboardState(profile.displayName)
+    }
+    val historyTransactions = remember(ledgerSnapshot.transactions) {
+        ledgerSnapshot.transactions.map { it.toHistoryTransaction() }
+    }
+
+    LaunchedEffect(ledgerSnapshot.transactions.size, insightRefreshTotal) {
+        isInsightLoading = true
+        when (val result = withContext(Dispatchers.IO) { insightService.generate(period = "monthly") }) {
+            is DashboardInsightResult.Success -> {
+                insightText = result.text
+                insightActionTip = result.actionTip
+            }
+
+            is DashboardInsightResult.Failure -> {
+                val fallback = ledgerSnapshot.buildLocalInsightFallback()
+                insightText = fallback.first
+                insightActionTip = fallback.second
+            }
+        }
+        isInsightLoading = false
+    }
 
     NavHost(
         navController = navController,
@@ -63,7 +100,11 @@ fun SnapLedgerNavHost(
         composable(SnapLedgerDestination.Home.route) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 DashboardScreen(
-                    state = ledgerSnapshot.toDashboardState(profile.displayName),
+                    state = dashboardBaseState.copy(
+                        insight = insightText,
+                        insightActionTip = insightActionTip,
+                        isInsightLoading = isInsightLoading,
+                    ),
                     onDisplayNameChange = onDisplayNameChange,
                     onManageBudgetClick = {
                         navController.navigate(SnapLedgerDestination.Budgets.route)
@@ -114,10 +155,8 @@ fun SnapLedgerNavHost(
         }
         composable(SnapLedgerDestination.History.route) {
             HistoryRoute(
-                transactions = ledgerSnapshot.transactions.map { it.toHistoryTransaction() },
-                onNavigateToDetail = { transactionId ->
-
-                }
+                transactions = historyTransactions,
+                ledgerRepository = ledgerRepository,
             )
         }
         composable(SnapLedgerDestination.Budgets.route) {
@@ -151,9 +190,29 @@ fun SnapLedgerNavHost(
 }
 
 private fun LedgerSnapshot.toDashboardState(userName: String): DashboardUiState {
-    val monthlyTransactions = transactions.filter { it.isInCurrentMonth() }
-    val weeklyTransactions = transactions.filter { it.isInCurrentWeek() }
-    val expenseTransactions = transactions.filter { it.type == LedgerTransactionType.EXPENSE }
+    val today = LocalDate.now()
+    val weekFields = WeekFields.of(Locale.getDefault())
+    val currentWeek = today.get(weekFields.weekOfWeekBasedYear())
+    val currentWeekYear = today.get(weekFields.weekBasedYear())
+
+    val monthlyTransactions = mutableListOf<LedgerTransaction>()
+    val weeklyTransactions = mutableListOf<LedgerTransaction>()
+    val expenseTransactions = mutableListOf<LedgerTransaction>()
+
+    transactions.forEach { transaction ->
+        val parsedDate = transaction.parsedDate()
+        val isCurrentMonth = parsedDate?.let { date ->
+            date.year == today.year && date.month == today.month
+        } ?: true
+        val isCurrentWeek = parsedDate?.let { date ->
+            date.get(weekFields.weekBasedYear()) == currentWeekYear &&
+                date.get(weekFields.weekOfWeekBasedYear()) == currentWeek
+        } ?: true
+
+        if (isCurrentMonth) monthlyTransactions += transaction
+        if (isCurrentWeek) weeklyTransactions += transaction
+        if (transaction.type == LedgerTransactionType.EXPENSE) expenseTransactions += transaction
+    }
 
     return DashboardUiState(
         userName = userName,
@@ -185,29 +244,30 @@ private fun LedgerSnapshot.toDashboardState(userName: String): DashboardUiState 
 
 // FIX: Generate cumulative data points so the chart renders properly
 private fun LedgerSnapshot.buildTrendSummary(today: LocalDate = LocalDate.now()): TrendSummary {
-    val currentMonthExpenses = transactions
-        .filter { it.type == LedgerTransactionType.EXPENSE }
-        .filter { transaction ->
-            val date = transaction.parsedDate() ?: return@filter false
-            date.year == today.year && date.month == today.month
-        }
-
-    val thisMonth = currentMonthExpenses.sumOf { it.amount }
-
     val previousMonth = today.minusMonths(1)
-    val prevMonthTotal = transactions
-        .filter { it.type == LedgerTransactionType.EXPENSE }
-        .filter { transaction ->
-            val date = transaction.parsedDate() ?: return@filter false
-            date.year == previousMonth.year && date.month == previousMonth.month
-        }
-        .sumOf { it.amount }
+    var thisMonth = 0.0
+    var prevMonthTotal = 0.0
+    var week1 = 0.0
+    var week2 = 0.0
+    var week3 = 0.0
+    var week4 = 0.0
 
-    // Generate week-by-week data
-    val week1 = currentMonthExpenses.filter { (it.parsedDate()?.dayOfMonth ?: 0) in 1..7 }.sumOf { it.amount }
-    val week2 = currentMonthExpenses.filter { (it.parsedDate()?.dayOfMonth ?: 0) in 8..14 }.sumOf { it.amount }
-    val week3 = currentMonthExpenses.filter { (it.parsedDate()?.dayOfMonth ?: 0) in 15..21 }.sumOf { it.amount }
-    val week4 = currentMonthExpenses.filter { (it.parsedDate()?.dayOfMonth ?: 0) in 22..31 }.sumOf { it.amount }
+    transactions.forEach { transaction ->
+        if (transaction.type != LedgerTransactionType.EXPENSE) return@forEach
+        val date = transaction.parsedDate() ?: return@forEach
+
+        if (date.year == today.year && date.month == today.month) {
+            thisMonth += transaction.amount
+            when (date.dayOfMonth) {
+                in 1..7 -> week1 += transaction.amount
+                in 8..14 -> week2 += transaction.amount
+                in 15..21 -> week3 += transaction.amount
+                else -> week4 += transaction.amount
+            }
+        } else if (date.year == previousMonth.year && date.month == previousMonth.month) {
+            prevMonthTotal += transaction.amount
+        }
+    }
 
     // Cumulative sum gives the line an upward trend throughout the month
     val cumulativePoints = listOf(
@@ -245,12 +305,20 @@ private fun LedgerSnapshot.buildTrendSummary(today: LocalDate = LocalDate.now())
 }
 
 private fun buildCategorySummaries(expenses: List<LedgerTransaction>): List<CategorySummary> {
-    val total = expenses.sumOf { it.amount }
+    if (expenses.isEmpty()) return emptyList()
+
+    var total = 0.0
+    val totalsByCategory = linkedMapOf<String, Double>()
+    expenses.forEach { transaction ->
+        val amount = transaction.amount
+        val category = transaction.category.ifBlank { "Uncategorized" }
+        total += amount
+        totalsByCategory[category] = (totalsByCategory[category] ?: 0.0) + amount
+    }
     if (total <= 0.0) return emptyList()
-    return expenses
-        .groupBy { it.category.ifBlank { "Uncategorized" } }
-        .map { (name, entries) ->
-            val amount = entries.sumOf { it.amount }
+
+    return totalsByCategory
+        .map { (name, amount) ->
             val percentage = ((amount / total) * 100.0).toFloat()
             CategorySummary(
                 name = name,
@@ -265,14 +333,51 @@ private fun LedgerSnapshot.buildBudgetSummary(
     period: LedgerBudgetPeriod,
     periodTransactions: List<LedgerTransaction>,
 ): BudgetSummary {
-    val expenses = periodTransactions.filter { it.type == LedgerTransactionType.EXPENSE }
-    val income = periodTransactions.filter { it.type == LedgerTransactionType.INCOME }
+    var spent = 0.0
+    var totalIncome = 0.0
+    periodTransactions.forEach { transaction ->
+        when (transaction.type) {
+            LedgerTransactionType.EXPENSE -> spent += transaction.amount
+            LedgerTransactionType.INCOME -> totalIncome += transaction.amount
+        }
+    }
+
     return BudgetSummary(
         limit = budgetCategories.filter { it.period == period }.sumOf { it.allocated },
-        spent = expenses.sumOf { it.amount },
-        totalIncome = income.sumOf { it.amount },
-        totalExpenses = expenses.sumOf { it.amount },
+        spent = spent,
+        totalIncome = totalIncome,
+        totalExpenses = spent,
     )
+}
+
+private fun LedgerSnapshot.buildLocalInsightFallback(): Pair<String?, String?> {
+    val totalsByCategory = linkedMapOf<String, Double>()
+    var total = 0.0
+    transactions.forEach { transaction ->
+        if (transaction.type != LedgerTransactionType.EXPENSE) return@forEach
+        val category = transaction.category.ifBlank { "Uncategorized" }
+        totalsByCategory[category] = (totalsByCategory[category] ?: 0.0) + transaction.amount
+        total += transaction.amount
+    }
+
+    if (total <= 0.0) {
+        return Pair(
+            "No strong spending pattern yet. Track a few receipts to unlock your first insight.",
+            "Scan or add your next receipt to build a clearer trend.",
+        )
+    }
+
+    val topCategory = totalsByCategory.maxByOrNull { it.value }
+    val categoryName = topCategory?.key ?: "Uncategorized"
+    val categoryTotal = topCategory?.value ?: 0.0
+    return Pair(
+        "$categoryName leads your tracked spending at ${formatCurrency(categoryTotal)} of ${formatCurrency(total)}.",
+        "Review recent $categoryName purchases before your next save.",
+    )
+}
+
+private fun formatCurrency(amount: Double): String {
+    return "PHP " + String.format(Locale.getDefault(), "%,.2f", amount)
 }
 
 private fun LedgerTransaction.toHistoryTransaction(): HistoryTransactionUiModel {

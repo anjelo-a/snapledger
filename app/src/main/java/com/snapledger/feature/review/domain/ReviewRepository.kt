@@ -3,6 +3,7 @@ package com.snapledger.feature.review.domain
 import android.content.Context
 import com.snapledger.core.ledger.DataStoreLedgerRepository
 import com.snapledger.core.ledger.LedgerRepository
+import com.snapledger.core.ledger.LedgerTransactionSource
 import com.snapledger.core.ledger.LedgerTransactionType
 import com.snapledger.feature.review.data.ReviewLocalDatabase
 import com.snapledger.feature.review.data.RoomReviewAtomicSaveStore
@@ -142,6 +143,9 @@ class LocalFirstReviewRepository(
             date = receiptRecord.expenseDate,
             note = null,
             category = validatedState.category,
+            transactionId = receiptRecord.receiptId,
+            source = LedgerTransactionSource.SCAN,
+            syncToBackend = false,
         )
 
         return try {
