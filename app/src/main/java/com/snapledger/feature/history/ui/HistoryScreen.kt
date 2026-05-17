@@ -105,9 +105,11 @@ sealed class HistoryEvent {
 // OPTIMIZATION: Hoist formatters globally to avoid recreating them
 private val phCurrencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
 private val filterDateFormatter = SimpleDateFormat("MM/dd/yyyy", Locale.US)
+private fun formatPhp(amount: Double): String = phCurrencyFormatter.format(amount).replace("₱", "PHP ")
 
 @Composable
 fun HistoryRoute(
+    transactions: List<HistoryTransactionUiModel>,
     onNavigateToDetail: (String) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -120,9 +122,7 @@ fun HistoryRoute(
     var minAmount by remember { mutableStateOf("") }
     var maxAmount by remember { mutableStateOf("") }
 
-    val allTransactions = remember {
-        listOf<HistoryTransactionUiModel>()
-    }
+    val allTransactions = transactions
 
     // OPTIMIZATION: Wrap heavy filtering logic in a remember block tied to its dependencies
     val filteredTransactions = remember(
@@ -468,13 +468,13 @@ private fun AdvancedFilterCard(
                     modifier = Modifier.weight(1f),
                     value = uiState.minAmount,
                     onValueChange = { onEvent(HistoryEvent.OnMinAmountChanged(it)) },
-                    hint = "Min ₱"
+                    hint = "Min PHP"
                 )
                 AdvancedFilterNumberInput(
                     modifier = Modifier.weight(1f),
                     value = uiState.maxAmount,
                     onValueChange = { onEvent(HistoryEvent.OnMaxAmountChanged(it)) },
-                    hint = "Max ₱"
+                    hint = "Max PHP"
                 )
             }
 
@@ -678,7 +678,7 @@ private fun TransactionItemRow(
         }
 
         Text(
-            text = "$amountPrefix${phCurrencyFormatter.format(transaction.amount)}",
+            text = "$amountPrefix${formatPhp(transaction.amount)}",
             color = amountColor,
             fontSize = 16.sp,
             fontWeight = FontWeight.Medium
@@ -695,7 +695,7 @@ private fun EmptyStateView() {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(
-            painter = painterResource(id = R.drawable.receipt),
+            painter = painterResource(id = R.drawable.list),
             contentDescription = "No transactions",
             tint = Color(0xFFE0E0E0),
             modifier = Modifier.size(64.dp)

@@ -1,32 +1,25 @@
 package com.snapledger.feature.entry.ui
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -56,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,11 +65,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
+import com.snapledger.core.ledger.LedgerRepository
+import com.snapledger.core.ledger.LedgerTransactionType
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
-private val amountRegex = Regex("^\\d*\\.?\\d*\$")
+private val amountInputRegex = Regex("^\\d{0,3}(,\\d{3})*(\\.\\d*)?$|^\\d*(\\.\\d*)?$")
 private val dateFormatter = SimpleDateFormat("MM/dd/yyyy", Locale.US)
 
 enum class TransactionType { EXPENSE, INCOME }
@@ -99,16 +96,13 @@ data class AddTransactionUiState(
     val isSaving: Boolean = false
 ) {
     val isSaveEnabled: Boolean
-        get() = amount.isNotBlank() &&
-                amount.toDoubleOrNull() != null &&
-                amount.toDouble() > 0 &&
-                merchant.isNotBlank() &&
+        get() = amount.toAmountOrNull()?.let { it > 0 } == true &&
+                (type == TransactionType.INCOME || merchant.isNotBlank()) &&
                 date.isNotBlank() &&
                 selectedCategory.isNotBlank()
 }
 
 sealed class AddTransactionEvent {
-    data class OnTypeChanged(val type: TransactionType) : AddTransactionEvent()
     data class OnAmountChanged(val amount: String) : AddTransactionEvent()
     data class OnMerchantChanged(val merchant: String) : AddTransactionEvent()
     data class OnDateChanged(val date: String) : AddTransactionEvent()
@@ -122,27 +116,29 @@ sealed class AddTransactionEvent {
 
 @Composable
 fun AddTransactionRoute(
+    ledgerRepository: LedgerRepository,
+    transactionType: TransactionType,
     onBack: () -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
     val defaultCategories = remember {
-        listOf(
-            CategoryUiModel("Food", R.drawable.utensils, Color(0xFF4CAF50)),
-            CategoryUiModel("Transport", R.drawable.car, Color(0xFF009688)),
-            CategoryUiModel("Shopping", R.drawable.shopping_basket, Color(0xFFE91E63)),
-            CategoryUiModel("Bills", R.drawable.receipt, Color(0xFFFFC107)),
-            CategoryUiModel("Entertainment", R.drawable.film, Color(0xFF9C27B0)),
-            CategoryUiModel("Health", R.drawable.heart_pulse, Color(0xFFFF9800)),
-            CategoryUiModel("Other", R.drawable.box, Color(0xFF9E9E9E))
-        )
+        transactionType.defaultCategories()
     }
 
-    var state by remember { mutableStateOf(AddTransactionUiState(categories = defaultCategories)) }
+    var state by remember {
+        mutableStateOf(
+            AddTransactionUiState(
+                type = transactionType,
+                categories = defaultCategories,
+                selectedCategory = if (transactionType == TransactionType.INCOME) "Salary" else "",
+            )
+        )
+    }
 
     AddTransactionScreen(
         uiState = state,
         onEvent = { event ->
             when (event) {
-                is AddTransactionEvent.OnTypeChanged -> state = state.copy(type = event.type, selectedCategory = "")
                 is AddTransactionEvent.OnAmountChanged -> state = state.copy(amount = event.amount)
                 is AddTransactionEvent.OnMerchantChanged -> state = state.copy(merchant = event.merchant)
                 is AddTransactionEvent.OnDateChanged -> state = state.copy(date = event.date)
@@ -169,7 +165,19 @@ fun AddTransactionRoute(
                 }
                 is AddTransactionEvent.OnSaveClicked -> {
                     if (state.isSaveEnabled) {
-                        onBack()
+                        state = state.copy(isSaving = true)
+                        coroutineScope.launch {
+                            ledgerRepository.saveTransaction(
+                                type = state.type.toLedgerTransactionType(),
+                                amount = state.amount.toAmountOrNull() ?: return@launch,
+                                merchant = state.merchant.ifBlank { state.selectedCategory },
+                                date = state.date,
+                                note = state.note,
+                                category = state.selectedCategory,
+                            )
+                            state = state.copy(isSaving = false)
+                            onBack()
+                        }
                     }
                 }
             }
@@ -209,26 +217,20 @@ fun AddTransactionScreen(
                 Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color(0xFF424242))
             }
 
-            AnimatedContent(
-                targetState = uiState.type,
-                transitionSpec = { fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300)) },
-                label = "TitleAnimation"
-            ) { type ->
-                Text(
-                    text = if (type == TransactionType.EXPENSE) "Add Expense" else "Add Income",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1F1F1F)
-                )
-            }
+            Text(
+                text = if (uiState.type == TransactionType.INCOME) "Add Income" else "Add Expense",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1F1F1F)
+            )
 
-            val checkBgColor by animateColorAsState(if (uiState.isSaveEnabled) Color(0xFF00C875) else Color(0xFFBDBDBD), label = "SaveBtnColor")
+            val checkBgColor by animateColorAsState(if (uiState.isSaveEnabled && !uiState.isSaving) Color(0xFF00C875) else Color(0xFFBDBDBD), label = "SaveBtnColor")
             Box(
                 modifier = Modifier
                     .size(48.dp)
                     .clip(CircleShape)
                     .background(checkBgColor)
-                    .noRippleClickable(enabled = uiState.isSaveEnabled) { onEvent(AddTransactionEvent.OnSaveClicked) },
+                    .noRippleClickable(enabled = uiState.isSaveEnabled && !uiState.isSaving) { onEvent(AddTransactionEvent.OnSaveClicked) },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Rounded.Check, contentDescription = "Save", tint = Color.White)
@@ -240,80 +242,10 @@ fun AddTransactionScreen(
             contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item { TransactionTypeSwitcher(uiState.type, onEvent) }
             item { AmountCard(uiState.amount, onEvent) }
             item { DetailsCard(uiState, onEvent) }
             item { CategoryCard(uiState, onEvent) }
             item { Spacer(modifier = Modifier.height(32.dp)) }
-        }
-    }
-}
-
-@Composable
-private fun TransactionTypeSwitcher(
-    currentType: TransactionType,
-    onEvent: (AddTransactionEvent) -> Unit
-) {
-    val isExpense = currentType == TransactionType.EXPENSE
-
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .background(Color.White, RoundedCornerShape(28.dp))
-            .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(28.dp))
-            .padding(4.dp)
-    ) {
-        val pillWidth = this.maxWidth / 2
-
-        val offsetX by animateDpAsState(
-            targetValue = if (isExpense) 0.dp else pillWidth,
-            animationSpec = tween(300),
-            label = "SlideAnimation"
-        )
-        val bgColor by animateColorAsState(
-            targetValue = if (isExpense) Color(0xFFFF5252) else Color(0xFF00C875),
-            animationSpec = tween(300),
-            label = "ColorAnimation"
-        )
-
-        Box(
-            modifier = Modifier
-                .width(pillWidth)
-                .fillMaxHeight()
-                .offset(x = offsetX)
-                .background(bgColor, RoundedCornerShape(24.dp))
-        )
-
-        Row(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .noRippleClickable { onEvent(AddTransactionEvent.OnTypeChanged(TransactionType.EXPENSE)) },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Expense",
-                    color = if (isExpense) Color.White else Color(0xFF757575),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .noRippleClickable { onEvent(AddTransactionEvent.OnTypeChanged(TransactionType.INCOME)) },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Income",
-                    color = if (isExpense) Color(0xFF757575) else Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
         }
     }
 }
@@ -340,13 +272,14 @@ private fun AmountCard(
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("$", fontSize = 36.sp, color = if (amount.isEmpty()) Color(0xFFBDBDBD) else Color(0xFF1F1F1F))
+                Text("PHP", fontSize = 28.sp, color = if (amount.isEmpty()) Color(0xFFBDBDBD) else Color(0xFF1F1F1F))
                 Spacer(modifier = Modifier.width(4.dp))
                 BasicTextField(
                     value = amount,
                     onValueChange = { newValue ->
-                        if (newValue.isEmpty() || newValue.matches(amountRegex)) {
-                            onEvent(AddTransactionEvent.OnAmountChanged(newValue))
+                        val formatted = newValue.toFormattedAmountInput()
+                        if (formatted.isEmpty() || formatted.matches(amountInputRegex)) {
+                            onEvent(AddTransactionEvent.OnAmountChanged(formatted))
                         }
                     },
                     textStyle = TextStyle(fontSize = 36.sp, color = Color(0xFF1F1F1F), textAlign = TextAlign.Start),
@@ -380,14 +313,16 @@ private fun DetailsCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(24.dp)) {
-            Text("Merchant", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
-            AddTransactionInputField(
-                value = uiState.merchant,
-                onValueChange = { onEvent(AddTransactionEvent.OnMerchantChanged(it)) },
-                hint = "e.g. Whole Foods"
-            )
+            if (uiState.type == TransactionType.EXPENSE) {
+                Text("Merchant", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+                AddTransactionInputField(
+                    value = uiState.merchant,
+                    onValueChange = { onEvent(AddTransactionEvent.OnMerchantChanged(it)) },
+                    hint = "e.g. Grocery store"
+                )
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             Text("Date", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
             AddTransactionDateField(
@@ -404,6 +339,61 @@ private fun DetailsCard(
                 hint = "Optional"
             )
         }
+    }
+}
+
+private fun TransactionType.defaultCategories(): List<CategoryUiModel> {
+    return when (this) {
+        TransactionType.EXPENSE -> listOf(
+            CategoryUiModel("Food", R.drawable.utensils, Color(0xFF4CAF50)),
+            CategoryUiModel("Transport", R.drawable.car, Color(0xFF009688)),
+            CategoryUiModel("Shopping", R.drawable.shopping_basket, Color(0xFFE91E63)),
+            CategoryUiModel("Bills", R.drawable.receipt, Color(0xFFFFC107)),
+            CategoryUiModel("Entertainment", R.drawable.film, Color(0xFF9C27B0)),
+            CategoryUiModel("Health", R.drawable.heart_pulse, Color(0xFFFF9800)),
+            CategoryUiModel("Other", R.drawable.box, Color(0xFF9E9E9E)),
+        )
+        TransactionType.INCOME -> listOf(
+            CategoryUiModel("Salary", R.drawable.hand_coins, Color(0xFF00A86B)),
+            CategoryUiModel("Freelance", R.drawable.banknote_arrow_up, Color(0xFF009688)),
+            CategoryUiModel("Investments", R.drawable.trending_up, Color(0xFF4CAF50)),
+            CategoryUiModel("Stipend", R.drawable.receipt, Color(0xFF7F22FE)),
+            CategoryUiModel("Allowance", R.drawable.hand_coins, Color(0xFFFF9800)),
+            CategoryUiModel("Bonus", R.drawable.trending_up, Color(0xFFE91E63)),
+            CategoryUiModel("Business", R.drawable.box, Color(0xFF3F51B5)),
+            CategoryUiModel("Gifts", R.drawable.heart_pulse, Color(0xFFFF5252)),
+            CategoryUiModel("Other", R.drawable.box, Color(0xFF9E9E9E)),
+        )
+    }
+}
+
+private fun TransactionType.toLedgerTransactionType(): LedgerTransactionType {
+    return when (this) {
+        TransactionType.EXPENSE -> LedgerTransactionType.EXPENSE
+        TransactionType.INCOME -> LedgerTransactionType.INCOME
+    }
+}
+
+private fun String.toAmountOrNull(): Double? {
+    return replace(",", "").toDoubleOrNull()
+}
+
+private fun String.toFormattedAmountInput(): String {
+    val raw = replace(",", "")
+        .filterIndexed { index, char -> char.isDigit() || (char == '.' && substring(0, index).none { it == '.' }) }
+    if (raw.isBlank()) return ""
+
+    val whole = raw.substringBefore(".").trimStart('0').ifBlank { "0" }
+    val decimal = raw.substringAfter(".", missingDelimiterValue = "")
+    val groupedWhole = whole.reversed()
+        .chunked(3)
+        .joinToString(",")
+        .reversed()
+
+    return if (raw.contains(".")) {
+        "$groupedWhole.$decimal"
+    } else {
+        groupedWhole
     }
 }
 
