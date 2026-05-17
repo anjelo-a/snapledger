@@ -1,0 +1,102 @@
+[33mc5f4afb[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeat/insights[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m HEAD@{0}: reset: moving to HEAD~1
+[33mbc6dac2[m[33m ([m[1;31morigin/feat/insights[m[33m)[m HEAD@{1}: commit: feat(insights): implement initial Gemini spending insights
+[33mc5f4afb[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeat/insights[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m HEAD@{2}: checkout: moving from main to feat/insights
+[33mc5f4afb[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeat/insights[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m HEAD@{3}: pull origin main: Fast-forward
+[33m68edb7e[m HEAD@{4}: checkout: moving from fix/dashboard-update to main
+[33m7cde9b5[m[33m ([m[1;31morigin/fix/dashboard-update[m[33m, [m[1;32mfix/dashboard-update[m[33m)[m HEAD@{5}: commit: fix(dashboard): implement spending trend chart fix and some minor tweaks
+[33m68edb7e[m HEAD@{6}: checkout: moving from main to fix/dashboard-update
+[33m68edb7e[m HEAD@{7}: checkout: moving from fix/dashboard-update to main
+[33m68edb7e[m HEAD@{8}: checkout: moving from main to fix/dashboard-update
+[33m68edb7e[m HEAD@{9}: reset: moving to origin/main
+[33m68edb7e[m HEAD@{10}: checkout: moving from fix/dashboard-update to main
+[33m68edb7e[m HEAD@{11}: checkout: moving from main to fix/dashboard-update
+[33m68edb7e[m HEAD@{12}: checkout: moving from feat/dashboard-backend-integration to main
+[33m68edb7e[m HEAD@{13}: checkout: moving from main to feat/dashboard-backend-integration
+[33m68edb7e[m HEAD@{14}: commit: fix(gradle): fix gradle sync error by using java toolchains
+[33m81fa780[m HEAD@{15}: pull origin main: Fast-forward
+[33m710103b[m HEAD@{16}: pull origin main: Fast-forward
+[33m14dd0cb[m HEAD@{17}: checkout: moving from fix/home-btn-bug to main
+[33m97d7170[m[33m ([m[1;31morigin/fix/home-btn-bug[m[33m, [m[1;32mfix/home-btn-bug[m[33m)[m HEAD@{18}: commit: fix(nav): reset home tab state when clicking home navigation item
+[33m14dd0cb[m HEAD@{19}: checkout: moving from main to fix/home-btn-bug
+[33m14dd0cb[m HEAD@{20}: pull origin main: Fast-forward
+[33m7aeb9b4[m HEAD@{21}: checkout: moving from feat/settings-screen to main
+[33m7ea76fe[m[33m ([m[1;31morigin/feat/settings-screen[m[33m, [m[1;32mfeat/settings-screen[m[33m)[m HEAD@{22}: commit: feat(settings): implemented settings screen, username edit, and dev tools
+[33m7aeb9b4[m HEAD@{23}: checkout: moving from main to feat/settings-screen
+[33m7aeb9b4[m HEAD@{24}: pull origin main: Fast-forward
+[33mbcaa5cf[m HEAD@{25}: checkout: moving from ui/screen-header-tweaks to main
+[33me590e2c[m[33m ([m[1;31morigin/ui/screen-header-tweaks[m[33m, [m[1;32mui/screen-header-tweaks[m[33m)[m HEAD@{26}: commit: ui: unify sticky headers and add fading gradient effect across main screens
+[33mbcaa5cf[m HEAD@{27}: checkout: moving from main to ui/screen-header-tweaks
+[33mbcaa5cf[m HEAD@{28}: pull origin main: Fast-forward
+[33m0976f81[m HEAD@{29}: checkout: moving from feat/notification-popover-menu to main
+[33mf284865[m[33m ([m[1;31morigin/feat/notification-popover-menu[m[33m, [m[1;32mfeat/notification-popover-menu[m[33m)[m HEAD@{30}: commit: feat(dashboard): added popover menu for notifications and some minor tweaks
+[33m0976f81[m HEAD@{31}: checkout: moving from main to feat/notification-popover-menu
+[33m0976f81[m HEAD@{32}: pull origin main: Fast-forward
+[33mcba51da[m[33m ([m[1;32mfeat/budget-screen[m[33m)[m HEAD@{33}: checkout: moving from ui/navbar-layout-overhaul to main
+[33m61db233[m[33m ([m[1;31morigin/ui/navbar-layout-overhaul[m[33m, [m[1;32mui/navbar-layout-overhaul[m[33m)[m HEAD@{34}: commit: ui(nav): overhaul bottom bar layout and implement expandable FAB menu
+[33mcba51da[m[33m ([m[1;32mfeat/budget-screen[m[33m)[m HEAD@{35}: checkout: moving from main to ui/navbar-layout-overhaul
+[33mcba51da[m[33m ([m[1;32mfeat/budget-screen[m[33m)[m HEAD@{36}: pull origin main: Fast-forward
+[33m3518803[m HEAD@{37}: checkout: moving from feat/budget-screen to main
+[33mcba51da[m[33m ([m[1;32mfeat/budget-screen[m[33m)[m HEAD@{38}: pull origin main: Fast-forward
+[33mb868553[m[33m ([m[1;31morigin/feat/budget-screen[m[33m)[m HEAD@{39}: commit: feat(budget): implemented intial budget screen UI
+[33m3518803[m HEAD@{40}: checkout: moving from main to feat/budget-screen
+[33m3518803[m HEAD@{41}: pull origin main: Fast-forward
+[33ma1dffd4[m HEAD@{42}: checkout: moving from ui/entry-fix to main
+[33m4509c15[m[33m ([m[1;31morigin/ui/entry-fix[m[33m, [m[1;32mui/entry-fix[m[33m)[m HEAD@{43}: commit: ui(entry): remove ripple effects and optimize rendering
+[33ma1dffd4[m HEAD@{44}: checkout: moving from main to ui/entry-fix
+[33ma1dffd4[m HEAD@{45}: pull origin main: Fast-forward
+[33mffe769d[m HEAD@{46}: checkout: moving from perf/history-fix to main
+[33mf0e70f4[m[33m ([m[1;31morigin/perf/history-fix[m[33m, [m[1;32mperf/history-fix[m[33m)[m HEAD@{47}: commit: perf(history): optimize transaction filtering and fix ripple clipping
+[33mffe769d[m HEAD@{48}: checkout: moving from main to perf/history-fix
+[33mffe769d[m HEAD@{49}: pull origin main: Fast-forward
+[33md5f9c76[m HEAD@{50}: checkout: moving from perf/scan-review-fix to main
+[33m0e4055e[m[33m ([m[1;31morigin/perf/scan-review-fix[m[33m, [m[1;32mperf/scan-review-fix[m[33m)[m HEAD@{51}: commit: perf: implemented LazyColumns on review screen for perfomance and added some minor tweaks
+[33md5f9c76[m HEAD@{52}: checkout: moving from main to perf/scan-review-fix
+[33md5f9c76[m HEAD@{53}: pull origin main: Fast-forward
+[33m2ab8fd6[m[33m ([m[1;32mui/nav-bar-overhaul[m[33m, [m[1;32mfeat/dashboard-update[m[33m)[m HEAD@{54}: checkout: moving from ui/dashboard-update to main
+[33mcd31bc7[m[33m ([m[1;31morigin/ui/dashboard-update[m[33m, [m[1;32mui/dashboard-update[m[33m)[m HEAD@{55}: checkout: moving from main to ui/dashboard-update
+[33m2ab8fd6[m[33m ([m[1;32mui/nav-bar-overhaul[m[33m, [m[1;32mfeat/dashboard-update[m[33m)[m HEAD@{56}: checkout: moving from perf/scan-lazycolumn to main
+[33m2ab8fd6[m[33m ([m[1;32mui/nav-bar-overhaul[m[33m, [m[1;32mfeat/dashboard-update[m[33m)[m HEAD@{57}: checkout: moving from main to perf/scan-lazycolumn
+[33m2ab8fd6[m[33m ([m[1;32mui/nav-bar-overhaul[m[33m, [m[1;32mfeat/dashboard-update[m[33m)[m HEAD@{58}: checkout: moving from ui/scan-update to main
+[33mcd31bc7[m[33m ([m[1;31morigin/ui/dashboard-update[m[33m, [m[1;32mui/dashboard-update[m[33m)[m HEAD@{59}: checkout: moving from ui/dashboard-update to ui/scan-update
+[33mcd31bc7[m[33m ([m[1;31morigin/ui/dashboard-update[m[33m, [m[1;32mui/dashboard-update[m[33m)[m HEAD@{60}: commit: ui: implement dashboard performance fix and other minor UI tweaks
+[33me9bbed3[m[33m ([m[1;31morigin/ui/navbar-overhaul[m[33m, [m[1;32mui/navbar-overhaul[m[33m)[m HEAD@{61}: checkout: moving from ui/navbar-overhaul to ui/dashboard-update
+[33me9bbed3[m[33m ([m[1;31morigin/ui/navbar-overhaul[m[33m, [m[1;32mui/navbar-overhaul[m[33m)[m HEAD@{62}: commit: ui: implement navigation bar overhaul
+[33m2ab8fd6[m[33m ([m[1;32mui/nav-bar-overhaul[m[33m, [m[1;32mfeat/dashboard-update[m[33m)[m HEAD@{63}: checkout: moving from main to ui/navbar-overhaul
+[33m2ab8fd6[m[33m ([m[1;32mui/nav-bar-overhaul[m[33m, [m[1;32mfeat/dashboard-update[m[33m)[m HEAD@{64}: checkout: moving from ui/nav-bar-overhaul to main
+[33m2ab8fd6[m[33m ([m[1;32mui/nav-bar-overhaul[m[33m, [m[1;32mfeat/dashboard-update[m[33m)[m HEAD@{65}: checkout: moving from feat/dashboard-update to ui/nav-bar-overhaul
+[33m2ab8fd6[m[33m ([m[1;32mui/nav-bar-overhaul[m[33m, [m[1;32mfeat/dashboard-update[m[33m)[m HEAD@{66}: checkout: moving from main to feat/dashboard-update
+[33m2ab8fd6[m[33m ([m[1;32mui/nav-bar-overhaul[m[33m, [m[1;32mfeat/dashboard-update[m[33m)[m HEAD@{67}: checkout: moving from ui/dashboard-overhaul to main
+[33m2ab8fd6[m[33m ([m[1;32mui/nav-bar-overhaul[m[33m, [m[1;32mfeat/dashboard-update[m[33m)[m HEAD@{68}: checkout: moving from ui/nav-bar-overhaul to ui/dashboard-overhaul
+[33m2ab8fd6[m[33m ([m[1;32mui/nav-bar-overhaul[m[33m, [m[1;32mfeat/dashboard-update[m[33m)[m HEAD@{69}: checkout: moving from main to ui/nav-bar-overhaul
+[33m2ab8fd6[m[33m ([m[1;32mui/nav-bar-overhaul[m[33m, [m[1;32mfeat/dashboard-update[m[33m)[m HEAD@{70}: checkout: moving from feat/bottom-nav-menu to main
+[33m71eec3c[m[33m ([m[1;32mfeat/bottom-nav-menu[m[33m)[m HEAD@{71}: checkout: moving from feat/bottom-nav-menu to feat/bottom-nav-menu
+[33m71eec3c[m[33m ([m[1;32mfeat/bottom-nav-menu[m[33m)[m HEAD@{72}: checkout: moving from main to feat/bottom-nav-menu
+[33m2ab8fd6[m[33m ([m[1;32mui/nav-bar-overhaul[m[33m, [m[1;32mfeat/dashboard-update[m[33m)[m HEAD@{73}: pull origin main: Fast-forward
+[33mf1f0bab[m HEAD@{74}: pull origin main: Fast-forward
+[33m0d0c8ff[m HEAD@{75}: pull origin main: Fast-forward
+[33mc47cf97[m[33m ([m[1;32mfeat/add-transaction[m[33m)[m HEAD@{76}: checkout: moving from main to main
+[33mc47cf97[m[33m ([m[1;32mfeat/add-transaction[m[33m)[m HEAD@{77}: checkout: moving from main to main
+[33mc47cf97[m[33m ([m[1;32mfeat/add-transaction[m[33m)[m HEAD@{78}: merge feat/add-transaction: Fast-forward
+[33m808ebc8[m[33m ([m[1;32mfeat/review-receipt[m[33m)[m HEAD@{79}: merge feat/review-receipt: Fast-forward
+[33m58713a2[m[33m ([m[1;32mfeat/transaction-history[m[33m)[m HEAD@{80}: merge feat/transaction-history: Fast-forward
+[33m983eba9[m[33m ([m[1;32mfeat/scan-receipt[m[33m)[m HEAD@{81}: merge feat/scan-receipt: Fast-forward
+[33md1d44e1[m[33m ([m[1;32mfeat/dashboard-ui[m[33m)[m HEAD@{82}: merge feat/dashboard-ui: Fast-forward
+[33m71eec3c[m[33m ([m[1;32mfeat/bottom-nav-menu[m[33m)[m HEAD@{83}: merge feat/bottom-nav-menu: Fast-forward
+[33md3914a5[m HEAD@{84}: checkout: moving from feat/add-transaction to main
+[33mc47cf97[m[33m ([m[1;32mfeat/add-transaction[m[33m)[m HEAD@{85}: commit: feat(add transaction): implement updated UI
+[33m4e92def[m HEAD@{86}: commit: feat(add transaction): implement add expense/income UI
+[33m808ebc8[m[33m ([m[1;32mfeat/review-receipt[m[33m)[m HEAD@{87}: checkout: moving from feat/review-receipt to feat/add-transaction
+[33m808ebc8[m[33m ([m[1;32mfeat/review-receipt[m[33m)[m HEAD@{88}: commit: feat(review receipt): added review receipt UI
+[33m58713a2[m[33m ([m[1;32mfeat/transaction-history[m[33m)[m HEAD@{89}: checkout: moving from feat/transaction-history to feat/review-receipt
+[33m58713a2[m[33m ([m[1;32mfeat/transaction-history[m[33m)[m HEAD@{90}: commit: feat(history): implement transaction history UI with advanced filtering and local state management
+[33m983eba9[m[33m ([m[1;32mfeat/scan-receipt[m[33m)[m HEAD@{91}: checkout: moving from feat/transaction-history- to feat/transaction-history
+[33m983eba9[m[33m ([m[1;32mfeat/scan-receipt[m[33m)[m HEAD@{92}: checkout: moving from feat/scan-receipt to feat/transaction-history-
+[33m983eba9[m[33m ([m[1;32mfeat/scan-receipt[m[33m)[m HEAD@{93}: commit: feat(scan): implement redesigned UI with camera-toggle optimization and backend integration (no receipt review yet)
+[33md1d44e1[m[33m ([m[1;32mfeat/dashboard-ui[m[33m)[m HEAD@{94}: checkout: moving from feat/dashboard-ui to feat/scan-receipt
+[33md1d44e1[m[33m ([m[1;32mfeat/dashboard-ui[m[33m)[m HEAD@{95}: commit: feat: add UI for dashboard/home screen
+[33m71eec3c[m[33m ([m[1;32mfeat/bottom-nav-menu[m[33m)[m HEAD@{96}: checkout: moving from feat/bottom-nav-menu to feat/dashboard-ui
+[33m71eec3c[m[33m ([m[1;32mfeat/bottom-nav-menu[m[33m)[m HEAD@{97}: commit: feat: add bottom navigation menu
+[33md3914a5[m HEAD@{98}: checkout: moving from main to feat/bottom-nav-menu
+[33md3914a5[m HEAD@{99}: pull origin main: Merge made by the 'ort' strategy.
+[33m9cb08f5[m HEAD@{100}: commit: frotend(add) : dashboard and scan
+[33m035997b[m[33m ([m[1;31morigin/feat/transaction-history[m[33m, [m[1;31morigin/feat/scan-receipt[m[33m, [m[1;31morigin/feat/review-receipt[m[33m, [m[1;31morigin/feat/dashboard-ui[m[33m, [m[1;31morigin/feat/bottom-nav-menu[m[33m, [m[1;31morigin/feat/add-transaction[m[33m)[m HEAD@{101}: clone: from https://github.com/anjelo-a/snapledger.git
