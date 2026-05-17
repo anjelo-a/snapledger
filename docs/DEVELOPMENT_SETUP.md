@@ -158,7 +158,7 @@ Minimum runtime envs in Cloud Run:
 - `APP_ENV=production`
 - `DATABASE_URL` (Secret Manager)
 
-Optional OCR envs:
+Optional Gemini envs:
 - `GEMINI_API_KEY` (Secret Manager)
 - `GEMINI_MODEL`
 - `GEMINI_FALLBACK_MODEL`
@@ -172,29 +172,67 @@ Backend supports:
 - `RATE_LIMIT_ENABLED`
 - `ENFORCE_HTTPS`
 
-Current gap:
-- Android Retrofit clients do not yet attach `x-api-key` headers.
-- If `REQUIRE_API_KEY=true`, Android calls will return `401` until an interceptor/header wiring is implemented.
+Android clients attach `x-api-key` when `SNAPLEDGER_BACKEND_API_KEY` or `SNAPLEDGER_API_KEY`
+is present in root `local.properties`.
 
 Recommendation today:
-- Keep `REQUIRE_API_KEY=false` in shared dev unless/until Android header support is added.
+- Keep `REQUIRE_API_KEY=false` for local-only shared dev unless API-key configuration is needed
+  for a protected backend environment.
 
-## 10) Frontend/backend smoke test flow
+## 10) Phase 5 Gemini insights implementation
+
+Implement Gemini insights as backend-only narration over deterministic dashboard metrics:
+
+1. Keep `GET /v1/dashboard` deterministic.
+2. Add `POST /v1/insights/generate` wired to `InsightService.generate(db, payload)`.
+3. In `InsightService`, call `DashboardService.get(db)`, build a compact metrics dict, call Gemini
+   for JSON prose, validate the JSON, then return `InsightGenerateResponse`.
+4. Gemini must not calculate money, rank categories, assign budgets, mutate records, or inspect raw
+   receipts/OCR/sync payloads.
+5. On missing API key, timeout, rate limit, invalid JSON, or schema failure, return deterministic
+   fallback text with the same metrics and no exposed upstream error.
+
+Prompt shape:
+
+```text
+Write one concise spending insight from these trusted metrics.
+Do not calculate money. Do not invent facts. Do not mention unavailable data.
+Return only JSON:
+{"text": "...", "action_tip": "..."}
+```
+
+Suggested Gemini output schema:
+
+```python
+class GeminiInsightOutput(StrictSchema):
+    text: str = Field(min_length=1, max_length=280)
+    action_tip: str | None = Field(default=None, max_length=160)
+```
+
+Required tests:
+- mocked Gemini success
+- missing `GEMINI_API_KEY` fallback
+- invalid JSON fallback
+- dashboard math unchanged
+- response does not expose Gemini/API errors
+
+## 11) Frontend/backend smoke test flow
 
 1. Backend `/health` returns 200.
 2. Android app points to intended base URL.
 3. Scan flow can call `POST /v1/receipts/process` (if Gemini key configured).
-4. Review confirm can call `POST /v1/receipts/confirm`.
+4. Reviewed receipt save persists locally and queues sync metadata.
 5. Sync worker can hit `/v1/sync/push` and `/v1/sync/pull`.
 
-## 11) Troubleshooting quick hits
+## 12) Troubleshooting quick hits
 
 Cloud Run "failed to start/listen on PORT":
 - Do not override container command to `python` for buildpack images.
 - Keep buildpack default process or define process via `backend/Procfile`.
 
 401 Unauthorized from cloud backend:
-- `REQUIRE_API_KEY=true` but client sends no `x-api-key`.
+- `REQUIRE_API_KEY=true` but root `local.properties` does not have the matching
+  `SNAPLEDGER_BACKEND_API_KEY` or `SNAPLEDGER_API_KEY`.
 
 Android cannot reach local backend:
 - Emulator should use `10.0.2.2` not `localhost`.
@@ -205,7 +243,7 @@ DB errors on startup:
 - Verify Cloud SQL instance connection is attached to the Cloud Run service.
 - Run `alembic upgrade head`.
 
-## 12) Team workflow conventions
+## 13) Team workflow conventions
 
 - Do not commit secrets or `.env.local`.
 - Use Secret Manager for cloud secrets.

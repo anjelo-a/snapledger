@@ -1,6 +1,7 @@
 package com.snapledger.core.network.api
 
 import com.snapledger.core.network.NetworkConfig
+import com.snapledger.core.network.SnapLedgerHttpClient
 import com.snapledger.core.network.dto.ReceiptSyncPullResponseDto
 import com.snapledger.core.network.dto.ReceiptSyncPushRequestDto
 import com.snapledger.core.network.dto.ReceiptSyncPushResponseDto
@@ -30,6 +31,7 @@ interface ReceiptSyncApiService {
         ): ReceiptSyncApiService {
             return Retrofit.Builder()
                 .baseUrl(baseUrl)
+                .client(SnapLedgerHttpClient.builder().build())
                 .addConverterFactory(MoshiConverterFactory.create(moshi))
                 .build()
                 .create(ReceiptSyncApiService::class.java)

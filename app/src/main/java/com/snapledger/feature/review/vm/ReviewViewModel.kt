@@ -102,11 +102,6 @@ class ReviewViewModel(
                             isSaving = false,
                             saveStatusMessage = buildString {
                                 append("Saved locally as ${result.receiptId}. ")
-                                if (result.backendConfirmError == null) {
-                                    append("Backend receipt confirmed. ")
-                                } else {
-                                    append("Backend confirm failed: ${result.backendConfirmError}. ")
-                                }
                                 if (result.syncDispatchError == null) {
                                     append("Sync metadata queued as ${result.syncQueueId}.")
                                 } else {

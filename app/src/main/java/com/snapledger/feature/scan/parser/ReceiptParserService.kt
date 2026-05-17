@@ -107,7 +107,7 @@ private fun selectMerchant(lines: List<NormalizedOcrLine>): MerchantSelection {
     val directKnownHit = orderedAll.firstNotNullOfOrNull { line ->
         val compact = normalizeOcrKeywordText(line.text.lowercase(Locale.US)).replace(Regex("[^a-z0-9]"), "")
         val match = KNOWN_MERCHANT_CANONICAL.entries.firstOrNull { (key, _) ->
-            compact.contains(key) || merchantMatchScore(compact, key) >= 60
+            compact == key || (compact.contains(key) && compact.length <= key.length + 3)
         }
         match?.let { line.index to it.value }
     }
@@ -143,7 +143,27 @@ private fun selectMerchant(lines: List<NormalizedOcrLine>): MerchantSelection {
     val secondBest = candidates.getOrNull(1)
     val canonicalMerchant = canonicalizeMerchant(best.text)
     val bestLower = canonicalMerchant.lowercase(Locale.US)
-    if (secondBest != null && abs(best.score - secondBest.score) <= 2 && KNOWN_MERCHANT_HINTS.none { bestLower.contains(it) }) {
+    val firstTwoTextLines = orderedForMerchant.take(2)
+    val firstTwoLookLikeMerchants = firstTwoTextLines.size == 2 &&
+        firstTwoTextLines.all { line ->
+            line.text.count { it.isLetter() } >= 4 &&
+                !containsMoney(line.text) &&
+                matchesKnownDate(line.text) == null &&
+                !looksAddressLike(line.text.lowercase(Locale.US))
+        }
+    if (firstTwoLookLikeMerchants && KNOWN_MERCHANT_HINTS.none { bestLower.contains(it) }) {
+        return MerchantSelection(
+            value = canonicalMerchant,
+            lineIndex = best.lineIndex,
+            warnings = listOf("Merchant is ambiguous; selected highest-confidence top candidate '$canonicalMerchant'."),
+        )
+    }
+    if (secondBest != null &&
+        secondBest.score > 0 &&
+        !containsMoney(secondBest.text) &&
+        matchesKnownDate(secondBest.text) == null &&
+        KNOWN_MERCHANT_HINTS.none { bestLower.contains(it) }
+    ) {
         return MerchantSelection(
             value = canonicalMerchant,
             lineIndex = best.lineIndex,
@@ -233,9 +253,12 @@ private fun selectTotalAmount(
         val excluded = NON_TOTAL_KEYWORDS.any { lowercase.contains(it) }
         if (excluded) return@forEachIndexed
 
-        val inlineAmount = parseLastMoneyCandidate(line.text)
+        val inlineAmount = parseLastMoneyCandidate(
+            text = line.text,
+            allowInteger = containsTotalKeyword,
+        )
         val nextAmount = if (containsTotalKeyword && inlineAmount == null) {
-            lines.getOrNull(index + 1)?.let { parseLastMoneyCandidate(it.text) }
+            lines.getOrNull(index + 1)?.let { parseLastMoneyCandidate(it.text, allowInteger = true) }
         } else {
             null
         }
@@ -263,6 +286,9 @@ private fun selectTotalAmount(
                 if (inlineAmount == null && nextAmount != null) {
                     warnings.clear()
                     warnings += "Total amount was assembled from a multi-line total label."
+                } else if (containsTotalKeyword && !TOTAL_KEYWORDS.any { lowercase.contains(it) }) {
+                    warnings.clear()
+                    warnings += "Total amount was inferred from faded total context near receipt bottom."
                 }
             }
         }
@@ -287,7 +313,7 @@ private fun selectTotalAmount(
     }
 
     if (bestCandidate == null) {
-        val standalone = inferBottomRightStandaloneTotal(lines)
+        val standalone = if (items.size < 2) inferBottomRightStandaloneTotal(lines) else null
         if (standalone != null) {
             warnings += "Total amount was inferred from bottom-right standalone amount."
             bestCandidate = standalone.lineIndex to standalone.amount
@@ -304,15 +330,6 @@ private fun selectTotalAmount(
         }
     }
 
-    if (bestCandidate == null) {
-        val fromItems = inferTotalFromItems(items)
-        if (fromItems != null) {
-            warnings += "Total amount was inferred from parsed item sum."
-            bestCandidate = -1 to fromItems
-            bestScore = 58
-        }
-    }
-
     if (bestCandidate != null) {
         return TotalSelection(bestCandidate?.second, bestCandidate?.first, warnings, confidenceScore = bestScore)
     }
@@ -325,6 +342,7 @@ private fun inferFadedTotal(lines: List<NormalizedOcrLine>): InferredTotal? {
         val rawLower = line.text.lowercase(Locale.US)
         val normalized = normalizeOcrKeywordText(rawLower)
         if (isHardNegativeTotalLine(rawLower)) return@mapNotNull null
+        if (NON_TOTAL_KEYWORDS.any { normalized.contains(it) || rawLower.contains(it) }) return@mapNotNull null
         if (!normalized.contains("total") && !normalized.contains("amount due") && !normalized.contains("balance due")) {
             return@mapNotNull null
         }
@@ -392,18 +410,6 @@ private fun inferTotalFromItemTable(lines: List<NormalizedOcrLine>, tableHeaderI
     }.maxByOrNull { it.score }?.takeIf { it.score >= 14 }
 }
 
-private fun inferTotalFromItems(items: List<ParsedReceiptItemCandidate>): ParsedMoneyCandidate? {
-    if (items.size < 2) return null
-    val amounts = items.mapNotNull { it.amount?.amountMinor }.filter { it > 0L }
-    if (amounts.size < 2) return null
-    val sum = amounts.sum()
-    if (sum <= 0L) return null
-    return ParsedMoneyCandidate(
-        rawText = "items_sum",
-        amountMinor = sum,
-    )
-}
-
 private fun inferTotalFromSubtotalAndTax(lines: List<NormalizedOcrLine>): ParsedMoneyCandidate? {
     var subtotal: Long? = null
     var tax: Long? = null
@@ -440,6 +446,7 @@ private fun inferBottomRightStandaloneTotal(lines: List<NormalizedOcrLine>): Inf
         if (isRightZone(line)) score += 14
         if (line.index >= lines.size - 4) score += 8
         if (line.text.count { it.isLetter() } <= 3) score += 4
+        if (line.bbox == null && line.index >= lines.size - 2 && line.text.count { it.isLetter() } <= 3) score += 8
         if (lower.contains("total")) score += 6
         if (lower.contains("cash") || lower.contains("change") || lower.contains("tax")) score -= 16
         if (lower.contains("mastercard") || lower.contains("visa") || lower.contains("debit") || lower.contains("credit")) score -= 18
@@ -525,43 +532,18 @@ private fun canonicalizeMerchant(raw: String): String {
     val compact = lowered.replace(Regex("[^a-z0-9]"), "")
     if (compact.isEmpty()) return cleaned
 
-    val best = KNOWN_MERCHANT_CANONICAL.entries.maxByOrNull { merchant ->
-        merchantMatchScore(compact, merchant.key)
-    } ?: return cleaned
-    return if (merchantMatchScore(compact, best.key) >= 60) best.value else cleaned
+    val exact = KNOWN_MERCHANT_CANONICAL.entries.firstOrNull { (key, _) ->
+        compact == key || (compact.contains(key) && compact.length <= key.length + 3)
+    }
+    return exact?.value ?: cleaned
 }
 
 private fun matchesKnownMerchantCanonical(text: String): Boolean {
     val compact = normalizeOcrKeywordText(text.lowercase(Locale.US)).replace(Regex("[^a-z0-9]"), "")
     if (compact.isEmpty()) return false
-    val best = KNOWN_MERCHANT_CANONICAL.keys.maxOfOrNull { merchantMatchScore(compact, it) } ?: 0
-    return best >= 60
-}
-
-private fun looksAddressLike(lowercase: String): Boolean {
-    return lowercase.contains(" blvd") ||
-        lowercase.contains(" boulevard") ||
-        lowercase.contains(" street") ||
-        lowercase.contains(" st ") ||
-        lowercase.contains(" avenue") ||
-        lowercase.contains(" ave") ||
-        lowercase.contains(" tower") ||
-        lowercase.contains(" floor") ||
-        lowercase.contains(" bldg") ||
-        lowercase.contains(" city")
-}
-
-private fun merchantMatchScore(compact: String, key: String): Int {
-    if (compact == key) return 100
-    var score = 0
-    if (compact.contains(key) || key.contains(compact)) score += 75
-    val dist = levenshteinDistance(compact, key)
-    if (dist <= 1) score += 80
-    else if (dist == 2) score += 65
-    else if (dist == 3) score += 50
-    if (key.length >= 6 && compact.startsWith(key.take(4))) score += 25
-    if (key.length >= 6 && compact.contains(key.take(5))) score += 20
-    return score
+    return KNOWN_MERCHANT_CANONICAL.keys.any { key ->
+        compact == key || (compact.contains(key) && compact.length <= key.length + 3)
+    }
 }
 
 private fun levenshteinDistance(a: String, b: String): Int {
@@ -584,6 +566,19 @@ private fun levenshteinDistance(a: String, b: String): Int {
         }
     }
     return dp[b.length]
+}
+
+private fun looksAddressLike(lowercase: String): Boolean {
+    return lowercase.contains(" blvd") ||
+        lowercase.contains(" boulevard") ||
+        lowercase.contains(" street") ||
+        lowercase.contains(" st ") ||
+        lowercase.contains(" avenue") ||
+        lowercase.contains(" ave") ||
+        lowercase.contains(" tower") ||
+        lowercase.contains(" floor") ||
+        lowercase.contains(" bldg") ||
+        lowercase.contains(" city")
 }
 
 private fun isHardNegativeTotalLine(text: String): Boolean {
@@ -649,6 +644,41 @@ private fun selectItems(
         .take(20)
 
     if (parsedWithAmounts.isNotEmpty()) return parsedWithAmounts
+
+    val simpleAmountItems = lines
+        .subList(startIndex.coerceAtMost(lines.size), endExclusive.coerceAtLeast(startIndex))
+        .mapNotNull { line ->
+            val lowercase = line.text.lowercase(Locale.US)
+            if (NON_ITEM_KEYWORDS.any { lowercase.contains(it) }) return@mapNotNull null
+            if (matchesKnownDate(line.text) != null) return@mapNotNull null
+            val money = parseLastMoneyCandidate(line.text) ?: return@mapNotNull null
+            val amountMatch = AMOUNT_REGEX.findAll(line.text).lastOrNull() ?: return@mapNotNull null
+            val description = line.text.substring(0, amountMatch.range.first).trim()
+            if (description.length < 2 || description.count { it.isLetter() } < 2) return@mapNotNull null
+            ParsedReceiptItemCandidate(description = description, amount = money)
+        }
+        .filter { it.amount?.amountMinor?.let { amt -> amt in 1..250_000 } == true }
+        .distinctBy { "${it.description.lowercase(Locale.US)}|${it.amount?.amountMinor}" }
+        .take(20)
+
+    if (simpleAmountItems.isNotEmpty()) return simpleAmountItems
+
+    val globalSimpleAmountItems = lines
+        .mapNotNull { line ->
+            val lowercase = line.text.lowercase(Locale.US)
+            if (NON_ITEM_KEYWORDS.any { lowercase.contains(it) }) return@mapNotNull null
+            if (matchesKnownDate(line.text) != null) return@mapNotNull null
+            val money = parseLastMoneyCandidate(line.text) ?: return@mapNotNull null
+            val amountMatch = AMOUNT_REGEX.findAll(line.text).lastOrNull() ?: return@mapNotNull null
+            val description = line.text.substring(0, amountMatch.range.first).trim()
+            if (description.length < 2 || description.count { it.isLetter() } < 2) return@mapNotNull null
+            ParsedReceiptItemCandidate(description = description, amount = money)
+        }
+        .filter { it.amount?.amountMinor?.let { amt -> amt in 1..250_000 } == true }
+        .distinctBy { "${it.description.lowercase(Locale.US)}|${it.amount?.amountMinor}" }
+        .take(20)
+
+    if (globalSimpleAmountItems.isNotEmpty()) return globalSimpleAmountItems
 
     val window = lines.subList(startIndex.coerceAtMost(lines.size), endExclusive.coerceAtLeast(startIndex))
     val fallbackStart = window.indexOfFirst { line ->
@@ -765,13 +795,16 @@ private fun normalizeYear(year: Int): Int {
     }
 }
 
-private fun parseLastMoneyCandidate(text: String): ParsedMoneyCandidate? {
+private fun parseLastMoneyCandidate(
+    text: String,
+    allowInteger: Boolean = false,
+): ParsedMoneyCandidate? {
     val raw = AMOUNT_REGEX.findAll(text)
         .lastOrNull()
         ?.value
         ?.trim()
         ?: return null
-    if (!raw.contains(".") && !raw.contains(",")) return null
+    if (!allowInteger && !raw.contains(".") && !raw.contains(",")) return null
 
     val normalized = raw
         .replace("$", "")

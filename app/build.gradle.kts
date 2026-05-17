@@ -24,6 +24,10 @@ val backendBaseUrl =
             ?: "https://snapledger-backend-75893256027.asia-southeast1.run.app/"
         )
         .let { if (it.endsWith("/")) it else "$it/" }
+val backendApiKey =
+    localProps.getProperty("SNAPLEDGER_BACKEND_API_KEY")
+        ?: localProps.getProperty("SNAPLEDGER_API_KEY")
+        ?: ""
 val googleSignInServerClientId =
     localProps.getProperty("SNAPLEDGER_GOOGLE_WEB_CLIENT_ID")
         ?: localProps.getProperty("GOOGLE_SIGN_IN_SERVER_CLIENT_ID")
@@ -51,11 +55,13 @@ android {
     buildTypes {
         debug {
             buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
+            buildConfigField("String", "BACKEND_API_KEY", "\"$backendApiKey\"")
         }
 
         release {
             isMinifyEnabled = false
             buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
+            buildConfigField("String", "BACKEND_API_KEY", "\"$backendApiKey\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

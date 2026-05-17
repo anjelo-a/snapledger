@@ -81,6 +81,7 @@ class ExpenseListResponse(StrictSchema):
 class ReceiptProcessRequest(StrictSchema):
     ocr_lines: list[str] | None = Field(default=None, min_length=1, max_length=500)
     image_base64: str | None = Field(default=None, min_length=32, max_length=12_000_000)
+    image_mime_type: str | None = Field(default=None, max_length=32)
     locale: str | None = Field(default=None, max_length=20)
     currency_hint: str | None = Field(default=None, min_length=3, max_length=3)
 
@@ -112,6 +113,16 @@ class ReceiptProcessRequest(StrictSchema):
             raise ValueError("image_base64 must not be blank.")
         return normalized
 
+    @field_validator("image_mime_type")
+    @classmethod
+    def normalize_image_mime_type(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if normalized not in {"image/jpeg", "image/png", "image/webp"}:
+            raise ValueError("image_mime_type must be image/jpeg, image/png, or image/webp.")
+        return normalized
+
     @field_validator("currency_hint")
     @classmethod
     def normalize_currency_hint(cls, value: str | None) -> str | None:
@@ -128,6 +139,10 @@ class ReceiptProcessRequest(StrictSchema):
         image_base64 = self.image_base64
         if not ocr_lines and not image_base64:
             raise ValueError("Either ocr_lines or image_base64 is required.")
+        if image_base64 and not self.image_mime_type:
+            raise ValueError("image_mime_type is required when image_base64 is provided.")
+        if self.image_mime_type and not image_base64:
+            raise ValueError("image_mime_type requires image_base64.")
         return self
 
 

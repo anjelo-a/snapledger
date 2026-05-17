@@ -1,8 +1,8 @@
 package com.snapledger.feature.review.data
 
 import com.snapledger.core.network.NetworkConfig
+import com.snapledger.core.network.SnapLedgerHttpClient
 import com.snapledger.feature.review.domain.LocalReceiptRecord
-import com.snapledger.feature.review.domain.ReviewBackendConfirmClient
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
@@ -24,6 +24,7 @@ interface ReceiptConfirmApiService {
         ): ReceiptConfirmApiService {
             return Retrofit.Builder()
                 .baseUrl(baseUrl)
+                .client(SnapLedgerHttpClient.builder().build())
                 .addConverterFactory(MoshiConverterFactory.create(moshi))
                 .build()
                 .create(ReceiptConfirmApiService::class.java)
@@ -33,8 +34,8 @@ interface ReceiptConfirmApiService {
 
 class NetworkReceiptConfirmClient(
     private val apiService: ReceiptConfirmApiService = ReceiptConfirmApiService.create(),
-) : ReviewBackendConfirmClient {
-    override suspend fun confirm(record: LocalReceiptRecord) {
+) {
+    suspend fun confirm(record: LocalReceiptRecord) {
         apiService.confirm(record.toConfirmRequestDto())
     }
 }

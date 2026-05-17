@@ -245,6 +245,16 @@ def test_receipt_process_rejects_unknown_request_field(client: TestClient) -> No
     assert response.status_code == 422
 
 
+def test_receipt_process_requires_mime_type_for_image_payload(client: TestClient) -> None:
+    response = client.post(
+        "/v1/receipts/process",
+        json={
+            "image_base64": "a" * 32,
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_receipt_process_rejects_blank_ocr_line(client: TestClient) -> None:
     response = client.post(
         "/v1/receipts/process",
