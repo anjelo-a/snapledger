@@ -17,7 +17,10 @@ from app.services.dashboard_service import DashboardService
 
 def get_fallback_insight(metrics_summary: dict) -> dict:
     return {
-        "text": "Your spending is tracking normally against your recent averages. Keep logging your receipts to maintain accurate records.",
+        "text": (
+            "Your spending is tracking normally against your recent averages. "
+            "Keep logging your receipts to maintain accurate records."
+        ),
         "action_tip": "Review your weekly budget to ensure you are on track."
     }
 

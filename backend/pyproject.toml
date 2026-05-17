@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "SnapLedger FastAPI backend"
 requires-python = ">=3.11"
 dependencies = [
+  "google-generativeai",
   "fastapi>=0.110.0,<1.0.0",
   "uvicorn[standard]>=0.29.0,<1.0.0",
   "sqlalchemy>=2.0.0,<3.0.0",
