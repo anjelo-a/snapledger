@@ -67,6 +67,9 @@ fun SnapLedgerNavHost(
                     onDisplayNameChange = onDisplayNameChange,
                     onManageBudgetClick = {
                         navController.navigate(SnapLedgerDestination.Budgets.route)
+                    },
+                    onSeeAllActivityClick = {
+                        navController.navigate(SnapLedgerDestination.History.route)
                     }
                 )
             }
@@ -180,14 +183,16 @@ private fun LedgerSnapshot.toDashboardState(userName: String): DashboardUiState 
     )
 }
 
+// FIX: Generate cumulative data points so the chart renders properly
 private fun LedgerSnapshot.buildTrendSummary(today: LocalDate = LocalDate.now()): TrendSummary {
-    val thisMonth = transactions
+    val currentMonthExpenses = transactions
         .filter { it.type == LedgerTransactionType.EXPENSE }
         .filter { transaction ->
             val date = transaction.parsedDate() ?: return@filter false
             date.year == today.year && date.month == today.month
         }
-        .sumOf { it.amount }
+
+    val thisMonth = currentMonthExpenses.sumOf { it.amount }
 
     val previousMonth = today.minusMonths(1)
     val prevMonthTotal = transactions
@@ -198,11 +203,26 @@ private fun LedgerSnapshot.buildTrendSummary(today: LocalDate = LocalDate.now())
         }
         .sumOf { it.amount }
 
+    // Generate week-by-week data
+    val week1 = currentMonthExpenses.filter { (it.parsedDate()?.dayOfMonth ?: 0) in 1..7 }.sumOf { it.amount }
+    val week2 = currentMonthExpenses.filter { (it.parsedDate()?.dayOfMonth ?: 0) in 8..14 }.sumOf { it.amount }
+    val week3 = currentMonthExpenses.filter { (it.parsedDate()?.dayOfMonth ?: 0) in 15..21 }.sumOf { it.amount }
+    val week4 = currentMonthExpenses.filter { (it.parsedDate()?.dayOfMonth ?: 0) in 22..31 }.sumOf { it.amount }
+
+    // Cumulative sum gives the line an upward trend throughout the month
+    val cumulativePoints = listOf(
+        week1,
+        week1 + week2,
+        week1 + week2 + week3,
+        week1 + week2 + week3 + week4
+    )
+
     if (thisMonth == 0.0 && prevMonthTotal == 0.0) {
         return TrendSummary(
             percentageChange = 0.0,
             isUp = false,
             period = "This month vs last month",
+            dataPoints = cumulativePoints
         )
     }
 
@@ -211,6 +231,7 @@ private fun LedgerSnapshot.buildTrendSummary(today: LocalDate = LocalDate.now())
             percentageChange = 100.0,
             isUp = true,
             period = "This month vs last month",
+            dataPoints = cumulativePoints
         )
     }
 
@@ -219,6 +240,7 @@ private fun LedgerSnapshot.buildTrendSummary(today: LocalDate = LocalDate.now())
         percentageChange = kotlin.math.abs(delta),
         isUp = delta >= 0.0,
         period = "This month vs last month",
+        dataPoints = cumulativePoints
     )
 }
 
@@ -277,7 +299,7 @@ private fun LedgerTransaction.isInCurrentWeek(today: LocalDate = LocalDate.now()
     val date = parsedDate() ?: return true
     val weekFields = WeekFields.of(Locale.getDefault())
     return date.get(weekFields.weekBasedYear()) == today.get(weekFields.weekBasedYear()) &&
-        date.get(weekFields.weekOfWeekBasedYear()) == today.get(weekFields.weekOfWeekBasedYear())
+            date.get(weekFields.weekOfWeekBasedYear()) == today.get(weekFields.weekOfWeekBasedYear())
 }
 
 private fun LedgerTransaction.parsedDate(): LocalDate? {

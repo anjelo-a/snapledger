@@ -1,10 +1,12 @@
 package com.snapledger.feature.dashboard.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,10 +17,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,7 +38,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,18 +53,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
 import java.text.NumberFormat
 import java.util.Locale
-
-// --- Backend-Ready Data Models ---
 
 data class NotificationSummary(
     val id: String,
@@ -80,7 +84,6 @@ data class DashboardUiState(
     val insight: String? = null,
     val categories: List<CategorySummary> = emptyList(),
     val recentActivity: List<TransactionSummary> = emptyList(),
-    // Completely empty to trigger default states
     val notifications: List<NotificationSummary> = emptyList(),
     val isLoading: Boolean = false
 ) {
@@ -107,7 +110,8 @@ data class AlertSummary(
 data class TrendSummary(
     val percentageChange: Double = 0.0,
     val isUp: Boolean = true,
-    val period: String = "Last 4 weeks"
+    val period: String = "Last 4 weeks",
+    val dataPoints: List<Double> = emptyList()
 )
 
 data class CategorySummary(
@@ -145,6 +149,7 @@ fun DashboardScreen(
     state: DashboardUiState = DashboardUiState(),
     onDisplayNameChange: (String) -> Unit = {},
     onManageBudgetClick: () -> Unit = {},
+    onSeeAllActivityClick: () -> Unit = {},
     onMarkAllNotificationsAsRead: () -> Unit = {}
 ) {
     var isEditingName by remember { mutableStateOf(false) }
@@ -160,16 +165,13 @@ fun DashboardScreen(
         nameDraft = state.userName
     }
 
-    // Top Level Box allows controlling Z-Index of overlays and buttons
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFF8F9FA))
     ) {
-        // SCROLLABLE CONTENT
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            // Top padding ensures content starts below the sticky header (24dp + 40dp + 16dp)
             contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 88.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -197,11 +199,13 @@ fun DashboardScreen(
 
             item {
                 Spacer(modifier = Modifier.height(8.dp))
-                RecentActivitySection(transactions = state.recentActivity)
+                RecentActivitySection(
+                    transactions = state.recentActivity,
+                    onSeeAllClick = onSeeAllActivityClick
+                )
             }
         }
 
-        // STICKY GREETING HEADER WITH FADING GRADIENT
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -219,11 +223,10 @@ fun DashboardScreen(
                     modifier = Modifier.align(Alignment.CenterStart)
                 )
             }
-            // Fading gradient edge
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(12.dp) //fade size
+                    .height(12.dp)
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(Color(0xFFF8F9FA), Color(0x00F8F9FA))
@@ -232,7 +235,6 @@ fun DashboardScreen(
             )
         }
 
-        // DARK OVERLAY
         if (showNotifications) {
             Box(
                 modifier = Modifier
@@ -242,7 +244,6 @@ fun DashboardScreen(
             )
         }
 
-        // NOTIFICATION BELL
         NotificationBell(
             hasUnread = state.hasUnreadNotifications,
             onClick = { showNotifications = !showNotifications },
@@ -251,7 +252,6 @@ fun DashboardScreen(
                 .padding(top = 24.dp, end = 24.dp)
         )
 
-        // NOTIFICATION POPOVER
         AnimatedVisibility(
             visible = showNotifications,
             enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
@@ -259,7 +259,6 @@ fun DashboardScreen(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                // Padded exactly to align under the bell
                 .padding(start = 24.dp, end = 24.dp, top = 76.dp)
         ) {
             NotificationsPopover(
@@ -270,7 +269,6 @@ fun DashboardScreen(
         }
     }
 
-    // Name Editing Dialog
     if (isEditingName) {
         AlertDialog(
             onDismissRequest = { isEditingName = false },
@@ -334,7 +332,6 @@ private fun NotificationBell(hasUnread: Boolean, onClick: () -> Unit, modifier: 
             tint = Color(0xFF1F1F1F)
         )
 
-        // Only shows when hasUnread is true
         if (hasUnread) {
             Box(
                 modifier = Modifier
@@ -376,7 +373,6 @@ private fun NotificationsPopover(
             ) {
                 Text("Notifications", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F1F1F))
 
-                // Mail button toggle
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -468,8 +464,6 @@ private fun NotificationItemRow(notification: NotificationSummary) {
     }
 }
 
-// ... BudgetCard, AlertCard, TrendCard, InsightCard, CategoriesSection, RecentActivitySection remaining components untouched.
-
 @Composable
 private fun BudgetCard(
     budget: BudgetSummary,
@@ -513,23 +507,60 @@ private fun BudgetCard(
                 }
             }
 
-            Row(
+            Box(
                 modifier = Modifier
                     .padding(top = 14.dp)
+                    .height(34.dp)
+                    .width(180.dp)
                     .background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(18.dp))
-                    .padding(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    .padding(3.dp)
             ) {
-                DashboardPeriodPill(
-                    text = "Weekly",
-                    isSelected = selectedPeriod == DashboardBudgetPeriod.WEEKLY,
-                    onClick = { onPeriodChanged(DashboardBudgetPeriod.WEEKLY) }
+                val tabWidth = 87.dp
+                val offsetX by animateDpAsState(
+                    targetValue = if (selectedPeriod == DashboardBudgetPeriod.WEEKLY) 0.dp else tabWidth,
+                    label = "sliderAnim"
                 )
-                DashboardPeriodPill(
-                    text = "Monthly",
-                    isSelected = selectedPeriod == DashboardBudgetPeriod.MONTHLY,
-                    onClick = { onPeriodChanged(DashboardBudgetPeriod.MONTHLY) }
+
+                Box(
+                    modifier = Modifier
+                        .offset(x = offsetX)
+                        .width(tabWidth)
+                        .fillMaxHeight()
+                        .background(Color.White, RoundedCornerShape(15.dp))
                 )
+
+                Row(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(15.dp))
+                            .clickable { onPeriodChanged(DashboardBudgetPeriod.WEEKLY) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Weekly",
+                            color = if (selectedPeriod == DashboardBudgetPeriod.WEEKLY) Color(0xFF00A86B) else Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(15.dp))
+                            .clickable { onPeriodChanged(DashboardBudgetPeriod.MONTHLY) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Monthly",
+                            color = if (selectedPeriod == DashboardBudgetPeriod.MONTHLY) Color(0xFF00A86B) else Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
 
             Row(
@@ -652,34 +683,6 @@ private fun BudgetMetricCard(
 }
 
 @Composable
-private fun DashboardPeriodPill(
-    text: String,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    Surface(
-        color = if (isSelected) Color.White else Color.Transparent,
-        shape = RoundedCornerShape(15.dp),
-        modifier = Modifier
-            .height(30.dp)
-            .clip(RoundedCornerShape(15.dp))
-            .clickable { onClick() }
-    ) {
-        Box(
-            modifier = Modifier.padding(horizontal = 14.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = text,
-                color = if (isSelected) Color(0xFF00A86B) else Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
-    }
-}
-
-@Composable
 private fun AlertCard(alert: AlertSummary) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -750,8 +753,9 @@ private fun TrendCard(trend: TrendSummary) {
                             .size(16.dp)
                             .padding(end = 4.dp)
                     )
+                    // FIX 1: Precision capped to exactly 2 decimal places
                     Text(
-                        text = "${trend.percentageChange}% vs prev",
+                        text = "${String.format(Locale.getDefault(), "%.2f", trend.percentageChange)}% vs prev",
                         color = if (trend.isUp) Color(0xFFD32F2F) else Color(0xFF00A86B),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
@@ -759,13 +763,70 @@ private fun TrendCard(trend: TrendSummary) {
                 }
             }
 
-            Box(
+            val lineColor = if (trend.isUp) Color(0xFFD32F2F) else Color(0xFF00A86B)
+            val gradientColors = listOf(lineColor.copy(alpha = 0.3f), Color.Transparent)
+
+            Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(100.dp)
                     .padding(top = 24.dp)
-                    .background(Color(0xFFE8F5E9))
-            )
+            ) {
+                if (trend.dataPoints.isEmpty()) return@Canvas
+
+                val maxPoint = trend.dataPoints.maxOrNull() ?: 1.0
+                val minPoint = trend.dataPoints.minOrNull() ?: 0.0
+                val range = (maxPoint - minPoint).takeIf { it > 0 } ?: 1.0
+                val yMultiplier = size.height / range
+                val xStep = size.width / (trend.dataPoints.size - 1).coerceAtLeast(1)
+
+                val path = Path()
+                val fillPath = Path()
+
+                trend.dataPoints.forEachIndexed { index, value ->
+                    val x = index * xStep
+                    val y = size.height - ((value - minPoint) * yMultiplier).toFloat()
+
+                    if (index == 0) {
+                        path.moveTo(x, y)
+                        fillPath.moveTo(x, size.height)
+                        fillPath.lineTo(x, y)
+                    } else {
+                        path.lineTo(x, y)
+                        fillPath.lineTo(x, y)
+                    }
+                }
+
+                fillPath.lineTo(size.width, size.height)
+                fillPath.close()
+
+                drawPath(
+                    path = fillPath,
+                    brush = Brush.verticalGradient(colors = gradientColors),
+                    style = Fill
+                )
+
+                drawPath(
+                    path = path,
+                    color = lineColor,
+                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+
+            // FIX 2: Fixed alignment and added W1 using SpaceBetween without weights
+            if (trend.dataPoints.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "W1", color = Color(0xFF9E9E9E), fontSize = 12.sp)
+                    Text(text = "W2", color = Color(0xFF9E9E9E), fontSize = 12.sp)
+                    Text(text = "W3", color = Color(0xFF9E9E9E), fontSize = 12.sp)
+                    Text(text = "W4", color = Color(0xFF9E9E9E), fontSize = 12.sp)
+                }
+            }
         }
     }
 }
@@ -841,9 +902,6 @@ private fun CategoriesSection(categories: List<CategorySummary>) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(text = "Categories", color = Color(0xFF1F1F1F), fontSize = 16.sp)
-            if (categories.isNotEmpty()) {
-                Text(text = "Manage", color = Color(0xFF00A86B), fontSize = 14.sp)
-            }
         }
 
         Card(
@@ -928,7 +986,10 @@ private fun CategoryItem(name: String, amount: String) {
 }
 
 @Composable
-private fun RecentActivitySection(transactions: List<TransactionSummary>) {
+private fun RecentActivitySection(
+    transactions: List<TransactionSummary>,
+    onSeeAllClick: () -> Unit
+) {
     Column {
         Row(
             modifier = Modifier
@@ -939,7 +1000,15 @@ private fun RecentActivitySection(transactions: List<TransactionSummary>) {
         ) {
             Text(text = "Recent activity", color = Color(0xFF1F1F1F), fontSize = 16.sp)
             if (transactions.isNotEmpty()) {
-                Text(text = "See all", color = Color(0xFF00A86B), fontSize = 14.sp)
+                Text(
+                    text = "See all",
+                    color = Color(0xFF00A86B),
+                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { onSeeAllClick() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                )
             }
         }
 
