@@ -1,5 +1,6 @@
 package com.snapledger.feature.review.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,13 +77,21 @@ private val dateFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 fun ReviewRoute(
     viewModel: ReviewViewModel,
     onBack: () -> Unit,
+    onSaveCompleted: () -> Unit,
 ) {
-    var selectedCategory by remember { mutableStateOf("Food") }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(viewModel.shouldCloseAfterSave) {
+        if (viewModel.shouldCloseAfterSave) {
+            Toast.makeText(context, "Expense recorded", Toast.LENGTH_SHORT).show()
+            onSaveCompleted()
+            viewModel.onSaveCloseHandled()
+        }
+    }
 
     ReviewScreen(
         uiState = viewModel.uiState,
-        selectedCategory = selectedCategory,
-        onCategoryChanged = { selectedCategory = it },
+        selectedCategory = viewModel.uiState.category,
+        onCategoryChanged = viewModel::onCategoryChanged,
         onBack = onBack,
         onMerchantChanged = viewModel::onMerchantChanged,
         onExpenseDateChanged = viewModel::onExpenseDateChanged,

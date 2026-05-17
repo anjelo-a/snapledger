@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -476,6 +477,7 @@ private fun BudgetCard(
     onPeriodChanged: (DashboardBudgetPeriod) -> Unit,
     onManageClick: () -> Unit
 ) {
+    val totalBalance = budget.totalIncome - budget.totalExpenses
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -580,43 +582,71 @@ private fun BudgetCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(top = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Total balance",
+                    color = Color(0xFFE0F2F1),
+                    fontSize = 12.sp,
+                )
+                Text(
+                    text = formatCurrency(totalBalance),
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
                     .padding(top = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Card(
+                BudgetMetricCard(
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2EBA86))
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(text = "Income", color = Color(0xFFE0F2F1), fontSize = 12.sp)
-                        Text(
-                            text = formatCurrency(budget.totalIncome),
-                            color = Color.White,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-                }
-
-                Card(
+                    label = "Income",
+                    value = formatCurrency(budget.totalIncome),
+                )
+                BudgetMetricCard(
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2EBA86))
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(text = "Expenses", color = Color(0xFFE0F2F1), fontSize = 12.sp)
-                        Text(
-                            text = formatCurrency(budget.totalExpenses),
-                            color = Color.White,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-                }
+                    label = "Expenses",
+                    value = formatCurrency(budget.totalExpenses),
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun BudgetMetricCard(
+    modifier: Modifier = Modifier,
+    label: String,
+    value: String,
+) {
+    Card(
+        modifier = modifier
+            .height(88.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF2EBA86))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(text = label, color = Color(0xFFE0F2F1), fontSize = 12.sp)
+            Text(
+                text = value,
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

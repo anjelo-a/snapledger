@@ -23,6 +23,8 @@ import com.snapledger.feature.budget.ui.BudgetRoute
 import com.snapledger.feature.dashboard.ui.BudgetSummary
 import com.snapledger.feature.dashboard.ui.DashboardScreen
 import com.snapledger.feature.dashboard.ui.DashboardUiState
+import com.snapledger.feature.dashboard.ui.CategorySummary
+import com.snapledger.feature.dashboard.ui.TrendSummary
 import com.snapledger.feature.dashboard.ui.TransactionSummary
 import com.snapledger.feature.entry.ui.AddTransactionRoute
 import com.snapledger.feature.entry.ui.TransactionType
@@ -98,7 +100,13 @@ fun SnapLedgerNavHost(
                 viewModel = reviewViewModel,
                 onBack = {
                     navController.popBackStack()
-                }
+                },
+                onSaveCompleted = {
+                    navController.navigate(SnapLedgerDestination.Home.route) {
+                        popUpTo(SnapLedgerDestination.Home.route)
+                        launchSingleTop = true
+                    }
+                },
             )
         }
         composable(SnapLedgerDestination.History.route) {
@@ -142,6 +150,7 @@ fun SnapLedgerNavHost(
 private fun LedgerSnapshot.toDashboardState(userName: String): DashboardUiState {
     val monthlyTransactions = transactions.filter { it.isInCurrentMonth() }
     val weeklyTransactions = transactions.filter { it.isInCurrentWeek() }
+    val expenseTransactions = transactions.filter { it.type == LedgerTransactionType.EXPENSE }
 
     return DashboardUiState(
         userName = userName,
@@ -153,6 +162,8 @@ private fun LedgerSnapshot.toDashboardState(userName: String): DashboardUiState 
             period = LedgerBudgetPeriod.WEEKLY,
             periodTransactions = weeklyTransactions,
         ),
+        trend = buildTrendSummary(),
+        categories = buildCategorySummaries(expenseTransactions),
         recentActivity = transactions
             .sortedByDescending { it.createdAtMillis }
             .take(5)
@@ -167,6 +178,65 @@ private fun LedgerSnapshot.toDashboardState(userName: String): DashboardUiState 
                 )
             },
     )
+}
+
+private fun LedgerSnapshot.buildTrendSummary(today: LocalDate = LocalDate.now()): TrendSummary {
+    val thisMonth = transactions
+        .filter { it.type == LedgerTransactionType.EXPENSE }
+        .filter { transaction ->
+            val date = transaction.parsedDate() ?: return@filter false
+            date.year == today.year && date.month == today.month
+        }
+        .sumOf { it.amount }
+
+    val previousMonth = today.minusMonths(1)
+    val prevMonthTotal = transactions
+        .filter { it.type == LedgerTransactionType.EXPENSE }
+        .filter { transaction ->
+            val date = transaction.parsedDate() ?: return@filter false
+            date.year == previousMonth.year && date.month == previousMonth.month
+        }
+        .sumOf { it.amount }
+
+    if (thisMonth == 0.0 && prevMonthTotal == 0.0) {
+        return TrendSummary(
+            percentageChange = 0.0,
+            isUp = false,
+            period = "This month vs last month",
+        )
+    }
+
+    if (prevMonthTotal == 0.0) {
+        return TrendSummary(
+            percentageChange = 100.0,
+            isUp = true,
+            period = "This month vs last month",
+        )
+    }
+
+    val delta = ((thisMonth - prevMonthTotal) / prevMonthTotal) * 100.0
+    return TrendSummary(
+        percentageChange = kotlin.math.abs(delta),
+        isUp = delta >= 0.0,
+        period = "This month vs last month",
+    )
+}
+
+private fun buildCategorySummaries(expenses: List<LedgerTransaction>): List<CategorySummary> {
+    val total = expenses.sumOf { it.amount }
+    if (total <= 0.0) return emptyList()
+    return expenses
+        .groupBy { it.category.ifBlank { "Uncategorized" } }
+        .map { (name, entries) ->
+            val amount = entries.sumOf { it.amount }
+            val percentage = ((amount / total) * 100.0).toFloat()
+            CategorySummary(
+                name = name,
+                amount = amount,
+                percentage = percentage,
+            )
+        }
+        .sortedByDescending { it.amount }
 }
 
 private fun LedgerSnapshot.buildBudgetSummary(
@@ -196,6 +266,7 @@ private fun LedgerTransaction.toHistoryTransaction(): HistoryTransactionUiModel 
 }
 
 private val transactionDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy")
+private val isoTransactionDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
 private fun LedgerTransaction.isInCurrentMonth(today: LocalDate = LocalDate.now()): Boolean {
     val date = parsedDate() ?: return true
@@ -213,6 +284,10 @@ private fun LedgerTransaction.parsedDate(): LocalDate? {
     return try {
         LocalDate.parse(date, transactionDateFormatter)
     } catch (_: DateTimeParseException) {
-        null
+        try {
+            LocalDate.parse(date, isoTransactionDateFormatter)
+        } catch (_: DateTimeParseException) {
+            null
+        }
     }
 }
