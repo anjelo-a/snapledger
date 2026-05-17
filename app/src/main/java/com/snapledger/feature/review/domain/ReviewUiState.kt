@@ -1,5 +1,7 @@
 package com.snapledger.feature.review.domain
 
+import com.snapledger.core.categories.expenseTransactionCategoryNames
+
 data class ReviewEditableFieldState(
     val label: String,
     val value: String,
@@ -27,7 +29,7 @@ data class ReviewUiState(
         label = "Total amount",
         value = "",
     ),
-    val category: String = "Food",
+    val category: String = expenseTransactionCategoryNames().first(),
     val items: List<ReviewItemFieldState> = emptyList(),
     val warnings: List<String> = emptyList(),
     val saveEnabled: Boolean = false,

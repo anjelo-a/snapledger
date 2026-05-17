@@ -4,6 +4,7 @@ import base64
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.category_seeds import DEFAULT_CATEGORY_SEEDS
+from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
@@ -206,6 +208,67 @@ def test_receipts_confirm_alias_matches_direct_receipt_shape(client: TestClient)
         "notes",
     ):
         assert alias_json[field] == direct_json[field]
+
+
+def test_insight_generate_returns_read_only_fallback_response(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    get_settings.cache_clear()
+    receipt = client.post(
+        "/v1/receipts",
+        json=_create_receipt_payload(
+            category_id="seed-1",
+            expense_date=datetime.now(UTC).date().isoformat(),
+            total_amount="225.00",
+            items=[],
+        ),
+    )
+    assert receipt.status_code == 200
+
+    try:
+        response = client.post("/v1/insights/generate", json={"period": "monthly"})
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["text"]
+    assert payload["action_tip"]
+    assert payload["metrics"]["period"] == "monthly"
+    assert payload["metrics"]["top_category"]["name"] == "Food"
+    assert payload["metrics"]["current_period_total"] == "225.00"
+    assert "generated_at" in payload
+
+
+def test_insight_generate_uses_gemini_when_configured(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
+    get_settings.cache_clear()
+    captured: dict[str, object] = {}
+
+    def fake_gemini(metrics: dict[str, object], period: str) -> SimpleNamespace:
+        captured["metrics"] = metrics
+        captured["period"] = period
+        return SimpleNamespace(
+            text="Food spending is your biggest current signal.",
+            action_tip="Review one food purchase before the next scan.",
+        )
+
+    monkeypatch.setattr("app.services.insight_service._call_gemini_insight", fake_gemini)
+    try:
+        response = client.post("/v1/insights/generate", json={"period": "weekly"})
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["text"] == "Food spending is your biggest current signal."
+    assert payload["action_tip"] == "Review one food purchase before the next scan."
+    assert captured["period"] == "weekly"
 
 
 def test_receipt_process_returns_locked_phase2_candidate_shape(client: TestClient) -> None:

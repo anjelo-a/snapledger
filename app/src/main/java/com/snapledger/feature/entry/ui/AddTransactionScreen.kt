@@ -65,6 +65,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
+import com.snapledger.core.categories.expenseTransactionCategories
+import com.snapledger.core.categories.incomeTransactionCategories
 import com.snapledger.core.ledger.LedgerRepository
 import com.snapledger.core.ledger.LedgerTransactionType
 import java.text.SimpleDateFormat
@@ -344,26 +346,20 @@ private fun DetailsCard(
 
 private fun TransactionType.defaultCategories(): List<CategoryUiModel> {
     return when (this) {
-        TransactionType.EXPENSE -> listOf(
-            CategoryUiModel("Food", R.drawable.utensils, Color(0xFF4CAF50)),
-            CategoryUiModel("Transport", R.drawable.car, Color(0xFF009688)),
-            CategoryUiModel("Shopping", R.drawable.shopping_basket, Color(0xFFE91E63)),
-            CategoryUiModel("Bills", R.drawable.receipt, Color(0xFFFFC107)),
-            CategoryUiModel("Entertainment", R.drawable.film, Color(0xFF9C27B0)),
-            CategoryUiModel("Health", R.drawable.heart_pulse, Color(0xFFFF9800)),
-            CategoryUiModel("Other", R.drawable.box, Color(0xFF9E9E9E)),
-        )
-        TransactionType.INCOME -> listOf(
-            CategoryUiModel("Salary", R.drawable.hand_coins, Color(0xFF00A86B)),
-            CategoryUiModel("Freelance", R.drawable.banknote_arrow_up, Color(0xFF009688)),
-            CategoryUiModel("Investments", R.drawable.trending_up, Color(0xFF4CAF50)),
-            CategoryUiModel("Stipend", R.drawable.receipt, Color(0xFF7F22FE)),
-            CategoryUiModel("Allowance", R.drawable.hand_coins, Color(0xFFFF9800)),
-            CategoryUiModel("Bonus", R.drawable.trending_up, Color(0xFFE91E63)),
-            CategoryUiModel("Business", R.drawable.box, Color(0xFF3F51B5)),
-            CategoryUiModel("Gifts", R.drawable.heart_pulse, Color(0xFFFF5252)),
-            CategoryUiModel("Other", R.drawable.box, Color(0xFF9E9E9E)),
-        )
+        TransactionType.EXPENSE -> expenseTransactionCategories().map { category ->
+            CategoryUiModel(
+                name = category.name,
+                iconResId = category.iconResId,
+                tintColor = category.tintColor,
+            )
+        }
+        TransactionType.INCOME -> incomeTransactionCategories().map { category ->
+            CategoryUiModel(
+                name = category.name,
+                iconResId = category.iconResId,
+                tintColor = category.tintColor,
+            )
+        }
     }
 }
 

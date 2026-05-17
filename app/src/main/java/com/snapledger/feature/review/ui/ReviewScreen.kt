@@ -61,6 +61,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.snapledger.core.categories.expenseTransactionCategoryNames
 import com.snapledger.feature.review.domain.ReviewItemFieldState
 import com.snapledger.feature.review.domain.ReviewUiState
 import com.snapledger.feature.review.vm.ReviewViewModel
@@ -259,7 +260,7 @@ fun ReviewScreen(
                             Spacer(modifier = Modifier.height(16.dp))
 
                             Text(text = "Category", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
-                            val categories = listOf("Food", "Transport", "Shopping", "Bills", "Entertainment")
+                            val categories = remember { expenseTransactionCategoryNames() }
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
