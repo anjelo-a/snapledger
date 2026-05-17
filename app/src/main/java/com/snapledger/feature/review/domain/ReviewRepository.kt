@@ -1,7 +1,6 @@
 package com.snapledger.feature.review.domain
 
 import android.content.Context
-import com.snapledger.feature.review.data.NetworkReceiptConfirmClient
 import com.snapledger.feature.review.data.ReviewLocalDatabase
 import com.snapledger.feature.review.data.RoomReviewAtomicSaveStore
 import com.snapledger.core.sync.WorkManagerReviewSyncDispatcher
@@ -22,8 +21,6 @@ sealed interface ReviewSaveResult {
     data class Success(
         val receiptId: String,
         val syncQueueId: String,
-        val backendConfirmed: Boolean,
-        val backendConfirmError: String? = null,
         val dispatchedSyncAttempt: Boolean,
         val syncDispatchError: String? = null,
     ) : ReviewSaveResult
@@ -94,13 +91,8 @@ interface ReviewSyncDispatcher {
     suspend fun dispatch(record: ReceiptSyncQueueRecord)
 }
 
-interface ReviewBackendConfirmClient {
-    suspend fun confirm(record: LocalReceiptRecord)
-}
-
 class LocalFirstReviewRepository(
     private val atomicSaveStore: ReviewAtomicSaveStore,
-    private val backendConfirmClient: ReviewBackendConfirmClient,
     private val syncDispatcher: ReviewSyncDispatcher,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
     private val clock: () -> Long = { System.currentTimeMillis() },
@@ -140,10 +132,6 @@ class LocalFirstReviewRepository(
             syncRecord = syncRecord,
         )
 
-        val backendConfirmError = runCatching {
-            backendConfirmClient.confirm(receiptRecord)
-        }.exceptionOrNull()
-
         return try {
             syncDispatcher.dispatch(syncRecord)
             latestDraft = validateReviewState(
@@ -161,8 +149,6 @@ class LocalFirstReviewRepository(
             ReviewSaveResult.Success(
                 receiptId = receiptRecord.receiptId,
                 syncQueueId = syncRecord.queueId,
-                backendConfirmed = backendConfirmError == null,
-                backendConfirmError = backendConfirmError?.message,
                 dispatchedSyncAttempt = true,
             )
         } catch (error: Exception) {
@@ -182,8 +168,6 @@ class LocalFirstReviewRepository(
             ReviewSaveResult.Success(
                 receiptId = receiptRecord.receiptId,
                 syncQueueId = syncRecord.queueId,
-                backendConfirmed = backendConfirmError == null,
-                backendConfirmError = backendConfirmError?.message,
                 dispatchedSyncAttempt = false,
                 syncDispatchError = error.message ?: "Sync dispatch failed after local save.",
             )
@@ -206,7 +190,6 @@ class LocalFirstReviewRepository(
             val database = ReviewLocalDatabase.getInstance(applicationContext)
             return LocalFirstReviewRepository(
                 atomicSaveStore = RoomReviewAtomicSaveStore(database),
-                backendConfirmClient = NetworkReceiptConfirmClient(),
                 syncDispatcher = WorkManagerReviewSyncDispatcher(applicationContext),
             )
         }

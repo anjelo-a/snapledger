@@ -95,6 +95,15 @@ data class ParsedReceiptCandidate(
     val totalAmount: ParsedMoneyCandidate?,
     val items: List<ParsedReceiptItemCandidate>,
     val warnings: List<String>,
+    val warningCodes: List<String> = emptyList(),
+    val fieldConfidence: ParsedReceiptFieldConfidence? = null,
+)
+
+data class ParsedReceiptFieldConfidence(
+    val merchant: Float? = null,
+    val expenseDate: Float? = null,
+    val totalAmount: Float? = null,
+    val items: Float? = null,
 )
 
 data class ParserUiState(

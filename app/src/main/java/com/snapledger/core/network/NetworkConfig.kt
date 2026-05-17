@@ -9,6 +9,9 @@ object NetworkConfig {
     val backendBaseUrl: String
         get() = BuildConfig.BACKEND_BASE_URL
 
+    val backendApiKey: String
+        get() = BuildConfig.BACKEND_API_KEY.trim()
+
     val safeBackendBaseUrl: String
         get() {
             val configured = backendBaseUrl.trim()
