@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
+import com.snapledger.core.profile.ProfileRepository
 import com.snapledger.R
 import com.snapledger.core.profile.UserProfile
 import com.snapledger.navigation.SnapLedgerDestination
@@ -65,6 +66,7 @@ data class BottomNavItem(
 fun AppHomeScreen(
     navController: NavHostController,
     profile: UserProfile,
+    profileRepository: ProfileRepository,
     onDisplayNameChange: (String) -> Unit,
 ) {
     val navItems = remember {
@@ -264,6 +266,7 @@ fun AppHomeScreen(
             SnapLedgerNavHost(
                 navController = navController,
                 profile = profile,
+                profileRepository = profileRepository,
                 onDisplayNameChange = onDisplayNameChange,
                 modifier = Modifier.padding(innerPadding)
             )

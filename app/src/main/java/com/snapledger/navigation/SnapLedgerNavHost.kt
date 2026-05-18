@@ -25,6 +25,7 @@ import com.snapledger.core.ledger.LedgerBudgetPeriod
 import com.snapledger.core.ledger.LedgerSnapshot
 import com.snapledger.core.ledger.LedgerTransaction
 import com.snapledger.core.ledger.LedgerTransactionType
+import com.snapledger.core.profile.ProfileRepository
 import com.snapledger.core.profile.UserProfile
 import com.snapledger.feature.budget.ui.BudgetRoute
 import com.snapledger.feature.dashboard.ui.BudgetSummary
@@ -72,6 +73,7 @@ private fun getBottomNavIndex(route: String?): Int {
 fun SnapLedgerNavHost(
     navController: NavHostController,
     profile: UserProfile,
+    profileRepository: ProfileRepository,
     onDisplayNameChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -295,10 +297,7 @@ fun SnapLedgerNavHost(
             )
         }
         composable("settings") {
-            SettingsRoute(
-                initialUserName = profile.displayName,
-                onNameChanged = onDisplayNameChange
-            )
+            SettingsRoute(profileRepository = profileRepository)
         }
     }
 }

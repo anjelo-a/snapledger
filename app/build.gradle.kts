@@ -12,9 +12,13 @@ kotlin {
 }
 
 val localProps = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) {
-        f.inputStream().use { load(it) }
+    listOf(
+        rootProject.file("local.properties"),
+        project.file("local.properties"),
+    ).forEach { file ->
+        if (file.exists()) {
+            file.inputStream().use { load(it) }
+        }
     }
 }
 val backendBaseUrl =

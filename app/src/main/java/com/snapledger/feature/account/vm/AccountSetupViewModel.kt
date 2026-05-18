@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.snapledger.core.profile.GoogleProfileCandidate
 import com.snapledger.core.profile.ProfileRepository
+import com.snapledger.core.profile.SavedProfileOption
 import com.snapledger.feature.account.data.GoogleIdentityClient
 import com.snapledger.feature.account.data.GoogleSignInResult
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,7 @@ import kotlinx.coroutines.launch
 data class AccountSetupUiState(
     val displayName: String = "",
     val pendingGoogleCandidate: GoogleProfileCandidate? = null,
+    val savedProfiles: List<SavedProfileOption> = emptyList(),
     val isBusy: Boolean = false,
     val message: String? = null,
 ) {
@@ -29,6 +31,16 @@ class AccountSetupViewModel(
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow(AccountSetupUiState())
     val uiState: StateFlow<AccountSetupUiState> = mutableUiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            profileRepository.savedProfilesFlow.collect { savedProfiles ->
+                mutableUiState.update { state ->
+                    state.copy(savedProfiles = savedProfiles)
+                }
+            }
+        }
+    }
 
     fun updateDisplayName(value: String) {
         mutableUiState.update { state ->
@@ -91,6 +103,19 @@ class AccountSetupViewModel(
     fun cancelGoogleConfirmation() {
         mutableUiState.update {
             it.copy(pendingGoogleCandidate = null, message = null)
+        }
+    }
+
+    fun continueWithSavedProfile(localProfileId: String) {
+        viewModelScope.launch {
+            mutableUiState.update { it.copy(isBusy = true, message = null) }
+            val restored = profileRepository.activateProfile(localProfileId)
+            mutableUiState.update {
+                it.copy(
+                    isBusy = false,
+                    message = if (restored == null) "That saved profile is no longer available." else null,
+                )
+            }
         }
     }
 

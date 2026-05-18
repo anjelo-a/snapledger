@@ -15,6 +15,13 @@ data class UserProfile(
     val createdAtMillis: Long,
 )
 
+data class SavedProfileOption(
+    val localProfileId: String,
+    val accountMode: AccountMode,
+    val displayName: String,
+    val email: String?,
+)
+
 data class GoogleProfileCandidate(
     val googleSubject: String,
     val email: String?,
