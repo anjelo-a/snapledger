@@ -59,6 +59,11 @@ def test_phase0_migration_creates_core_tables_and_seeds(tmp_path: Path) -> None:
         "ix_sync_mutation_log_updated_at",
     }.issubset(sync_indexes)
 
+    alembic_version_columns = inspector.get_columns("alembic_version")
+    assert len(alembic_version_columns) == 1
+    assert alembic_version_columns[0]["name"] == "version_num"
+    assert getattr(alembic_version_columns[0]["type"], "length", None) == 64
+
     with engine.begin() as conn:
         count = conn.execute(
             text("SELECT COUNT(*) FROM categories WHERE is_default = 1")
