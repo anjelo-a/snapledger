@@ -175,7 +175,8 @@ fun DashboardScreen(
     onDisplayNameChange: (String) -> Unit = {},
     onManageBudgetClick: () -> Unit = {},
     onSeeAllActivityClick: () -> Unit = {},
-    onMarkAllNotificationsAsRead: () -> Unit = {}
+    onMarkAllNotificationsAsRead: () -> Unit = {},
+    onViewAiInsightsClick: () -> Unit = {},
 ) {
     var isEditingName by remember { mutableStateOf(false) }
     var nameDraft by remember { mutableStateOf(state.userName) }
@@ -220,10 +221,11 @@ fun DashboardScreen(
             item { TrendCard(trend = state.trend) }
 
             item {
-                InsightCard(
+                InsightEntryCard(
                     insightText = state.insight,
                     actionTip = state.insightActionTip,
                     isLoading = state.isInsightLoading,
+                    onClick = onViewAiInsightsClick,
                 )
             }
 
@@ -895,10 +897,11 @@ private fun TrendCard(trend: TrendSummary) {
 }
 
 @Composable
-private fun InsightCard(
+private fun InsightEntryCard(
     insightText: String?,
     actionTip: String?,
     isLoading: Boolean,
+    onClick: () -> Unit,
 ) {
     val isDataEmpty = insightText.isNullOrBlank() && !isLoading
     val displayColor = if (isDataEmpty) Color(0xFF9E9E9E) else Color(0xFF1F1F1F)
@@ -906,7 +909,9 @@ private fun InsightCard(
     val iconBgColor = if (isDataEmpty) Color(0xFFF5F5F5) else Color.White
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .noRippleClickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = cardColor),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isDataEmpty) 2.dp else 0.dp)
@@ -934,32 +939,32 @@ private fun InsightCard(
 
             Column(modifier = Modifier.padding(start = 12.dp)) {
                 Text(
-                    text = "Insight",
+                    text = "AI Insights",
                     color = if (isDataEmpty) Color(0xFF9E9E9E) else Color(0xFF7F22FE),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = when {
-                        isLoading -> "Generating your latest spending insight..."
-                        insightText != null -> insightText
-                        else -> "No insights yet. Keep tracking your spending to unlock AI analysis."
+                        isLoading -> "Preparing your latest spending insight..."
+                        insightText != null -> "Tap to view AI insights and ask follow-up questions."
+                        else -> "Tap to open AI insights. Keep tracking your spending to unlock better analysis."
                     },
                     color = displayColor,
                     fontSize = 14.sp,
                     modifier = Modifier.padding(top = 6.dp)
                 )
-                if (!actionTip.isNullOrBlank()) {
+                if (!insightText.isNullOrBlank() && !actionTip.isNullOrBlank()) {
                     Text(
-                        text = actionTip,
+                        text = "Latest: $actionTip",
                         color = Color(0xFF5E35B1),
                         fontSize = 13.sp,
                         modifier = Modifier.padding(top = 8.dp)
                     )
                 }
-                if (!isDataEmpty && !isLoading) {
+                if (!isLoading) {
                     Text(
-                        text = "Powered by AI",
+                        text = "Click to view AI insights",
                         color = Color(0xFF9E9E9E),
                         fontSize = 12.sp,
                         modifier = Modifier.padding(top = 8.dp)
