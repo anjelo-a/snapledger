@@ -39,6 +39,7 @@ import com.snapledger.feature.entry.ui.AddTransactionRoute
 import com.snapledger.feature.entry.ui.TransactionType
 import com.snapledger.feature.history.ui.HistoryTransactionUiModel
 import com.snapledger.feature.history.ui.HistoryRoute
+import com.snapledger.feature.insights.ui.AiInsightsRoute
 import com.snapledger.feature.review.domain.LocalFirstReviewRepository
 import com.snapledger.feature.review.ui.ReviewRoute
 import com.snapledger.feature.review.vm.ReviewViewModel
@@ -186,9 +187,31 @@ fun SnapLedgerNavHost(
                     },
                     onSeeAllActivityClick = {
                         navController.navigate(SnapLedgerDestination.History.route)
+                    },
+                    onViewAiInsightsClick = {
+                        navController.navigate(SnapLedgerDestination.AiInsights.route)
                     }
                 )
             }
+        }
+        composable(
+            route = SnapLedgerDestination.AiInsights.route,
+            enterTransition = {
+                slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(250))
+            },
+            popExitTransition = {
+                slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(250))
+            }
+        ) {
+            AiInsightsRoute(
+                currentInsight = insightText,
+                currentActionTip = insightActionTip,
+                isInsightLoading = isInsightLoading,
+                insightClient = insightService,
+                onBack = {
+                    navController.popBackStack()
+                },
+            )
         }
         composable(SnapLedgerDestination.Scan.route) {
             val scanContext = LocalContext.current

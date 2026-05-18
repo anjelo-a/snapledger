@@ -86,7 +86,8 @@ fun AppHomeScreen(
     val isFabVisible = currentRoute != SnapLedgerDestination.Scan.route &&
             currentRoute != SnapLedgerDestination.AddExpense.route &&
             currentRoute != SnapLedgerDestination.AddIncome.route &&
-            currentRoute != "review"
+            currentRoute != "review" &&
+            currentRoute != SnapLedgerDestination.AiInsights.route
 
     var isFabMenuExpanded by remember { mutableStateOf(false) }
     val fabRotation by animateFloatAsState(targetValue = if (isFabMenuExpanded) 45f else 0f, label = "fabRotate")

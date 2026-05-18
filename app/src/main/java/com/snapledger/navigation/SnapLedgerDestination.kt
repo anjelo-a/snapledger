@@ -7,6 +7,7 @@ sealed class SnapLedgerDestination(val route: String, val icon: Int, val label: 
     object Scan : SnapLedgerDestination("scan", R.drawable.scan, "Scan")
     object History : SnapLedgerDestination("history", R.drawable.list, "History")
     object Budgets : SnapLedgerDestination("budgets", R.drawable.pie, "Budget")
+    object AiInsights : SnapLedgerDestination("ai_insights", R.drawable.astroid_single, "AI Insights")
     object AddExpense : SnapLedgerDestination("add_expense", android.R.drawable.ic_input_add, "Add Expense")
     object AddIncome : SnapLedgerDestination("add_income", R.drawable.hand_coins, "Add Income")
 }

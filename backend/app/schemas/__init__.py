@@ -11,7 +11,12 @@ from app.schemas.expense import (
     ParsedReceiptFieldConfidence,
     ReceiptProcessRequest,
 )
-from app.schemas.insight import InsightGenerateRequest, InsightGenerateResponse
+from app.schemas.insight import (
+    InsightChatRequest,
+    InsightChatResponse,
+    InsightGenerateRequest,
+    InsightGenerateResponse,
+)
 from app.schemas.sync import (
     SyncMutationResult,
     SyncPullChange,
@@ -34,6 +39,8 @@ __all__ = [
     "ExpensePatch",
     "ExpenseRead",
     "ExpenseWrite",
+    "InsightChatRequest",
+    "InsightChatResponse",
     "InsightGenerateRequest",
     "InsightGenerateResponse",
     "ParsedReceiptCandidate",
