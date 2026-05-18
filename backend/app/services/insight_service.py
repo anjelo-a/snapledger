@@ -58,10 +58,16 @@ class _ChatPrompt:
 
 
 _TEMPLATE_PROMPTS: dict[InsightTemplateKey, str] = {
-    "top_category": "Which category is currently driving the most spending, and why does it matter?",
-    "spending_trend": "What does my current spending trend say compared with the previous period?",
+    "top_category": (
+        "Which category is currently driving the most spending, and why does it matter?"
+    ),
+    "spending_trend": (
+        "What does my current spending trend say compared with the previous period?"
+    ),
     "budget_status": "Which budget is closest to its limit, and what should I watch next?",
-    "saving_opportunity": "Where is the clearest near-term saving opportunity in my current dashboard?",
+    "saving_opportunity": (
+        "Where is the clearest near-term saving opportunity in my current dashboard?"
+    ),
 }
 _DEFAULT_SUGGESTED_TEMPLATE_KEYS: list[InsightTemplateKey] = [
     "top_category",
@@ -416,13 +422,18 @@ def _fallback_chat_output(metrics: dict[str, Any], prompt: _ChatPrompt) -> _Gemi
             )
             tip = "Look for one repeat purchase in that category you can trim this period."
         else:
-            text = "I need a bit more tracked activity before I can point to a strong saving pattern."
+            text = (
+                "I need a bit more tracked activity before I can point to a strong saving pattern."
+            )
             tip = "Add a few more receipts so the dashboard can surface stronger patterns."
     else:
         text = (
             f"Based on your current dashboard, your tracked total is PHP {current_total}. I can "
             "help explain spending patterns and current budget pressure, but not change budgets."
         )
-        tip = "Try asking which category is driving the most spending or which budget needs attention."
+        tip = (
+            "Try asking which category is driving the most spending or which budget needs "
+            "attention."
+        )
 
     return _GeminiInsightOutput(text=text[:240], action_tip=tip[:180])

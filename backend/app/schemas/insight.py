@@ -5,7 +5,6 @@ from pydantic import Field, model_validator
 
 from app.core.security import StrictSchema
 
-
 InsightPeriod = Literal["weekly", "monthly"]
 InsightTemplateKey = Literal[
     "top_category",
