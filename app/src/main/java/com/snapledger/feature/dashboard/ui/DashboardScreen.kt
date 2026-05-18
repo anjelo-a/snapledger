@@ -44,6 +44,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -67,6 +69,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
@@ -157,21 +160,22 @@ private val categoryChartPalette = listOf(
     Color(0xFF78909C),
 )
 
+@Composable
 fun Modifier.noRippleClickable(
     enabled: Boolean = true,
     onClick: () -> Unit
-): Modifier = composed {
-    this.clickable(
-        interactionSource = remember { MutableInteractionSource() },
-        indication = null,
-        enabled = enabled,
-        onClick = onClick
-    )
-}
+): Modifier = this.clickable(
+    interactionSource = remember { MutableInteractionSource() },
+    indication = null,
+    enabled = enabled,
+    onClick = onClick
+)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     state: DashboardUiState = DashboardUiState(),
+    onRefresh: () -> Unit = {},
     onDisplayNameChange: (String) -> Unit = {},
     onManageBudgetClick: () -> Unit = {},
     onSeeAllActivityClick: () -> Unit = {},
@@ -200,46 +204,52 @@ fun DashboardScreen(
             .fillMaxSize()
             .background(Color(0xFFF8F9FA))
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 88.dp, bottom = 40.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+        PullToRefreshBox(
+            isRefreshing = state.isInsightLoading,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize()
         ) {
-            item {
-                BudgetCard(
-                    budget = selectedBudget,
-                    selectedPeriod = selectedBudgetPeriod,
-                    onPeriodChanged = { selectedBudgetPeriod = it },
-                    onManageClick = onManageBudgetClick
-                )
-            }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 88.dp, bottom = 40.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                item {
+                    BudgetCard(
+                        budget = selectedBudget,
+                        selectedPeriod = selectedBudgetPeriod,
+                        onPeriodChanged = { selectedBudgetPeriod = it },
+                        onManageClick = onManageBudgetClick
+                    )
+                }
 
-            if (state.alert != null) {
-                item { AlertCard(alert = state.alert) }
-            }
+                if (state.alert != null) {
+                    item { AlertCard(alert = state.alert) }
+                }
 
-            item { TrendCard(trend = state.trend) }
+                item { TrendCard(trend = state.trend) }
 
-            item {
-                InsightEntryCard(
-                    insightText = state.insight,
-                    actionTip = state.insightActionTip,
-                    isLoading = state.isInsightLoading,
-                    onClick = onViewAiInsightsClick,
-                )
-            }
+                item {
+                    InsightEntryCard(
+                        insightText = state.insight,
+                        actionTip = state.insightActionTip,
+                        isLoading = state.isInsightLoading,
+                        onClick = onViewAiInsightsClick,
+                    )
+                }
 
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                CategoriesSection(categories = state.categories)
-            }
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    CategoriesSection(categories = state.categories)
+                }
 
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                RecentActivitySection(
-                    transactions = state.recentActivity,
-                    onSeeAllClick = onSeeAllActivityClick
-                )
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    RecentActivitySection(
+                        transactions = state.recentActivity,
+                        onSeeAllClick = onSeeAllActivityClick
+                    )
+                }
             }
         }
 
@@ -524,6 +534,8 @@ private fun BudgetCard(
             .graphicsLayer {
                 rotationY = tiltAngle.value
                 cameraDistance = 12f * density
+                clip = true
+                shape = RoundedCornerShape(24.dp)
             },
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF00A86B)),
@@ -587,7 +599,10 @@ private fun BudgetCard(
                             .weight(1f)
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(15.dp))
-                            .noRippleClickable {
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
                                 if (selectedPeriod != DashboardBudgetPeriod.WEEKLY) {
                                     coroutineScope.launch {
                                         tiltAngle.animateTo(-8f, animationSpec = tween(100))
@@ -610,7 +625,10 @@ private fun BudgetCard(
                             .weight(1f)
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(15.dp))
-                            .noRippleClickable {
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
                                 if (selectedPeriod != DashboardBudgetPeriod.MONTHLY) {
                                     coroutineScope.launch {
                                         tiltAngle.animateTo(8f, animationSpec = tween(100))
@@ -914,7 +932,7 @@ private fun InsightEntryCard(
             .noRippleClickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = cardColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isDataEmpty) 2.dp else 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
             modifier = Modifier
@@ -1099,11 +1117,6 @@ private fun CategoryDonutChart(
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
-            Text(
-                text = "spent",
-                color = Color(0xFF9E9E9E),
-                fontSize = 11.sp
-            )
         }
     }
 }
@@ -1116,7 +1129,7 @@ private fun CategoryItem(name: String, amount: String, percentage: Float, color:
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).padding(end = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -1128,13 +1141,18 @@ private fun CategoryItem(name: String, amount: String, percentage: Float, color:
                 text = name,
                 color = Color(0xFF424242),
                 fontSize = 14.sp,
-                modifier = Modifier.padding(start = 10.dp)
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .padding(start = 10.dp)
+                    .weight(1f)
             )
         }
         Text(
             text = "${percentage.toInt()}% · $amount",
             color = Color(0xFF757575),
-            fontSize = 13.sp
+            fontSize = 13.sp,
+            maxLines = 1
         )
     }
 }
