@@ -962,30 +962,33 @@ private fun InsightEntryCard(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
+
                 Text(
                     text = when {
                         isLoading -> "Preparing your latest spending insight..."
-                        insightText != null -> "Tap to view AI insights and ask follow-up questions."
-                        else -> "Tap to open AI insights. Keep tracking your spending to unlock better analysis."
+                        !insightText.isNullOrBlank() -> insightText
+                        else -> "Keep tracking your spending to unlock AI analysis."
                     },
                     color = displayColor,
                     fontSize = 14.sp,
                     modifier = Modifier.padding(top = 6.dp)
                 )
-                if (!insightText.isNullOrBlank() && !actionTip.isNullOrBlank()) {
+
+                if (!actionTip.isNullOrBlank() && !isLoading) {
                     Text(
-                        text = "Latest: $actionTip",
+                        text = "Tip: $actionTip",
                         color = Color(0xFF5E35B1),
                         fontSize = 13.sp,
                         modifier = Modifier.padding(top = 8.dp)
                     )
                 }
+
                 if (!isLoading) {
                     Text(
-                        text = "Click to view AI insights",
+                        text = "Click to view and ask more details",
                         color = Color(0xFF9E9E9E),
                         fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 8.dp)
+                        modifier = Modifier.padding(top = 10.dp)
                     )
                 }
             }
