@@ -31,6 +31,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,13 +48,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
+import com.snapledger.core.profile.AccountMode
+import com.snapledger.core.profile.ProfileRepository
 import com.snapledger.feature.settings.vm.SettingsUiState
 import com.snapledger.feature.settings.vm.SettingsViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 // Utility for clean interactions
 fun Modifier.noRippleClickable(
@@ -70,20 +75,19 @@ fun Modifier.noRippleClickable(
 
 @Composable
 fun SettingsRoute(
-    initialUserName: String,
-    onNameChanged: (String) -> Unit
+    profileRepository: ProfileRepository,
 ) {
-    var isDevToolsExpanded by remember { mutableStateOf(false) }
-
-    val state = SettingsUiState(
-        userName = initialUserName,
-        isDeveloperToolsExpanded = isDevToolsExpanded
+    val viewModel: SettingsViewModel = viewModel(
+        factory = SettingsViewModel.factory(profileRepository),
     )
+    val state by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
 
     SettingsScreen(
         uiState = state,
-        onNameChanged = onNameChanged,
-        onToggleDevTools = { isDevToolsExpanded = !isDevToolsExpanded }
+        onNameChanged = viewModel::updateDisplayName,
+        onToggleDevTools = viewModel::toggleDeveloperTools,
+        onLogOut = { viewModel.logOut(context) },
     )
 }
 
@@ -91,7 +95,8 @@ fun SettingsRoute(
 fun SettingsScreen(
     uiState: SettingsUiState,
     onNameChanged: (String) -> Unit,
-    onToggleDevTools: () -> Unit
+    onToggleDevTools: () -> Unit,
+    onLogOut: () -> Unit,
 ) {
     var isEditingName by remember { mutableStateOf(false) }
     // Initialize draft with current name when dialog opens
@@ -172,6 +177,14 @@ fun SettingsScreen(
                                     fontWeight = FontWeight.Medium,
                                     color = Color(0xFF1F1F1F)
                                 )
+                                uiState.email?.takeIf { it.isNotBlank() }?.let { email ->
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = email,
+                                        fontSize = 12.sp,
+                                        color = Color(0xFF757575)
+                                    )
+                                }
                             }
 
                             Box(
@@ -189,6 +202,46 @@ fun SettingsScreen(
                                     tint = Color(0xFF00C875),
                                     modifier = Modifier.size(20.dp)
                                 )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = if (uiState.accountMode == AccountMode.GOOGLE) {
+                                    "This will sign out your Google-linked profile on this device."
+                                } else {
+                                    "This will log out the local profile on this device."
+                                },
+                                fontSize = 14.sp,
+                                color = Color(0xFF1F1F1F),
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "You’ll return to the setup screen and can create or sign in to another profile.",
+                                fontSize = 12.sp,
+                                color = Color(0xFF757575)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            OutlinedButton(
+                                onClick = onLogOut,
+                                enabled = !uiState.isSaving,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Log out")
                             }
                         }
                     }

@@ -29,6 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.snapledger.core.profile.AccountMode
+import com.snapledger.core.profile.SavedProfileOption
 import com.snapledger.feature.account.vm.AccountSetupViewModel
 
 @Composable
@@ -44,12 +46,14 @@ fun AccountSetupRoute(
         isBusy = state.isBusy,
         message = state.message,
         isConfirmingGoogle = state.pendingGoogleCandidate != null,
+        savedProfiles = state.savedProfiles,
         canContinue = state.canContinue,
         onDisplayNameChange = viewModel::updateDisplayName,
         onContinueLocally = viewModel::continueLocally,
         onContinueWithGoogle = { viewModel.startGoogleSignIn(context) },
         onConfirmGoogle = viewModel::confirmGoogleProfile,
         onCancelGoogle = viewModel::cancelGoogleConfirmation,
+        onContinueWithSavedProfile = viewModel::continueWithSavedProfile,
         modifier = modifier,
     )
 }
@@ -60,12 +64,14 @@ private fun AccountSetupScreen(
     isBusy: Boolean,
     message: String?,
     isConfirmingGoogle: Boolean,
+    savedProfiles: List<SavedProfileOption>,
     canContinue: Boolean,
     onDisplayNameChange: (String) -> Unit,
     onContinueLocally: () -> Unit,
     onContinueWithGoogle: () -> Unit,
     onConfirmGoogle: () -> Unit,
     onCancelGoogle: () -> Unit,
+    onContinueWithSavedProfile: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val activeGreen = Color(0xFF00A86B)
@@ -156,6 +162,28 @@ private fun AccountSetupScreen(
             }
         }
 
+        if (savedProfiles.isNotEmpty() && !isConfirmingGoogle) {
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = "Saved profiles",
+                color = Color(0xFF616161),
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            savedProfiles.forEach { profile ->
+                OutlinedButton(
+                    onClick = { onContinueWithSavedProfile(profile.localProfileId) },
+                    enabled = !isBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text(profile.savedProfileLabel())
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
         Text(
             text = "Google sign-in only identifies this local profile. Ledger data stays on this device unless you choose a network feature like receipt extraction.",
@@ -165,6 +193,15 @@ private fun AccountSetupScreen(
             lineHeight = 17.sp,
         )
     }
+}
+
+private fun SavedProfileOption.savedProfileLabel(): String {
+    val suffix = when {
+        accountMode == AccountMode.GOOGLE && !email.isNullOrBlank() -> " ($email)"
+        accountMode == AccountMode.GOOGLE -> " (Google)"
+        else -> " (Local)"
+    }
+    return "Continue as $displayName$suffix"
 }
 
 @Composable
