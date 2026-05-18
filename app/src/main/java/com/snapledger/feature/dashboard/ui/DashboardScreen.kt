@@ -1,11 +1,15 @@
 package com.snapledger.feature.dashboard.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.expandVertically
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,6 +50,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,14 +63,15 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
 import com.snapledger.core.categories.transactionCategoryOptionForName
+import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -283,8 +289,14 @@ fun DashboardScreen(
 
         AnimatedVisibility(
             visible = showNotifications,
-            enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
-            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top),
+            enter = slideInVertically(
+                initialOffsetY = { -it / 4 },
+                animationSpec = tween(durationMillis = 250)
+            ) + fadeIn(tween(durationMillis = 250)),
+            exit = slideOutVertically(
+                targetOffsetY = { -it / 4 },
+                animationSpec = tween(durationMillis = 200)
+            ) + fadeOut(tween(durationMillis = 200)),
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
@@ -500,9 +512,32 @@ private fun BudgetCard(
     onPeriodChanged: (DashboardBudgetPeriod) -> Unit,
     onManageClick: () -> Unit
 ) {
+    var previousPeriod by remember { mutableStateOf(selectedPeriod) }
+    val tiltAngle = remember { Animatable(0f) }
+    val coroutineScope = rememberCoroutineScope()
     val totalBalance = budget.totalIncome - budget.totalExpenses
+
+    LaunchedEffect(selectedPeriod) {
+        if (previousPeriod != selectedPeriod) {
+            val targetAngle = if (selectedPeriod == DashboardBudgetPeriod.MONTHLY) 3f else -3f
+            tiltAngle.animateTo(targetAngle, animationSpec = tween(150))
+            tiltAngle.animateTo(
+                targetValue = 0f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            )
+            previousPeriod = selectedPeriod
+        }
+    }
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                rotationZ = tiltAngle.value
+            },
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF00A86B)),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -547,6 +582,7 @@ private fun BudgetCard(
                 val tabWidth = 87.dp
                 val offsetX by animateDpAsState(
                     targetValue = if (selectedPeriod == DashboardBudgetPeriod.WEEKLY) 0.dp else tabWidth,
+                    animationSpec = tween(durationMillis = 200),
                     label = "sliderAnim"
                 )
 
@@ -564,12 +600,16 @@ private fun BudgetCard(
                             .weight(1f)
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(15.dp))
-                            .clickable { onPeriodChanged(DashboardBudgetPeriod.WEEKLY) },
+                            .noRippleClickable {
+                                if (selectedPeriod != DashboardBudgetPeriod.WEEKLY) {
+                                    onPeriodChanged(DashboardBudgetPeriod.WEEKLY)
+                                }
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "Weekly",
-                            color = if (selectedPeriod == DashboardBudgetPeriod.WEEKLY) Color(0xFF00A86B) else Color.White,
+                            color = if (offsetX < (tabWidth / 2)) Color(0xFF00A86B) else Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -579,12 +619,16 @@ private fun BudgetCard(
                             .weight(1f)
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(15.dp))
-                            .clickable { onPeriodChanged(DashboardBudgetPeriod.MONTHLY) },
+                            .noRippleClickable {
+                                if (selectedPeriod != DashboardBudgetPeriod.MONTHLY) {
+                                    onPeriodChanged(DashboardBudgetPeriod.MONTHLY)
+                                }
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "Monthly",
-                            color = if (selectedPeriod == DashboardBudgetPeriod.MONTHLY) Color(0xFF00A86B) else Color.White,
+                            color = if (offsetX >= (tabWidth / 2)) Color(0xFF00A86B) else Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -756,7 +800,7 @@ private fun TrendCard(trend: TrendSummary) {
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 24.dp, bottom = 22.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -781,7 +825,6 @@ private fun TrendCard(trend: TrendSummary) {
                             .size(16.dp)
                             .padding(end = 4.dp)
                     )
-                    // FIX 1: Precision capped to exactly 2 decimal places
                     Text(
                         text = "${String.format(Locale.getDefault(), "%.2f", trend.percentageChange)}% vs prev",
                         color = if (trend.isUp) Color(0xFFD32F2F) else Color(0xFF00A86B),
@@ -841,7 +884,6 @@ private fun TrendCard(trend: TrendSummary) {
                 )
             }
 
-            // FIX 2: Fixed alignment and added W1 using SpaceBetween without weights
             if (trend.dataPoints.isNotEmpty()) {
                 Row(
                     modifier = Modifier
@@ -879,8 +921,8 @@ private fun InsightCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 18.dp),
+            verticalAlignment = Alignment.Top
         ) {
             Box(
                 modifier = Modifier
@@ -890,7 +932,7 @@ private fun InsightCard(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    painter = painterResource(id = R.drawable.astroid),
+                    painter = painterResource(id = R.drawable.astroid_single),
                     contentDescription = "Insight",
                     tint = if (isDataEmpty) Color(0xFFBDBDBD) else Color(0xFF7F22FE),
                     modifier = Modifier.size(24.dp)
@@ -901,7 +943,7 @@ private fun InsightCard(
                 Text(
                     text = "Insight",
                     color = if (isDataEmpty) Color(0xFF9E9E9E) else Color(0xFF7F22FE),
-                    fontSize = 12.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
@@ -993,14 +1035,14 @@ private fun CategoriesSection(categories: List<CategorySummary>) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
+                        .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 18.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
                     CategoryDonutChart(
                         categories = categories,
                         categoryStyles = categoryStyles,
-                        modifier = Modifier.size(120.dp)
+                        modifier = Modifier.size(80.dp)
                     )
 
                     Column(

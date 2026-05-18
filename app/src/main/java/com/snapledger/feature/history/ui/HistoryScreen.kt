@@ -1,6 +1,10 @@
 package com.snapledger.feature.history.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -8,16 +12,20 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,6 +36,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DateRange
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
@@ -35,7 +46,6 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,24 +62,30 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
-import com.snapledger.core.categories.historyTransactionCategoryNames
 import com.snapledger.core.categories.expenseTransactionCategoryNames
+import com.snapledger.core.categories.historyTransactionCategoryNames
 import com.snapledger.core.categories.incomeTransactionCategories
 import com.snapledger.core.categories.transactionCategoryOptionForName
 import com.snapledger.core.ledger.LedgerRepository
+import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.PaddingValues
 
 enum class QuickFilter { ALL, EXPENSE, INCOME }
 
@@ -102,6 +118,7 @@ sealed class HistoryEvent {
     object OnToggleAdvancedFilters : HistoryEvent()
     data class OnCategorySelected(val category: String) : HistoryEvent()
     data class OnTransactionClicked(val id: String) : HistoryEvent()
+    data class OnDeleteTransaction(val id: String) : HistoryEvent()
 
     data class OnStartDateChanged(val date: String) : HistoryEvent()
     data class OnEndDateChanged(val date: String) : HistoryEvent()
@@ -110,7 +127,6 @@ sealed class HistoryEvent {
     object OnClearAdvancedFilters : HistoryEvent()
 }
 
-// OPTIMIZATION: Hoist formatters globally to avoid recreating them
 private val phCurrencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
 private val filterDateFormatter = SimpleDateFormat("MM/dd/yyyy", Locale.US)
 private fun formatPhp(amount: Double): String = phCurrencyFormatter.format(amount).replace("₱", "PHP ")
@@ -134,7 +150,6 @@ fun HistoryRoute(
 
     val allTransactions = transactions
 
-    // OPTIMIZATION: Wrap heavy filtering logic in a remember block tied to its dependencies
     val filteredTransactions = remember(
         allTransactions, searchQuery, quickFilter, selectedCategory, startDate, endDate, minAmount, maxAmount
     ) {
@@ -154,7 +169,6 @@ fun HistoryRoute(
         }
     }
 
-    // OPTIMIZATION: Memoize the grouping operation
     val grouped = remember(filteredTransactions) {
         filteredTransactions.groupBy { it.dateString }
     }
@@ -186,6 +200,14 @@ fun HistoryRoute(
                 is HistoryEvent.OnMaxAmountChanged -> maxAmount = event.amount
                 is HistoryEvent.OnTransactionClicked -> {
                     selectedTransaction = allTransactions.firstOrNull { it.id == event.id }
+                }
+                is HistoryEvent.OnDeleteTransaction -> {
+                    coroutineScope.launch {
+                        ledgerRepository.deleteTransaction(event.id)
+                        if (selectedTransaction?.id == event.id) {
+                            selectedTransaction = null
+                        }
+                    }
                 }
                 is HistoryEvent.OnClearAdvancedFilters -> {
                     startDate = ""
@@ -236,7 +258,6 @@ fun HistoryScreen(
             .background(Color(0xFFF8F9FA))
             .padding(top = 24.dp)
     ) {
-        // STICKY HEADER
         Column(modifier = Modifier.padding(horizontal = 24.dp)) {
             Text(
                 text = "Transactions",
@@ -267,19 +288,17 @@ fun HistoryScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // SCROLLABLE AREA WITH FADE
         Box(modifier = Modifier.weight(1f)) {
-            // Content
             if (uiState.groupedTransactions.isEmpty()) {
                 EmptyStateView()
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    contentPadding = PaddingValues(
                         start = 24.dp,
                         end = 24.dp,
                         top = 8.dp,
-                        bottom = 120.dp
+                        bottom = 40.dp
                     )
                 ) {
                     uiState.groupedTransactions.forEach { (dateString, transactions) ->
@@ -302,9 +321,11 @@ fun HistoryScreen(
                             ) {
                                 Column {
                                     transactions.forEachIndexed { index, transaction ->
-                                        TransactionItemRow(transaction) {
-                                            onEvent(HistoryEvent.OnTransactionClicked(transaction.id))
-                                        }
+                                        SwipeRevealTransactionItem(
+                                            transaction = transaction,
+                                            onEditClicked = { onEvent(HistoryEvent.OnTransactionClicked(transaction.id)) },
+                                            onDeleteClicked = { onEvent(HistoryEvent.OnDeleteTransaction(transaction.id)) }
+                                        )
                                         if (index < transactions.lastIndex) {
                                             HorizontalDivider(
                                                 color = Color(0xFFF5F5F5),
@@ -320,7 +341,6 @@ fun HistoryScreen(
                 }
             }
 
-            // fading gradient
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -658,9 +678,114 @@ private fun AdvancedFilterNumberInput(
 }
 
 @Composable
-private fun TransactionItemRow(
+private fun SwipeRevealTransactionItem(
     transaction: HistoryTransactionUiModel,
-    onClick: () -> Unit
+    onEditClicked: () -> Unit,
+    onDeleteClicked: () -> Unit
+) {
+    val offsetX = remember { Animatable(0f) }
+    val revealWidth = 144.dp
+    val density = LocalDensity.current
+    val revealWidthPx = remember(density) { with(density) { revealWidth.toPx() } }
+    val coroutineScope = rememberCoroutineScope()
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+    ) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 4.dp)
+                .graphicsLayer {
+                    val progress = (revealWidthPx + offsetX.value) / revealWidthPx
+                    translationX = -progress * (revealWidthPx * 0.25f)
+                    this.alpha = (1f - progress).coerceIn(0f, 1f)
+                },
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(60.dp)
+                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF00A86B))
+                    .clickable {
+                        coroutineScope.launch { offsetX.animateTo(0f) }
+                        onEditClicked()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.Edit, tint = Color(0xFFFFFFFF), contentDescription = "Edit")
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(60.dp)
+                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFFFF5252))
+                    .clickable {
+                        coroutineScope.launch { offsetX.animateTo(0f) }
+                        onDeleteClicked()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.Delete, tint = Color(0xFFFFFFFF), contentDescription = "Delete")
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                .background(Color.White)
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { _, dragAmount ->
+                            coroutineScope.launch {
+                                val newOffset = (offsetX.value + dragAmount).coerceIn(-revealWidthPx, 0f)
+                                offsetX.snapTo(newOffset)
+                            }
+                        },
+                        onDragEnd = {
+                            coroutineScope.launch {
+                                if (offsetX.value < -revealWidthPx / 2) {
+                                    offsetX.animateTo(
+                                        targetValue = -revealWidthPx,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioLowBouncy,
+                                            stiffness = Spring.StiffnessMedium
+                                        )
+                                    )
+                                } else {
+                                    offsetX.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                            stiffness = Spring.StiffnessMedium
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    )
+                }
+        ) {
+            TransactionItemRow(transaction = transaction)
+        }
+    }
+}
+
+@Composable
+private fun TransactionItemRow(
+    transaction: HistoryTransactionUiModel
 ) {
     val iconData = remember(transaction.category) {
         transactionCategoryOptionForName(transaction.category).let { option ->
@@ -673,12 +798,11 @@ private fun TransactionItemRow(
     val iconBgColor = remember(iconTint) { iconTint.copy(alpha = 0.15f) }
 
     val amountPrefix = if (transaction.isIncome) "+" else "-"
-    val amountColor = if (transaction.isIncome) Color(0xFF00C875) else Color(0xFF1F1F1F)
+    val amountColor = if (transaction.isIncome) Color(0xFF00C875) else Color(0xFFD32F2F)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -746,7 +870,7 @@ private fun EditTransactionDialog(
 
     val parsedAmount = amount.toDoubleOrNull()
     val isFormValid = merchant.isNotBlank() && date.isNotBlank() && selectedCategory.isNotBlank() &&
-        parsedAmount != null && parsedAmount > 0.0
+            parsedAmount != null && parsedAmount > 0.0
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -851,9 +975,6 @@ private fun EditTransactionDialog(
         },
         dismissButton = {
             Row {
-                TextButton(onClick = onDelete) {
-                    Text("Delete", color = Color(0xFFFF5252))
-                }
                 TextButton(onClick = onDismiss) {
                     Text("Cancel", color = Color(0xFF757575))
                 }

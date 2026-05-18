@@ -2,10 +2,11 @@ package com.snapledger.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.expandVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -102,7 +103,6 @@ fun AppHomeScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Left side items
                         Row(
                             modifier = Modifier.weight(1f),
                             horizontalArrangement = Arrangement.SpaceEvenly
@@ -120,8 +120,6 @@ fun AppHomeScreen(
                                                 saveState = true
                                             }
                                             launchSingleTop = true
-                                            // FIX: Only restore state if we aren't clicking the Home button.
-                                            // This prevents getting "stuck" on sub-pages like the Budget screen.
                                             restoreState = item.route != SnapLedgerDestination.Home.route
                                         }
                                     }
@@ -131,7 +129,6 @@ fun AppHomeScreen(
 
                         Spacer(modifier = Modifier.width(72.dp))
 
-                        // Right side items
                         Row(
                             modifier = Modifier.weight(1f),
                             horizontalArrangement = Arrangement.SpaceEvenly
@@ -167,13 +164,16 @@ fun AppHomeScreen(
                 ) {
                     AnimatedVisibility(
                         visible = isFabMenuExpanded,
-                        enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
-                        exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+                        enter = slideInVertically(
+                            initialOffsetY = { it },
+                            animationSpec = tween(durationMillis = 200, delayMillis = 100)
+                        ) + fadeIn(tween(200, delayMillis = 100)),
+                        exit = slideOutVertically(
+                            targetOffsetY = { it },
+                            animationSpec = tween(durationMillis = 200, delayMillis = 0)
+                        ) + fadeOut(tween(200, delayMillis = 0))
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(bottom = 24.dp)
-                        ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             FabMenuItem(
                                 iconResId = R.drawable.camera,
                                 label = "Scan receipt",
@@ -183,6 +183,21 @@ fun AppHomeScreen(
                                 }
                             )
                             Spacer(modifier = Modifier.height(12.dp))
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = isFabMenuExpanded,
+                        enter = slideInVertically(
+                            initialOffsetY = { it },
+                            animationSpec = tween(durationMillis = 200, delayMillis = 50)
+                        ) + fadeIn(tween(200, delayMillis = 50)),
+                        exit = slideOutVertically(
+                            targetOffsetY = { it },
+                            animationSpec = tween(durationMillis = 200, delayMillis = 50)
+                        ) + fadeOut(tween(200, delayMillis = 50))
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             FabMenuItem(
                                 iconResId = android.R.drawable.ic_input_add,
                                 label = "Add expense",
@@ -192,6 +207,21 @@ fun AppHomeScreen(
                                 }
                             )
                             Spacer(modifier = Modifier.height(12.dp))
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = isFabMenuExpanded,
+                        enter = slideInVertically(
+                            initialOffsetY = { it },
+                            animationSpec = tween(durationMillis = 200, delayMillis = 0)
+                        ) + fadeIn(tween(200, delayMillis = 0)),
+                        exit = slideOutVertically(
+                            targetOffsetY = { it },
+                            animationSpec = tween(durationMillis = 200, delayMillis = 100)
+                        ) + fadeOut(tween(200, delayMillis = 100))
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             FabMenuItem(
                                 iconResId = R.drawable.hand_coins,
                                 label = "Add income",
@@ -200,6 +230,7 @@ fun AppHomeScreen(
                                     navController.navigate(SnapLedgerDestination.AddIncome.route)
                                 }
                             )
+                            Spacer(modifier = Modifier.height(24.dp))
                         }
                     }
 
