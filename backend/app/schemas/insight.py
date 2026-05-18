@@ -36,7 +36,7 @@ class InsightChatRequest(StrictSchema):
     metrics: InsightMetrics | None = None
 
     @model_validator(mode="after")
-    def validate_prompt_source(self) -> "InsightChatRequest":
+    def validate_prompt_source(self) -> InsightChatRequest:
         if self.template_key is None and self.question is None:
             raise ValueError("template_key or question is required.")
         return self
