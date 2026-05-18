@@ -61,7 +61,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -75,6 +74,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -233,11 +233,11 @@ fun BudgetScreen(
                     start = 24.dp,
                     end = 24.dp,
                     top = 8.dp,
-                    bottom = 40.dp //bottom screen spacing
+                    bottom = 40.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                item {
+                item(contentType = "period_switcher") {
                     BudgetPeriodSwitcher(
                         currentPeriod = uiState.period,
                         onPeriodChanged = onPeriodChanged
@@ -245,12 +245,12 @@ fun BudgetScreen(
                 }
 
                 if (uiState.categories.isNotEmpty()) {
-                    item {
+                    item(contentType = "main_budget_card") {
                         MainBudgetCard(uiState)
                     }
                 }
 
-                item {
+                item(contentType = "categories_header") {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -287,7 +287,7 @@ fun BudgetScreen(
                     }
                 }
 
-                item {
+                item(contentType = "add_category_inline") {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         AnimatedVisibility(
                             visible = isAddingCategory,
@@ -305,11 +305,11 @@ fun BudgetScreen(
                 }
 
                 if (uiState.categories.isEmpty() && !isAddingCategory) {
-                    item {
+                    item(contentType = "empty_state") {
                         BudgetEmptyState()
                     }
                 } else {
-                    items(uiState.categories, key = { it.id }) { category ->
+                    items(uiState.categories, key = { it.id }, contentType = { "category_card" }) { category ->
                         SwipeRevealCategoryCard(
                             category = category,
                             onEditClicked = { categoryToEdit = category },
@@ -352,7 +352,7 @@ private fun SwipeRevealCategoryCard(
     onDeleteClicked: () -> Unit
 ) {
     val offsetX = remember { Animatable(0f) }
-    val revealWidth = 144.dp //distance of card and actions (edit,delete)
+    val revealWidth = 144.dp
     val density = LocalDensity.current
     val revealWidthPx = remember(density) { with(density) { revealWidth.toPx() } }
     val coroutineScope = rememberCoroutineScope()
@@ -380,14 +380,14 @@ private fun SwipeRevealCategoryCard(
                     .width(60.dp)
                     .padding(vertical = 4.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF00A86B)) //card color
+                    .background(Color(0xFF00A86B))
                     .clickable {
                         coroutineScope.launch { offsetX.animateTo(0f) }
                         onEditClicked()
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Rounded.Edit, tint = Color(0xFFFFFFFF), contentDescription = "Edit") //icon color and stuff
+                Icon(Icons.Rounded.Edit, tint = Color(0xFFFFFFFF), contentDescription = "Edit")
             }
 
             Spacer(modifier = Modifier.width(8.dp))
@@ -767,6 +767,14 @@ private fun MainBudgetCard(uiState: BudgetUiState) {
         label = "MainProgress"
     )
 
+    val progressColor = remember(uiState.totalPercentage) {
+        when {
+            uiState.totalPercentage >= 0.9f -> Color(0xFFFF5252)
+            uiState.totalPercentage >= 0.7f -> Color(0xFFFFB300)
+            else -> Color(0xFF00C875)
+        }
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -774,42 +782,42 @@ private fun MainBudgetCard(uiState: BudgetUiState) {
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(24.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column {
-                    Text(text = "Remaining this month", fontSize = 14.sp, color = Color(0xFF9E9E9E))
-                    Text(
-                        text = formatPhp(uiState.totalRemaining).replace(".00", ""),
-                        fontSize = 36.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1F1F1F),
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(text = "of ${formatPhp(uiState.totalAllocated).replace(".00", "")}", fontSize = 14.sp, color = Color(0xFF757575))
-                    Text(
-                        text = "${(100 - (uiState.totalPercentage * 100)).coerceAtLeast(0f).toInt()}% left",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF00C875),
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-            }
+            Text(
+                text = "Remaining this month",
+                fontSize = 14.sp,
+                color = Color(0xFF757575),
+                fontWeight = FontWeight.Medium
+            )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = formatPhp(uiState.totalRemaining).replace(".00", ""),
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1F1F1F),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+
+            Text(
+                text = "of ${formatPhp(uiState.totalAllocated).replace(".00", "")}",
+                fontSize = 14.sp,
+                color = Color(0xFF757575),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+            )
 
             LinearProgressIndicator(
                 progress = { animatedProgress.coerceIn(0f, 1f) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(8.dp),
-                color = Color(0xFF00C875),
-                trackColor = Color(0xFFE8F5E9),
+                    .height(10.dp),
+                color = progressColor,
+                trackColor = Color(0xFFF5F5F5),
                 strokeCap = StrokeCap.Round
             )
 
@@ -819,8 +827,18 @@ private fun MainBudgetCard(uiState: BudgetUiState) {
                     .padding(top = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("0%", fontSize = 10.sp, color = Color(0xFFBDBDBD))
-                Text("100%", fontSize = 10.sp, color = Color(0xFFBDBDBD))
+                Text(
+                    text = "${(uiState.totalPercentage * 100).toInt()}% used",
+                    fontSize = 14.sp,
+                    color = progressColor,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "${(100 - (uiState.totalPercentage * 100)).coerceAtLeast(0f).toInt()}% left",
+                    fontSize = 14.sp,
+                    color = progressColor,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
@@ -832,9 +850,9 @@ private fun BudgetCategoryCard(
 ) {
     val progressColor = remember(category.percentage) {
         when {
-            category.percentage >= 0.9f -> Color(0xFFFF5252) // Red
-            category.percentage >= 0.7f -> Color(0xFFFFB300) // Yellow
-            else -> Color(0xFF00C875) // Green
+            category.percentage >= 0.9f -> Color(0xFFFF5252)
+            category.percentage >= 0.7f -> Color(0xFFFFB300)
+            else -> Color(0xFF00C875)
         }
     }
 
@@ -878,12 +896,18 @@ private fun BudgetCategoryCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f).padding(end = 8.dp)
+                        ) {
                             Text(
                                 text = category.name,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = Color(0xFF1F1F1F)
+                                color = Color(0xFF1F1F1F),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
 
                             if (category.percentage >= 0.7f) {
@@ -908,7 +932,10 @@ private fun BudgetCategoryCard(
                         Text(
                             text = "$spentFormatted / $allocFormatted",
                             fontSize = 14.sp,
-                            color = Color(0xFF757575)
+                            color = Color(0xFF757575),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                     }
 
@@ -992,11 +1019,12 @@ private fun Double.toFormattedAmountValue(): String {
     return text.toFormattedAmountInput()
 }
 
+@Composable
 fun Modifier.noRippleClickable(
     enabled: Boolean = true,
     onClick: () -> Unit
-): Modifier = composed {
-    this.clickable(
+): Modifier {
+    return this.clickable(
         interactionSource = remember { MutableInteractionSource() },
         indication = null,
         enabled = enabled,
