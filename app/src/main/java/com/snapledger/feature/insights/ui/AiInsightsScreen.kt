@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.feature.dashboard.network.DashboardInsightChatResult
 import com.snapledger.feature.dashboard.network.DashboardInsightClient
+import com.snapledger.feature.dashboard.network.DashboardInsightMetrics
 import kotlinx.coroutines.launch
 
 private data class QuickPrompt(
@@ -74,6 +75,7 @@ fun AiInsightsRoute(
     currentActionTip: String?,
     isInsightLoading: Boolean,
     insightClient: DashboardInsightClient,
+    insightMetrics: DashboardInsightMetrics,
     onBack: () -> Unit,
 ) {
     val messages = remember { mutableStateListOf<InsightMessage>() }
@@ -135,6 +137,7 @@ fun AiInsightsRoute(
                     period = "monthly",
                     templateKey = templateKey,
                     question = question?.trim(),
+                    metrics = insightMetrics,
                 )
             ) {
                 is DashboardInsightChatResult.Success -> {

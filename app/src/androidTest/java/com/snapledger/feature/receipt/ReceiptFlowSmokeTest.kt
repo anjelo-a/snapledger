@@ -13,10 +13,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.snapledger.feature.review.domain.LocalFirstReviewRepository
 import com.snapledger.feature.review.domain.ReviewAtomicSaveStore
@@ -59,11 +59,10 @@ class ReceiptFlowSmokeTest {
         composeRule.onNodeWithText("BEAN BARN CAFE").assertIsDisplayed()
         composeRule.onNodeWithText("2026-04-29").assertIsDisplayed()
         composeRule.onNodeWithText("7.75").assertIsDisplayed()
-        composeRule.onNodeWithText("Required fields are valid. Save is enabled.")
-            .performScrollTo()
-            .assertIsDisplayed()
+        composeRule.onNodeWithText("Merchant").assertIsDisplayed()
+        composeRule.onNodeWithText("Line Items").assertIsDisplayed()
 
-        composeRule.onNodeWithText("Save Placeholder").performScrollTo().performClick()
+        composeRule.onNodeWithContentDescription("Save").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
             atomicSaveStore.savedReceipts.isNotEmpty() &&
                 atomicSaveStore.queuedRecords.isNotEmpty()
@@ -78,10 +77,7 @@ class ReceiptFlowSmokeTest {
             savedReceipt.receiptId,
             atomicSaveStore.queuedRecords.single().receiptId,
         )
-
-        composeRule.onNodeWithText("Saved locally as receipt-1. Sync metadata queued as sync-2.")
-            .performScrollTo()
-            .assertIsDisplayed()
+        composeRule.onNodeWithText("Use Mock OCR Lines").assertIsDisplayed()
     }
 }
 
@@ -99,6 +95,7 @@ private fun ReceiptFlowSmokeHarness(
             ReviewRoute(
                 viewModel = reviewViewModel,
                 onBack = { showReview = false },
+                onSaveCompleted = { showReview = false },
             )
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
