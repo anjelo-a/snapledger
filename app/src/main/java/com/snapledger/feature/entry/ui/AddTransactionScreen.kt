@@ -9,6 +9,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -62,11 +64,13 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
 import com.snapledger.core.categories.expenseTransactionCategories
 import com.snapledger.core.categories.incomeTransactionCategories
+import com.snapledger.core.ledger.LedgerIncomePeriod
 import com.snapledger.core.ledger.LedgerRepository
 import com.snapledger.core.ledger.LedgerTransactionType
 import java.text.SimpleDateFormat
@@ -78,6 +82,12 @@ private val amountInputRegex = Regex("^\\d{0,3}(,\\d{3})*(\\.\\d*)?$|^\\d*(\\.\\
 private val dateFormatter = SimpleDateFormat("MM/dd/yyyy", Locale.US)
 
 enum class TransactionType { EXPENSE, INCOME }
+
+enum class IncomePeriodOption(val label: String) {
+    WEEKLY("Weekly"),
+    MONTHLY("Monthly"),
+    BOTH("Both"),
+}
 
 data class CategoryUiModel(
     val name: String,
@@ -92,6 +102,7 @@ data class AddTransactionUiState(
     val date: String = "",
     val note: String = "",
     val selectedCategory: String = "",
+    val incomePeriod: IncomePeriodOption = IncomePeriodOption.BOTH,
     val isCustomCategoryInputVisible: Boolean = false,
     val customCategoryName: String = "",
     val categories: List<CategoryUiModel> = emptyList(),
@@ -110,6 +121,7 @@ sealed class AddTransactionEvent {
     data class OnDateChanged(val date: String) : AddTransactionEvent()
     data class OnNoteChanged(val note: String) : AddTransactionEvent()
     data class OnCategorySelected(val categoryName: String) : AddTransactionEvent()
+    data class OnIncomePeriodChanged(val period: IncomePeriodOption) : AddTransactionEvent()
     object OnToggleCustomCategory : AddTransactionEvent()
     data class OnCustomCategoryNameChanged(val name: String) : AddTransactionEvent()
     object OnAddCustomCategory : AddTransactionEvent()
@@ -145,6 +157,9 @@ fun AddTransactionRoute(
                 is AddTransactionEvent.OnMerchantChanged -> state = state.copy(merchant = event.merchant)
                 is AddTransactionEvent.OnDateChanged -> state = state.copy(date = event.date)
                 is AddTransactionEvent.OnNoteChanged -> state = state.copy(note = event.note)
+                is AddTransactionEvent.OnIncomePeriodChanged -> {
+                    state = state.copy(incomePeriod = event.period)
+                }
                 is AddTransactionEvent.OnCategorySelected -> {
                     if (event.categoryName == "New") {
                         state = state.copy(isCustomCategoryInputVisible = !state.isCustomCategoryInputVisible)
@@ -176,6 +191,7 @@ fun AddTransactionRoute(
                                 date = state.date,
                                 note = state.note,
                                 category = state.selectedCategory,
+                                incomePeriod = state.incomePeriod.toLedgerIncomePeriod(),
                             )
                             state = state.copy(isSaving = false)
                             onBack()
@@ -246,6 +262,9 @@ fun AddTransactionScreen(
         ) {
             item { AmountCard(uiState.amount, onEvent) }
             item { DetailsCard(uiState, onEvent) }
+            if (uiState.type == TransactionType.INCOME) {
+                item { IncomePeriodCard(uiState.incomePeriod, onEvent) }
+            }
             item { CategoryCard(uiState, onEvent) }
             item { Spacer(modifier = Modifier.height(32.dp)) }
         }
@@ -370,6 +389,14 @@ private fun TransactionType.toLedgerTransactionType(): LedgerTransactionType {
     }
 }
 
+private fun IncomePeriodOption.toLedgerIncomePeriod(): LedgerIncomePeriod {
+    return when (this) {
+        IncomePeriodOption.WEEKLY -> LedgerIncomePeriod.WEEKLY
+        IncomePeriodOption.MONTHLY -> LedgerIncomePeriod.MONTHLY
+        IncomePeriodOption.BOTH -> LedgerIncomePeriod.BOTH
+    }
+}
+
 private fun String.toAmountOrNull(): Double? {
     return replace(",", "").toDoubleOrNull()
 }
@@ -394,6 +421,60 @@ private fun String.toFormattedAmountInput(): String {
 }
 
 @Composable
+private fun IncomePeriodCard(
+    selectedPeriod: IncomePeriodOption,
+    onEvent: (AddTransactionEvent) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Column(modifier = Modifier.padding(24.dp)) {
+            Text(
+                text = "Count toward",
+                fontSize = 14.sp,
+                color = Color(0xFF757575),
+                modifier = Modifier.padding(bottom = 16.dp),
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .background(Color(0xFFF8F9FA), RoundedCornerShape(14.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                IncomePeriodOption.values().forEach { option ->
+                    val isSelected = selectedPeriod == option
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(if (isSelected) Color(0xFF00C875) else Color.Transparent)
+                            .noRippleClickable {
+                                onEvent(AddTransactionEvent.OnIncomePeriodChanged(option))
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = option.label,
+                            color = if (isSelected) Color.White else Color(0xFF757575),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun CategoryCard(
     uiState: AddTransactionUiState,
     onEvent: (AddTransactionEvent) -> Unit
@@ -408,16 +489,16 @@ private fun CategoryCard(
             Text("Category", fontSize = 14.sp, color = Color(0xFF757575), modifier = Modifier.padding(bottom = 16.dp))
 
             val totalItems = uiState.categories.size + 1
-            val rows = remember(uiState.categories) { (0 until totalItems).chunked(4) }
+            val rows = remember(uiState.categories) { (0 until totalItems).chunked(2) }
 
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 rows.forEach { rowIndices ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         rowIndices.forEach { index ->
-                            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
+                            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                                 if (index < uiState.categories.size) {
                                     val category = uiState.categories[index]
                                     CategoryItem(
@@ -426,26 +507,13 @@ private fun CategoryCard(
                                         onClick = { onEvent(AddTransactionEvent.OnCategorySelected(category.name)) }
                                     )
                                 } else {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier
-                                            .noRippleClickable { onEvent(AddTransactionEvent.OnCategorySelected("New")) }
-                                            .padding(4.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(56.dp)
-                                                .border(1.dp, Color(0xFFBDBDBD), RoundedCornerShape(16.dp)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(Icons.Rounded.Add, contentDescription = "New", tint = Color(0xFF757575))
-                                        }
-                                        Text("New", fontSize = 12.sp, color = Color(0xFF757575), modifier = Modifier.padding(top = 8.dp))
+                                    NewCategoryItem {
+                                        onEvent(AddTransactionEvent.OnCategorySelected("New"))
                                     }
                                 }
                             }
                         }
-                        repeat(4 - rowIndices.size) {
+                        repeat(2 - rowIndices.size) {
                             Spacer(modifier = Modifier.weight(1f))
                         }
                     }
@@ -490,38 +558,94 @@ private fun CategoryItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val bgColor by animateColorAsState(if (isSelected) category.tintColor.copy(alpha = 0.15f) else Color.Transparent, label = "catBg")
-    val iconTint = if (isSelected) category.tintColor else Color(0xFFBDBDBD)
+    val bgColor by animateColorAsState(
+        if (isSelected) category.tintColor.copy(alpha = 0.16f) else Color(0xFFF8F9FA),
+        label = "catBg",
+    )
+    val iconTint = if (isSelected) category.tintColor else Color(0xFF757575)
     val textWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
     val textColor = if (isSelected) Color(0xFF1F1F1F) else Color(0xFF757575)
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Surface(
+        color = bgColor,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isSelected) category.tintColor else Color(0xFFE0E0E0),
+        ),
         modifier = Modifier
-            .noRippleClickable { onClick() }
-            .padding(4.dp)
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .noRippleClickable { onClick() },
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .size(56.dp)
-                .background(bgColor, RoundedCornerShape(16.dp)),
-            contentAlignment = Alignment.Center
+                .fillMaxSize()
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
         ) {
             Icon(
                 painter = painterResource(id = category.iconResId),
                 contentDescription = category.name,
                 tint = iconTint,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = category.name,
+                fontSize = 12.sp,
+                color = textColor,
+                fontWeight = textWeight,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 6.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
             )
         }
-        Text(
-            text = category.name,
-            fontSize = 12.sp,
-            color = textColor,
-            fontWeight = textWeight,
-            modifier = Modifier.padding(top = 8.dp),
-            maxLines = 1
-        )
+    }
+}
+
+@Composable
+private fun NewCategoryItem(onClick: () -> Unit) {
+    Surface(
+        color = Color(0xFFF8F9FA),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(width = 1.dp, color = Color(0xFFE0E0E0)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .noRippleClickable { onClick() },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Add,
+                contentDescription = "New",
+                tint = Color(0xFF757575),
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = "New",
+                fontSize = 12.sp,
+                color = Color(0xFF757575),
+                fontWeight = FontWeight.Normal,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 6.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 

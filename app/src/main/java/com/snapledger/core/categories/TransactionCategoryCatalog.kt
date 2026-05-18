@@ -17,7 +17,7 @@ private val expenseCategoryOptions = listOf(
     TransactionCategoryOption("Bills", R.drawable.receipt, Color(0xFFFFC107)),
     TransactionCategoryOption("Entertainment", R.drawable.film, Color(0xFF9C27B0)),
     TransactionCategoryOption("Health", R.drawable.heart_pulse, Color(0xFFFF9800)),
-    TransactionCategoryOption("Personal Care", R.drawable.heart_pulse, Color(0xFFFF6F91)),
+    TransactionCategoryOption("Personal", R.drawable.heart_pulse, Color(0xFFFF6F91)),
     TransactionCategoryOption("Household", R.drawable.home, Color(0xFF3F51B5)),
     TransactionCategoryOption("Education", R.drawable.list, Color(0xFF5C6BC0)),
     TransactionCategoryOption("Travel", R.drawable.car, Color(0xFF00ACC1)),

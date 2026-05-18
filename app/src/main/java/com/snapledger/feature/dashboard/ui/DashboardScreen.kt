@@ -111,8 +111,10 @@ data class BudgetSummary(
     val totalIncome: Double = 0.0,
     val totalExpenses: Double = 0.0
 ) {
-    val remaining: Double get() = limit - spent
-    val percentageUsed: Float get() = if (limit > 0) (spent / limit).toFloat() else 0f
+    val spendingCapacity: Double get() = if (limit > 0.0) limit else totalIncome
+    val remaining: Double get() = spendingCapacity - spent
+    val percentageUsed: Float
+        get() = if (spendingCapacity > 0.0) (spent / spendingCapacity).toFloat() else 0f
 }
 
 data class AlertSummary(
@@ -685,7 +687,7 @@ private fun BudgetCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Spent ${formatCurrency(budget.spent)} of ${formatCurrency(budget.limit)}",
+                    text = "Spent ${formatCurrency(budget.spent)} of ${formatCurrency(budget.spendingCapacity)}",
                     color = Color.White,
                     fontSize = 12.sp
                 )

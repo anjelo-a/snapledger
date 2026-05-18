@@ -262,4 +262,100 @@ class ReviewLocalDatabaseMigrationTest {
             context.deleteDatabase(databaseName)
         }
     }
+
+    @Test
+    fun migrate4To5_adds_income_period_to_ledger_transactions() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val databaseName = "review-local-migration-v5-test.db"
+        context.deleteDatabase(databaseName)
+
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(databaseName)
+                .callback(object : SupportSQLiteOpenHelper.Callback(4) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(
+                            """
+                            CREATE TABLE IF NOT EXISTS `ledger_transactions` (
+                                `id` TEXT NOT NULL,
+                                `type` TEXT NOT NULL,
+                                `source` TEXT NOT NULL,
+                                `amountMinor` INTEGER NOT NULL,
+                                `merchant` TEXT NOT NULL,
+                                `date` TEXT NOT NULL,
+                                `note` TEXT,
+                                `category` TEXT NOT NULL,
+                                `createdAtMillis` INTEGER NOT NULL,
+                                PRIMARY KEY(`id`)
+                            )
+                            """.trimIndent(),
+                        )
+                    }
+
+                    override fun onUpgrade(
+                        db: SupportSQLiteDatabase,
+                        oldVersion: Int,
+                        newVersion: Int,
+                    ) = Unit
+                })
+                .build(),
+        )
+
+        try {
+            helper.writableDatabase.use { database ->
+                database.execSQL(
+                    """
+                    INSERT INTO `ledger_transactions` (
+                        `id`,
+                        `type`,
+                        `source`,
+                        `amountMinor`,
+                        `merchant`,
+                        `date`,
+                        `note`,
+                        `category`,
+                        `createdAtMillis`
+                    ) VALUES (
+                        'income-1',
+                        'INCOME',
+                        'MANUAL',
+                        50000,
+                        'Salary',
+                        '05/01/2026',
+                        NULL,
+                        'Salary',
+                        1234
+                    )
+                    """.trimIndent(),
+                )
+
+                MIGRATION_4_5.migrate(database)
+
+                val columns = mutableSetOf<String>()
+                database.query("PRAGMA table_info(`ledger_transactions`)").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        columns += cursor.getString(cursor.getColumnIndexOrThrow("name"))
+                    }
+                }
+
+                assertTrue(columns.contains("incomePeriod"))
+                database.query(
+                    """
+                    SELECT `incomePeriod`
+                    FROM `ledger_transactions`
+                    WHERE `id` = 'income-1'
+                    """.trimIndent(),
+                ).use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    assertEquals(
+                        "BOTH",
+                        cursor.getString(cursor.getColumnIndexOrThrow("incomePeriod")),
+                    )
+                }
+            }
+        } finally {
+            helper.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
 }

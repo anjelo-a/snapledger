@@ -22,6 +22,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.snapledger.core.ledger.DataStoreLedgerRepository
 import com.snapledger.core.ledger.LedgerBudgetPeriod
+import com.snapledger.core.ledger.LedgerIncomePeriod
 import com.snapledger.core.ledger.LedgerSnapshot
 import com.snapledger.core.ledger.LedgerTransaction
 import com.snapledger.core.ledger.LedgerTransactionType
@@ -303,8 +304,10 @@ fun SnapLedgerNavHost(
     }
 }
 
-private fun LedgerSnapshot.toDashboardState(userName: String): DashboardUiState {
-    val today = LocalDate.now()
+internal fun LedgerSnapshot.toDashboardState(
+    userName: String,
+    today: LocalDate = LocalDate.now(),
+): DashboardUiState {
     val weekFields = WeekFields.of(Locale.getDefault())
     val currentWeek = today.get(weekFields.weekOfWeekBasedYear())
     val currentWeekYear = today.get(weekFields.weekBasedYear())
@@ -323,9 +326,22 @@ private fun LedgerSnapshot.toDashboardState(userName: String): DashboardUiState 
                     date.get(weekFields.weekOfWeekBasedYear()) == currentWeek
         } ?: true
 
-        if (isCurrentMonth) monthlyTransactions += transaction
-        if (isCurrentWeek) weeklyTransactions += transaction
-        if (transaction.type == LedgerTransactionType.EXPENSE) expenseTransactions += transaction
+        when (transaction.type) {
+            LedgerTransactionType.EXPENSE -> {
+                if (isCurrentMonth) monthlyTransactions += transaction
+                if (isCurrentWeek) weeklyTransactions += transaction
+                expenseTransactions += transaction
+            }
+
+            LedgerTransactionType.INCOME -> {
+                if (isCurrentMonth && transaction.incomeAppliesTo(LedgerBudgetPeriod.MONTHLY)) {
+                    monthlyTransactions += transaction
+                }
+                if (isCurrentWeek && transaction.incomeAppliesTo(LedgerBudgetPeriod.WEEKLY)) {
+                    weeklyTransactions += transaction
+                }
+            }
+        }
     }
 
     return DashboardUiState(
@@ -354,6 +370,14 @@ private fun LedgerSnapshot.toDashboardState(userName: String): DashboardUiState 
                 )
             },
     )
+}
+
+private fun LedgerTransaction.incomeAppliesTo(period: LedgerBudgetPeriod): Boolean {
+    return when (incomePeriod) {
+        LedgerIncomePeriod.BOTH -> true
+        LedgerIncomePeriod.WEEKLY -> period == LedgerBudgetPeriod.WEEKLY
+        LedgerIncomePeriod.MONTHLY -> period == LedgerBudgetPeriod.MONTHLY
+    }
 }
 
 // FIX: Generate cumulative data points so the chart renders properly
