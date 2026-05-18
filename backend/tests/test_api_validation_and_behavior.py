@@ -519,7 +519,10 @@ def test_receipt_process_image_upstream_failure_returns_structured_candidate(
         response = httpx.Response(503, request=request)
         raise httpx.HTTPStatusError("upstream error", request=request, response=response)
 
-    monkeypatch.setattr("app.services.parser_service._call_gemini_extract", fake_call_gemini_extract)
+    monkeypatch.setattr(
+        "app.services.parser_service._call_gemini_extract",
+        fake_call_gemini_extract,
+    )
 
     try:
         response = client.post(

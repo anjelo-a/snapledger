@@ -168,7 +168,6 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
         if fallback_model and fallback_model != primary_model:
             model_sequence.append(fallback_model)
 
-        last_exception: Exception | None = None
         for model_index, model_name in enumerate(model_sequence):
             has_fallback_remaining = model_index < len(model_sequence) - 1
             try:
@@ -220,17 +219,15 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
                         ],
                     )
                 if status in (500, 502, 503, 504) and has_fallback_remaining:
-                    last_exception = exc
                     continue
                 return _fallback_candidate_from_gemini_failure(
                     payload,
                     warning_codes=["gemini_upstream_unavailable"],
                     warnings=["Receipt extraction upstream request failed."],
                 )
-            except TimeoutError as exc:
+            except TimeoutError:
                 logger.error("gemini_receipt_failure type=timeout model=%s", model_name)
                 if has_fallback_remaining:
-                    last_exception = exc
                     continue
                 return _fallback_candidate_from_gemini_failure(
                     payload,
@@ -244,17 +241,15 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
                     str(exc),
                 )
                 if has_fallback_remaining:
-                    last_exception = exc
                     continue
                 return _fallback_candidate_from_gemini_failure(
                     payload,
                     warning_codes=["gemini_invalid_json"],
                     warnings=["Receipt extraction returned invalid JSON."],
                 )
-            except Exception as exc:
+            except Exception:
                 logger.exception("gemini_receipt_failure type=unexpected model=%s", model_name)
                 if has_fallback_remaining:
-                    last_exception = exc
                     continue
                 return _fallback_candidate_from_gemini_failure(
                     payload,
@@ -266,7 +261,7 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
             warning_codes=["gemini_upstream_unavailable"],
             warnings=["Receipt extraction upstream request failed."],
         )
-    except TimeoutError as exc:
+    except TimeoutError:
         logger.error("gemini_receipt_failure type=timeout")
         return _fallback_candidate_from_gemini_failure(
             payload,
@@ -305,7 +300,7 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
             warning_codes=["gemini_invalid_json"],
             warnings=["Receipt extraction returned invalid JSON."],
         )
-    except Exception as exc:
+    except Exception:
         logger.exception("gemini_receipt_failure type=unexpected")
         return _fallback_candidate_from_gemini_failure(
             payload,
