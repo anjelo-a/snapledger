@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Literal
 
@@ -17,12 +19,13 @@ InsightTemplateKey = Literal[
 class InsightGenerateRequest(StrictSchema):
     period: InsightPeriod
     focus_category_id: str | None = None
+    metrics: InsightMetrics | None = None
 
 
 class InsightGenerateResponse(StrictSchema):
     text: str
     action_tip: str | None = None
-    metrics: dict
+    metrics: InsightMetrics
     generated_at: datetime
 
 
@@ -30,6 +33,7 @@ class InsightChatRequest(StrictSchema):
     period: InsightPeriod
     template_key: InsightTemplateKey | None = None
     question: str | None = Field(default=None, min_length=1, max_length=240)
+    metrics: InsightMetrics | None = None
 
     @model_validator(mode="after")
     def validate_prompt_source(self) -> "InsightChatRequest":
@@ -54,3 +58,32 @@ class InsightChatResponse(StrictSchema):
     result: InsightChatResult
     warnings: list[str]
     errors: list[str]
+
+
+class InsightMetricTopCategory(StrictSchema):
+    id: str | None = None
+    name: str
+    amount: str
+
+
+class InsightMetricTrendPoint(StrictSchema):
+    period: str
+    amount: str
+
+
+class InsightMetrics(StrictSchema):
+    period: InsightPeriod
+    current_period_total: str
+    previous_period_total: str
+    period_delta: str
+    period_delta_pct: str | None = None
+    top_category: InsightMetricTopCategory | None = None
+    budget_count: int = Field(ge=0)
+    budget_alert_count: int = Field(ge=0)
+    recent_activity_count: int = Field(ge=0)
+    trend_points: list[InsightMetricTrendPoint] = Field(default_factory=list)
+
+
+InsightGenerateRequest.model_rebuild()
+InsightGenerateResponse.model_rebuild()
+InsightChatRequest.model_rebuild()

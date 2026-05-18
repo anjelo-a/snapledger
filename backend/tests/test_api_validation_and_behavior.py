@@ -271,6 +271,46 @@ def test_insight_generate_uses_gemini_when_configured(
     assert captured["period"] == "weekly"
 
 
+def test_insight_generate_accepts_client_metrics_payload(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    get_settings.cache_clear()
+
+    response = client.post(
+        "/v1/insights/generate",
+        json={
+            "period": "monthly",
+            "metrics": {
+                "period": "monthly",
+                "current_period_total": "480.00",
+                "previous_period_total": "300.00",
+                "period_delta": "180.00",
+                "period_delta_pct": "60.00",
+                "top_category": {
+                    "id": None,
+                    "name": "Transport",
+                    "amount": "220.00",
+                },
+                "budget_count": 2,
+                "budget_alert_count": 1,
+                "recent_activity_count": 4,
+                "trend_points": [
+                    {"period": "2026-01", "amount": "120.00"},
+                    {"period": "2026-02", "amount": "180.00"},
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["metrics"]["current_period_total"] == "480.00"
+    assert payload["metrics"]["top_category"]["name"] == "Transport"
+    assert "Transport leads your tracked spending" in payload["text"]
+
+
 def test_insight_chat_template_returns_structured_success_response(
     client: TestClient,
 ) -> None:
@@ -301,6 +341,42 @@ def test_insight_chat_template_returns_structured_success_response(
     assert payload["result"]["prompt_source"] == "template"
     assert payload["result"]["answer"]
     assert payload["result"]["suggested_template_keys"]
+
+
+def test_insight_chat_uses_client_metrics_payload(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/v1/insights/chat",
+        json={
+            "period": "monthly",
+            "template_key": "top_category",
+            "metrics": {
+                "period": "monthly",
+                "current_period_total": "850.00",
+                "previous_period_total": "500.00",
+                "period_delta": "350.00",
+                "period_delta_pct": "70.00",
+                "top_category": {
+                    "id": None,
+                    "name": "Groceries",
+                    "amount": "420.00",
+                },
+                "budget_count": 1,
+                "budget_alert_count": 1,
+                "recent_activity_count": 5,
+                "trend_points": [
+                    {"period": "2026-03", "amount": "300.00"},
+                    {"period": "2026-04", "amount": "850.00"},
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert "Groceries" in payload["result"]["answer"]
 
 
 def test_insight_chat_blocks_budget_mutation_requests(

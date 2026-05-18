@@ -22,6 +22,9 @@ from app.schemas.insight import (
     InsightChatResult,
     InsightGenerateRequest,
     InsightGenerateResponse,
+    InsightMetrics,
+    InsightMetricTopCategory,
+    InsightMetricTrendPoint,
     InsightTemplateKey,
 )
 from app.services.dashboard_service import DashboardService
@@ -93,14 +96,18 @@ class InsightService:
 
     @staticmethod
     def generate(db: Session, payload: InsightGenerateRequest) -> InsightGenerateResponse:
-        dashboard = DashboardService.get(db)
-        metrics = _build_metrics(dashboard, payload)
+        metrics = _resolve_metrics(
+            db,
+            payload.period,
+            payload.metrics,
+        )
+        metrics_json = metrics.model_dump(mode="json")
 
-        output = _fallback_output(metrics)
+        output = _fallback_output(metrics_json)
         settings = get_settings()
         if settings.gemini_api_key:
             try:
-                output = _call_gemini_insight(metrics, payload.period)
+                output = _call_gemini_insight(metrics_json, payload.period)
             except Exception as exc:
                 logger.warning(
                     "gemini_insight_fallback reason=%s",
@@ -116,11 +123,12 @@ class InsightService:
 
     @staticmethod
     def chat(db: Session, payload: InsightChatRequest) -> InsightChatResponse:
-        dashboard = DashboardService.get(db)
-        metrics = _build_metrics(
-            dashboard,
-            InsightGenerateRequest(period=payload.period),
+        metrics = _resolve_metrics(
+            db,
+            payload.period,
+            payload.metrics,
         )
+        metrics_json = metrics.model_dump(mode="json")
         prompt = _resolve_chat_prompt(payload)
         task_id = str(uuid4())
 
@@ -139,11 +147,11 @@ class InsightService:
                 errors=[],
             )
 
-        output = _fallback_chat_output(metrics, prompt)
+        output = _fallback_chat_output(metrics_json, prompt)
         settings = get_settings()
         if settings.gemini_api_key:
             try:
-                output = _call_gemini_chat(metrics, payload.period, prompt)
+                output = _call_gemini_chat(metrics_json, payload.period, prompt)
             except Exception as exc:
                 logger.warning(
                     "gemini_insight_chat_fallback reason=%s",
@@ -165,10 +173,24 @@ class InsightService:
         )
 
 
+def _resolve_metrics(
+    db: Session,
+    period: str,
+    request_metrics: InsightMetrics | None,
+) -> InsightMetrics:
+    if request_metrics is not None:
+        return request_metrics
+    dashboard = DashboardService.get(db)
+    return _build_metrics(
+        dashboard,
+        InsightGenerateRequest(period=period),
+    )
+
+
 def _build_metrics(
     dashboard: DashboardResponse,
     payload: InsightGenerateRequest,
-) -> dict[str, Any]:
+) -> InsightMetrics:
     trend_points = dashboard.trends
     current_total = trend_points[-1].amount if trend_points else Decimal("0.00")
     previous_total = trend_points[-2].amount if len(trend_points) >= 2 else Decimal("0.00")
@@ -184,29 +206,32 @@ def _build_metrics(
         if budget.threshold_level in {"warning", "critical", "exceeded"}
     )
 
-    return {
-        "period": payload.period,
-        "current_period_total": str(current_total.quantize(Decimal("0.01"))),
-        "previous_period_total": str(previous_total.quantize(Decimal("0.01"))),
-        "period_delta": str(delta.quantize(Decimal("0.01"))),
-        "period_delta_pct": str(delta_pct) if delta_pct is not None else None,
-        "top_category": (
-            {
-                "id": top_category.category_id,
-                "name": top_category.category_name,
-                "amount": str(top_category.amount.quantize(Decimal("0.01"))),
-            }
+    return InsightMetrics(
+        period=payload.period,
+        current_period_total=str(current_total.quantize(Decimal("0.01"))),
+        previous_period_total=str(previous_total.quantize(Decimal("0.01"))),
+        period_delta=str(delta.quantize(Decimal("0.01"))),
+        period_delta_pct=str(delta_pct) if delta_pct is not None else None,
+        top_category=(
+            InsightMetricTopCategory(
+                id=top_category.category_id,
+                name=top_category.category_name,
+                amount=str(top_category.amount.quantize(Decimal("0.01"))),
+            )
             if top_category
             else None
         ),
-        "budget_count": len(dashboard.budget_statuses),
-        "budget_alert_count": budget_alert_count,
-        "recent_activity_count": len(dashboard.recent_activity),
-        "trend_points": [
-            {"period": point.period_label, "amount": str(point.amount.quantize(Decimal("0.01")))}
+        budget_count=len(dashboard.budget_statuses),
+        budget_alert_count=budget_alert_count,
+        recent_activity_count=len(dashboard.recent_activity),
+        trend_points=[
+            InsightMetricTrendPoint(
+                period=point.period_label,
+                amount=str(point.amount.quantize(Decimal("0.01"))),
+            )
             for point in trend_points
         ],
-    }
+    )
 
 
 def _call_gemini_insight(metrics: dict[str, Any], period: str) -> _GeminiInsightOutput:
