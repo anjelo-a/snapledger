@@ -39,20 +39,32 @@ sealed interface DashboardInsightChatResult {
 }
 
 interface DashboardInsightClient {
-    suspend fun generate(period: String = "monthly"): DashboardInsightResult
+    suspend fun generate(
+        period: String = "monthly",
+        metrics: DashboardInsightMetrics? = null,
+    ): DashboardInsightResult
     suspend fun chat(
         period: String = "monthly",
         templateKey: String? = null,
         question: String? = null,
+        metrics: DashboardInsightMetrics? = null,
     ): DashboardInsightChatResult
 }
 
 class DashboardInsightService(
     private val api: DashboardInsightApiService = createApi(),
 ) : DashboardInsightClient {
-    override suspend fun generate(period: String): DashboardInsightResult {
+    override suspend fun generate(
+        period: String,
+        metrics: DashboardInsightMetrics?,
+    ): DashboardInsightResult {
         return try {
-            val response = api.generate(InsightGenerateRequestDto(period = period))
+            val response = api.generate(
+                InsightGenerateRequestDto(
+                    period = period,
+                    metrics = metrics,
+                )
+            )
             DashboardInsightResult.Success(
                 text = response.text,
                 actionTip = response.actionTip,
@@ -66,6 +78,7 @@ class DashboardInsightService(
         period: String,
         templateKey: String?,
         question: String?,
+        metrics: DashboardInsightMetrics?,
     ): DashboardInsightChatResult {
         return try {
             val response = api.chat(
@@ -73,6 +86,7 @@ class DashboardInsightService(
                     period = period,
                     templateKey = templateKey,
                     question = question,
+                    metrics = metrics,
                 )
             )
             DashboardInsightChatResult.Success(
@@ -89,6 +103,7 @@ class DashboardInsightService(
                     period = period,
                     templateKey = templateKey,
                     question = question,
+                    metrics = metrics,
                 )
             } else {
                 DashboardInsightChatResult.Failure(error.message ?: "AI insights are unavailable.")
@@ -102,6 +117,7 @@ class DashboardInsightService(
         period: String,
         templateKey: String?,
         question: String?,
+        metrics: DashboardInsightMetrics?,
     ): DashboardInsightChatResult {
         val normalizedQuestion = question?.trim().orEmpty()
         if (looksLikeBlockedBudgetMutation(normalizedQuestion)) {
@@ -115,7 +131,7 @@ class DashboardInsightService(
             )
         }
 
-        return when (val generated = generate(period)) {
+        return when (val generated = generate(period = period, metrics = metrics)) {
             is DashboardInsightResult.Success -> DashboardInsightChatResult.Success(
                 status = "partial",
                 answer = generated.text,
@@ -184,6 +200,7 @@ class DashboardInsightService(
 @JsonClass(generateAdapter = true)
 data class InsightGenerateRequestDto(
     val period: String,
+    val metrics: DashboardInsightMetrics? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -199,6 +216,7 @@ data class InsightChatRequestDto(
     @Json(name = "template_key")
     val templateKey: String? = null,
     val question: String? = null,
+    val metrics: DashboardInsightMetrics? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -226,4 +244,40 @@ data class InsightChatResultDto(
     val promptSource: String,
     @Json(name = "suggested_template_keys")
     val suggestedTemplateKeys: List<String> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class DashboardInsightMetrics(
+    val period: String,
+    @Json(name = "current_period_total")
+    val currentPeriodTotal: String,
+    @Json(name = "previous_period_total")
+    val previousPeriodTotal: String,
+    @Json(name = "period_delta")
+    val periodDelta: String,
+    @Json(name = "period_delta_pct")
+    val periodDeltaPct: String? = null,
+    @Json(name = "top_category")
+    val topCategory: DashboardInsightTopCategoryDto? = null,
+    @Json(name = "budget_count")
+    val budgetCount: Int,
+    @Json(name = "budget_alert_count")
+    val budgetAlertCount: Int,
+    @Json(name = "recent_activity_count")
+    val recentActivityCount: Int,
+    @Json(name = "trend_points")
+    val trendPoints: List<DashboardInsightTrendPointDto>,
+)
+
+@JsonClass(generateAdapter = true)
+data class DashboardInsightTopCategoryDto(
+    val id: String? = null,
+    val name: String,
+    val amount: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class DashboardInsightTrendPointDto(
+    val period: String,
+    val amount: String,
 )

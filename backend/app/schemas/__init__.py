@@ -16,6 +16,7 @@ from app.schemas.insight import (
     InsightChatResponse,
     InsightGenerateRequest,
     InsightGenerateResponse,
+    InsightMetrics,
 )
 from app.schemas.sync import (
     SyncMutationResult,
@@ -43,6 +44,7 @@ __all__ = [
     "InsightChatResponse",
     "InsightGenerateRequest",
     "InsightGenerateResponse",
+    "InsightMetrics",
     "ParsedReceiptCandidate",
     "ParsedReceiptFieldConfidence",
     "ReceiptProcessRequest",

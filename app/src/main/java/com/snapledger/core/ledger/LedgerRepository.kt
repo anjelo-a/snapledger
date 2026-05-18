@@ -3,21 +3,28 @@ package com.snapledger.core.ledger
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.room.withTransaction
 import com.snapledger.core.sync.WorkManagerReviewSyncDispatcher
+import com.snapledger.feature.review.data.ReceiptSyncStateEntity
 import com.snapledger.feature.review.data.ReviewLocalDatabase
 import com.snapledger.feature.review.data.RoomReviewSyncQueueStore
+import com.snapledger.feature.review.data.toDomain
+import com.snapledger.feature.review.data.toEntity
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord
-import com.snapledger.feature.review.domain.ReviewSyncQueueStore
 import com.snapledger.feature.review.domain.ReviewSyncDispatcher
+import com.snapledger.feature.review.domain.ReviewSyncQueueStore
 import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -107,26 +114,26 @@ private val Context.snapLedgerLedgerDataStore: DataStore<Preferences> by prefere
 )
 
 class DataStoreLedgerRepository(
-    private val dataStore: DataStore<Preferences>,
+    private val database: ReviewLocalDatabase,
+    private val legacyDataStore: DataStore<Preferences>,
     private val syncQueueStore: ReviewSyncQueueStore? = null,
     private val syncDispatcher: ReviewSyncDispatcher? = null,
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
 ) : LedgerRepository {
-    override val snapshotFlow: Flow<LedgerSnapshot> = dataStore.data
-        .catch { error ->
-            if (error is IOException) {
-                emit(emptyPreferences())
-            } else {
-                throw error
-            }
-        }
-        .map { preferences ->
-            LedgerSnapshot(
-                transactions = decodeTransactions(preferences[TRANSACTIONS_JSON].orEmpty()),
-                budgetCategories = decodeBudgetCategories(preferences[BUDGETS_JSON].orEmpty()),
-            )
-        }
+    private val migrationMutex = Mutex()
+
+    override val snapshotFlow: Flow<LedgerSnapshot> = combine(
+        database.ledgerTransactionDao().observeTransactions(),
+        database.ledgerBudgetCategoryDao().observeBudgetCategories(),
+    ) { transactions, budgets ->
+        LedgerSnapshot(
+            transactions = transactions.map { it.toDomain() },
+            budgetCategories = budgets.map { it.toDomain() },
+        )
+    }.onStart {
+        ensureMigrated()
+    }
 
     override suspend fun saveTransaction(
         type: LedgerTransactionType,
@@ -139,6 +146,7 @@ class DataStoreLedgerRepository(
         source: LedgerTransactionSource,
         syncToBackend: Boolean,
     ): LedgerTransaction {
+        ensureMigrated()
         val transaction = LedgerTransaction(
             id = transactionId ?: idFactory(),
             type = type,
@@ -150,10 +158,7 @@ class DataStoreLedgerRepository(
             category = category.trim(),
             createdAtMillis = clockMillis(),
         )
-        dataStore.edit { preferences ->
-            val transactions = decodeTransactions(preferences[TRANSACTIONS_JSON].orEmpty())
-            preferences[TRANSACTIONS_JSON] = encodeTransactions(transactions + transaction)
-        }
+        database.ledgerTransactionDao().upsert(transaction.toEntity())
         enqueueExpenseMutation(
             transaction = transaction,
             operation = ReceiptSyncQueueRecord.OPERATION_CREATE,
@@ -167,6 +172,7 @@ class DataStoreLedgerRepository(
         period: LedgerBudgetPeriod,
         allocated: Double,
     ): LedgerBudgetCategory {
+        ensureMigrated()
         val category = LedgerBudgetCategory(
             id = idFactory(),
             name = name.trim(),
@@ -174,10 +180,7 @@ class DataStoreLedgerRepository(
             allocated = allocated,
             createdAtMillis = clockMillis(),
         )
-        dataStore.edit { preferences ->
-            val categories = decodeBudgetCategories(preferences[BUDGETS_JSON].orEmpty())
-            preferences[BUDGETS_JSON] = encodeBudgetCategories(categories + category)
-        }
+        database.ledgerBudgetCategoryDao().upsert(category.toEntity())
         return category
     }
 
@@ -189,51 +192,28 @@ class DataStoreLedgerRepository(
         note: String?,
         category: String,
     ) {
-        var updatedTransaction: LedgerTransaction? = null
-        dataStore.edit { preferences ->
-            val transactions = decodeTransactions(preferences[TRANSACTIONS_JSON].orEmpty())
-            preferences[TRANSACTIONS_JSON] = encodeTransactions(
-                transactions.map { transaction ->
-                    if (transaction.id == id) {
-                        transaction.copy(
-                            amount = amount,
-                            merchant = merchant.trim(),
-                            date = date.trim(),
-                            note = note?.trim()?.ifBlank { null },
-                            category = category.trim(),
-                        ).also { updatedTransaction = it }
-                    } else {
-                        transaction
-                    }
-                },
-            )
-        }
-        updatedTransaction?.let { transaction ->
-            enqueueExpenseMutation(
-                transaction = transaction,
-                operation = ReceiptSyncQueueRecord.OPERATION_UPDATE,
-            )
-        }
+        ensureMigrated()
+        val existing = database.ledgerTransactionDao().getById(id) ?: return
+        val updated = existing.toDomain().copy(
+            amount = amount,
+            merchant = merchant.trim(),
+            date = date.trim(),
+            note = note?.trim()?.ifBlank { null },
+            category = category.trim(),
+        )
+        database.ledgerTransactionDao().upsert(updated.toEntity())
+        enqueueExpenseMutation(
+            transaction = updated,
+            operation = ReceiptSyncQueueRecord.OPERATION_UPDATE,
+        )
     }
 
     override suspend fun deleteTransaction(id: String) {
-        var deletedTransaction: LedgerTransaction? = null
-        dataStore.edit { preferences ->
-            val transactions = decodeTransactions(preferences[TRANSACTIONS_JSON].orEmpty())
-            preferences[TRANSACTIONS_JSON] = encodeTransactions(
-                transactions.filterNot { transaction ->
-                    val shouldDelete = transaction.id == id
-                    if (shouldDelete) {
-                        deletedTransaction = transaction
-                    }
-                    shouldDelete
-                },
-            )
-        }
-        deletedTransaction?.let { transaction ->
-            if (transaction.type == LedgerTransactionType.EXPENSE) {
-                enqueueDeleteMutation(transaction.id)
-            }
+        ensureMigrated()
+        val deletedTransaction = database.ledgerTransactionDao().getById(id)?.toDomain()
+        database.ledgerTransactionDao().deleteById(id)
+        if (deletedTransaction?.type == LedgerTransactionType.EXPENSE) {
+            enqueueDeleteMutation(deletedTransaction.id)
         }
     }
 
@@ -242,35 +222,59 @@ class DataStoreLedgerRepository(
         name: String,
         allocated: Double,
     ) {
-        dataStore.edit { preferences ->
-            val categories = decodeBudgetCategories(preferences[BUDGETS_JSON].orEmpty())
-            preferences[BUDGETS_JSON] = encodeBudgetCategories(
-                categories.map { category ->
-                    if (category.id == id) category.copy(name = name.trim(), allocated = allocated) else category
-                },
-            )
-        }
+        ensureMigrated()
+        val existing = database.ledgerBudgetCategoryDao().getById(id) ?: return
+        val updated = existing.toDomain().copy(
+            name = name.trim(),
+            allocated = allocated,
+        )
+        database.ledgerBudgetCategoryDao().upsert(updated.toEntity())
     }
 
     override suspend fun deleteBudgetCategory(id: String) {
-        dataStore.edit { preferences ->
-            val categories = decodeBudgetCategories(preferences[BUDGETS_JSON].orEmpty())
-            preferences[BUDGETS_JSON] = encodeBudgetCategories(categories.filterNot { it.id == id })
-        }
+        ensureMigrated()
+        database.ledgerBudgetCategoryDao().deleteById(id)
     }
 
-    companion object {
-        fun getInstance(context: Context): DataStoreLedgerRepository {
-            val appContext = context.applicationContext
-            return DataStoreLedgerRepository(
-                dataStore = appContext.snapLedgerLedgerDataStore,
-                syncQueueStore = RoomReviewSyncQueueStore(ReviewLocalDatabase.getInstance(appContext)),
-                syncDispatcher = WorkManagerReviewSyncDispatcher(appContext),
-            )
-        }
+    private suspend fun ensureMigrated() {
+        migrationMutex.withLock {
+            val stateDao = database.receiptSyncStateDao()
+            if (stateDao.loadStateValue(LEDGER_MIGRATION_STATE_KEY) == LEDGER_MIGRATION_COMPLETE) {
+                return
+            }
 
-        private val TRANSACTIONS_JSON = stringPreferencesKey("transactions_json")
-        private val BUDGETS_JSON = stringPreferencesKey("budgets_json")
+            val preferences = legacyDataStore.data
+                .catch { error ->
+                    if (error is IOException) {
+                        emit(emptyPreferences())
+                    } else {
+                        throw error
+                    }
+                }
+                .first()
+
+            val legacyTransactions = decodeTransactions(preferences[TRANSACTIONS_JSON].orEmpty())
+            val legacyBudgets = decodeBudgetCategories(preferences[BUDGETS_JSON].orEmpty())
+
+            database.withTransaction {
+                if (legacyTransactions.isNotEmpty()) {
+                    database.ledgerTransactionDao().upsertAll(
+                        legacyTransactions.map(LedgerTransaction::toEntity),
+                    )
+                }
+                if (legacyBudgets.isNotEmpty()) {
+                    database.ledgerBudgetCategoryDao().upsertAll(
+                        legacyBudgets.map(LedgerBudgetCategory::toEntity),
+                    )
+                }
+                stateDao.upsertState(
+                    ReceiptSyncStateEntity(
+                        stateKey = LEDGER_MIGRATION_STATE_KEY,
+                        stateValue = LEDGER_MIGRATION_COMPLETE,
+                    ),
+                )
+            }
+        }
     }
 
     private suspend fun enqueueExpenseMutation(
@@ -306,6 +310,23 @@ class DataStoreLedgerRepository(
         syncQueueStore?.enqueue(queueRecord)
         syncDispatcher?.dispatch(queueRecord)
     }
+
+    companion object {
+        fun getInstance(context: Context): DataStoreLedgerRepository {
+            val appContext = context.applicationContext
+            return DataStoreLedgerRepository(
+                database = ReviewLocalDatabase.getInstance(appContext),
+                legacyDataStore = appContext.snapLedgerLedgerDataStore,
+                syncQueueStore = RoomReviewSyncQueueStore(ReviewLocalDatabase.getInstance(appContext)),
+                syncDispatcher = WorkManagerReviewSyncDispatcher(appContext),
+            )
+        }
+
+        private val TRANSACTIONS_JSON = stringPreferencesKey("transactions_json")
+        private val BUDGETS_JSON = stringPreferencesKey("budgets_json")
+        private const val LEDGER_MIGRATION_COMPLETE = "done"
+        private const val LEDGER_MIGRATION_STATE_KEY = "ledger_datastore_migration_v1"
+    }
 }
 
 private fun encodeTransactions(transactions: List<LedgerTransaction>): String {
@@ -337,7 +358,9 @@ private fun decodeTransactions(json: String): List<LedgerTransaction> {
                 add(
                     LedgerTransaction(
                         id = item.getString("id"),
-                        type = LedgerTransactionType.valueOf(item.optString("type", LedgerTransactionType.EXPENSE.name)),
+                        type = LedgerTransactionType.valueOf(
+                            item.optString("type", LedgerTransactionType.EXPENSE.name),
+                        ),
                         source = LedgerTransactionSource.valueOf(
                             item.optString("source", LedgerTransactionSource.MANUAL.name),
                         ),
@@ -397,7 +420,9 @@ private fun decodeBudgetCategories(json: String): List<LedgerBudgetCategory> {
                     LedgerBudgetCategory(
                         id = item.getString("id"),
                         name = item.getString("name"),
-                        period = LedgerBudgetPeriod.valueOf(item.optString("period", LedgerBudgetPeriod.MONTHLY.name)),
+                        period = LedgerBudgetPeriod.valueOf(
+                            item.optString("period", LedgerBudgetPeriod.MONTHLY.name),
+                        ),
                         allocated = item.getDouble("allocated"),
                         createdAtMillis = item.optLong("createdAtMillis", 0L),
                     ),

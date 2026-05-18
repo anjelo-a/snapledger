@@ -29,7 +29,10 @@ import com.snapledger.core.profile.UserProfile
 import com.snapledger.feature.budget.ui.BudgetRoute
 import com.snapledger.feature.dashboard.ui.BudgetSummary
 import com.snapledger.feature.dashboard.network.DashboardInsightResult
+import com.snapledger.feature.dashboard.network.DashboardInsightMetrics
 import com.snapledger.feature.dashboard.network.DashboardInsightService
+import com.snapledger.feature.dashboard.network.DashboardInsightTopCategoryDto
+import com.snapledger.feature.dashboard.network.DashboardInsightTrendPointDto
 import com.snapledger.feature.dashboard.ui.DashboardScreen
 import com.snapledger.feature.dashboard.ui.DashboardUiState
 import com.snapledger.feature.dashboard.ui.CategorySummary
@@ -81,6 +84,9 @@ fun SnapLedgerNavHost(
     var insightText by remember { mutableStateOf<String?>(null) }
     var insightActionTip by remember { mutableStateOf<String?>(null) }
     var isInsightLoading by remember { mutableStateOf(false) }
+    val insightMetrics = remember(ledgerSnapshot.transactions, ledgerSnapshot.budgetCategories) {
+        ledgerSnapshot.toInsightMetrics(period = "monthly")
+    }
     val insightRefreshTotal = remember(ledgerSnapshot.transactions) {
         ledgerSnapshot.transactions.sumOf { it.amount }
     }
@@ -93,7 +99,12 @@ fun SnapLedgerNavHost(
 
     LaunchedEffect(ledgerSnapshot.transactions.size, insightRefreshTotal) {
         isInsightLoading = true
-        when (val result = withContext(Dispatchers.IO) { insightService.generate(period = "monthly") }) {
+        when (val result = withContext(Dispatchers.IO) {
+            insightService.generate(
+                period = "monthly",
+                metrics = insightMetrics,
+            )
+        }) {
             is DashboardInsightResult.Success -> {
                 insightText = result.text
                 insightActionTip = result.actionTip
@@ -208,6 +219,7 @@ fun SnapLedgerNavHost(
                 currentActionTip = insightActionTip,
                 isInsightLoading = isInsightLoading,
                 insightClient = insightService,
+                insightMetrics = insightMetrics,
                 onBack = {
                     navController.popBackStack()
                 },
@@ -478,6 +490,99 @@ private fun LedgerSnapshot.buildLocalInsightFallback(): Pair<String?, String?> {
     )
 }
 
+private fun LedgerSnapshot.toInsightMetrics(period: String): DashboardInsightMetrics {
+    val today = LocalDate.now()
+    val expenseTransactions = transactions.filter { it.type == LedgerTransactionType.EXPENSE }
+    val currentPeriodTransactions = expenseTransactions.filter { it.isInPeriod(period, today, 0) }
+    val previousPeriodTransactions = expenseTransactions.filter { it.isInPeriod(period, today, 1) }
+    val currentTotal = currentPeriodTransactions.sumOf { it.amount }
+    val previousTotal = previousPeriodTransactions.sumOf { it.amount }
+    val delta = currentTotal - previousTotal
+    val deltaPct = if (previousTotal > 0.0) {
+        ((delta / previousTotal) * 100.0).toAmountString()
+    } else {
+        null
+    }
+    val topCategory = currentPeriodTransactions
+        .groupBy { it.category.ifBlank { "Uncategorized" } }
+        .mapValues { (_, rows) -> rows.sumOf { it.amount } }
+        .maxByOrNull { it.value }
+
+    val matchingBudgets = budgetCategories.filter { budget ->
+        when (period) {
+            "weekly" -> budget.period == LedgerBudgetPeriod.WEEKLY
+            else -> budget.period == LedgerBudgetPeriod.MONTHLY
+        }
+    }
+    val budgetAlertCount = matchingBudgets.count { budget ->
+        val spent = currentPeriodTransactions
+            .filter { it.category.equals(budget.name, ignoreCase = true) }
+            .sumOf { it.amount }
+        val ratio = if (budget.allocated > 0.0) spent / budget.allocated else 0.0
+        ratio >= 0.7
+    }
+
+    return DashboardInsightMetrics(
+        period = period,
+        currentPeriodTotal = currentTotal.toAmountString(),
+        previousPeriodTotal = previousTotal.toAmountString(),
+        periodDelta = delta.toAmountString(),
+        periodDeltaPct = deltaPct,
+        topCategory = topCategory?.let { (name, amount) ->
+            DashboardInsightTopCategoryDto(
+                id = null,
+                name = name,
+                amount = amount.toAmountString(),
+            )
+        },
+        budgetCount = matchingBudgets.size,
+        budgetAlertCount = budgetAlertCount,
+        recentActivityCount = transactions.sortedByDescending { it.createdAtMillis }.take(10).size,
+        trendPoints = buildInsightTrendPoints(period = period, today = today),
+    )
+}
+
+private fun LedgerSnapshot.buildInsightTrendPoints(
+    period: String,
+    today: LocalDate,
+): List<DashboardInsightTrendPointDto> {
+    return when (period) {
+        "weekly" -> (5 downTo 0).map { offset ->
+            val anchor = today.minusWeeks(offset.toLong())
+            val start = anchor.with(java.time.DayOfWeek.MONDAY)
+            val end = start.plusDays(6)
+            DashboardInsightTrendPointDto(
+                period = "${start.monthValue}/${start.dayOfMonth}",
+                amount = transactions
+                    .asSequence()
+                    .filter { it.type == LedgerTransactionType.EXPENSE }
+                    .filter { transaction ->
+                        val date = transaction.parsedDate() ?: return@filter false
+                        !date.isBefore(start) && !date.isAfter(end)
+                    }
+                    .sumOf { it.amount }
+                    .toAmountString(),
+            )
+        }
+
+        else -> (5 downTo 0).map { offset ->
+            val month = today.withDayOfMonth(1).minusMonths(offset.toLong())
+            DashboardInsightTrendPointDto(
+                period = month.format(DateTimeFormatter.ofPattern("yyyy-MM")),
+                amount = transactions
+                    .asSequence()
+                    .filter { it.type == LedgerTransactionType.EXPENSE }
+                    .filter { transaction ->
+                        val date = transaction.parsedDate() ?: return@filter false
+                        date.year == month.year && date.month == month.month
+                    }
+                    .sumOf { it.amount }
+                    .toAmountString(),
+            )
+        }
+    }
+}
+
 private fun formatCurrency(amount: Double): String {
     return "PHP " + String.format(Locale.getDefault(), "%,.2f", amount)
 }
@@ -507,6 +612,30 @@ private fun LedgerTransaction.isInCurrentWeek(today: LocalDate = LocalDate.now()
     val weekFields = WeekFields.of(Locale.getDefault())
     return date.get(weekFields.weekBasedYear()) == today.get(weekFields.weekBasedYear()) &&
             date.get(weekFields.weekOfWeekBasedYear()) == today.get(weekFields.weekOfWeekBasedYear())
+}
+
+private fun LedgerTransaction.isInPeriod(
+    period: String,
+    today: LocalDate,
+    periodsAgo: Long,
+): Boolean {
+    val date = parsedDate() ?: return false
+    return when (period) {
+        "weekly" -> {
+            val currentWeekStart = today.with(java.time.DayOfWeek.MONDAY).minusWeeks(periodsAgo)
+            val currentWeekEnd = currentWeekStart.plusDays(6)
+            !date.isBefore(currentWeekStart) && !date.isAfter(currentWeekEnd)
+        }
+
+        else -> {
+            val targetMonth = today.withDayOfMonth(1).minusMonths(periodsAgo)
+            date.year == targetMonth.year && date.month == targetMonth.month
+        }
+    }
+}
+
+private fun Double.toAmountString(): String {
+    return String.format(Locale.US, "%.2f", this)
 }
 
 private fun LedgerTransaction.parsedDate(): LocalDate? {
