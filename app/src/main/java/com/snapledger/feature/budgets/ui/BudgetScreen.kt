@@ -503,16 +503,26 @@ private fun AddCategoryInlineCard(onSave: (String, Double) -> Unit) {
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Category", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text(
+                text = "Category",
+                fontSize = 12.sp,
+                color = Color(0xFF9E9E9E),
+                modifier = Modifier.padding(bottom = 10.dp),
+            )
             BudgetCategoryPicker(
                 selectedCategory = selectedCategory,
                 onCategorySelected = { selectedCategory = it }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
-            Text("Monthly Limit (PHP)", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+            Text(
+                text = "Budget Limit (PHP)",
+                fontSize = 12.sp,
+                color = Color(0xFF9E9E9E),
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
             BudgetInputField(
                 value = amount,
                 onValueChange = {
@@ -523,7 +533,7 @@ private fun AddCategoryInlineCard(onSave: (String, Double) -> Unit) {
                 keyboardType = KeyboardType.Decimal
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Button(
                 onClick = { onSave(selectedCategory.name, amount.toAmountOrNull() ?: 0.0) },
@@ -532,7 +542,7 @@ private fun AddCategoryInlineCard(onSave: (String, Double) -> Unit) {
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .height(50.dp)
             ) {
                 Text("Save Category", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
             }
@@ -640,7 +650,7 @@ private fun BudgetCategoryPicker(
     onCategorySelected: (BudgetCategoryOption) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        budgetCategoryOptions.chunked(3).forEach { rowOptions ->
+        budgetCategoryOptions.chunked(2).forEach { rowOptions ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -656,12 +666,14 @@ private fun BudgetCategoryPicker(
                         ),
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
+                            .height(52.dp)
                             .clip(RoundedCornerShape(14.dp))
                             .clickable { onCategorySelected(option) }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
@@ -677,12 +689,16 @@ private fun BudgetCategoryPicker(
                                 fontSize = 12.sp,
                                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                 maxLines = 1,
-                                modifier = Modifier.padding(start = 6.dp)
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 6.dp)
                             )
                         }
                     }
                 }
-                repeat(3 - rowOptions.size) {
+                repeat(2 - rowOptions.size) {
                     Spacer(modifier = Modifier.weight(1f))
                 }
             }

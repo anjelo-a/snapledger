@@ -43,6 +43,12 @@ enum class LedgerBudgetPeriod {
     MONTHLY,
 }
 
+enum class LedgerIncomePeriod {
+    WEEKLY,
+    MONTHLY,
+    BOTH,
+}
+
 data class LedgerTransaction(
     val id: String,
     val type: LedgerTransactionType,
@@ -53,6 +59,7 @@ data class LedgerTransaction(
     val note: String?,
     val category: String,
     val createdAtMillis: Long,
+    val incomePeriod: LedgerIncomePeriod = LedgerIncomePeriod.BOTH,
 )
 
 data class LedgerBudgetCategory(
@@ -78,6 +85,7 @@ interface LedgerRepository {
         date: String,
         note: String?,
         category: String,
+        incomePeriod: LedgerIncomePeriod = LedgerIncomePeriod.BOTH,
         transactionId: String? = null,
         source: LedgerTransactionSource = LedgerTransactionSource.MANUAL,
         syncToBackend: Boolean = true,
@@ -142,6 +150,7 @@ class DataStoreLedgerRepository(
         date: String,
         note: String?,
         category: String,
+        incomePeriod: LedgerIncomePeriod,
         transactionId: String?,
         source: LedgerTransactionSource,
         syncToBackend: Boolean,
@@ -157,6 +166,7 @@ class DataStoreLedgerRepository(
             note = note?.trim()?.ifBlank { null },
             category = category.trim(),
             createdAtMillis = clockMillis(),
+            incomePeriod = incomePeriod,
         )
         database.ledgerTransactionDao().upsert(transaction.toEntity())
         enqueueExpenseMutation(
@@ -342,7 +352,8 @@ private fun encodeTransactions(transactions: List<LedgerTransaction>): String {
                     .put("date", transaction.date)
                     .put("note", transaction.note)
                     .put("category", transaction.category)
-                    .put("createdAtMillis", transaction.createdAtMillis),
+                    .put("createdAtMillis", transaction.createdAtMillis)
+                    .put("incomePeriod", transaction.incomePeriod.name),
             )
         }
     }.toString()
@@ -370,6 +381,9 @@ private fun decodeTransactions(json: String): List<LedgerTransaction> {
                         note = item.optString("note").ifBlank { null },
                         category = item.getString("category"),
                         createdAtMillis = item.optLong("createdAtMillis", 0L),
+                        incomePeriod = LedgerIncomePeriod.valueOf(
+                            item.optString("incomePeriod", LedgerIncomePeriod.BOTH.name),
+                        ),
                     ),
                 )
             }

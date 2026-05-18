@@ -1,6 +1,7 @@
 package com.snapledger.feature.review.data
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -24,6 +25,7 @@ import com.snapledger.core.sync.RECEIPT_SYNC_CURSOR_KEY
 import com.snapledger.core.sync.INITIAL_RECEIPT_SYNC_CURSOR
 import com.snapledger.core.ledger.LedgerBudgetCategory
 import com.snapledger.core.ledger.LedgerBudgetPeriod
+import com.snapledger.core.ledger.LedgerIncomePeriod
 import com.snapledger.core.ledger.LedgerTransaction
 import com.snapledger.core.ledger.LedgerTransactionSource
 import com.snapledger.core.ledger.LedgerTransactionType
@@ -118,6 +120,8 @@ data class LedgerTransactionEntity(
     val note: String?,
     val category: String,
     val createdAtMillis: Long,
+    @ColumnInfo(defaultValue = "'BOTH'")
+    val incomePeriod: String,
 )
 
 @Entity(
@@ -324,7 +328,7 @@ interface LedgerBudgetCategoryDao {
         LedgerTransactionEntity::class,
         LedgerBudgetCategoryEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class ReviewLocalDatabase : RoomDatabase() {
@@ -344,7 +348,7 @@ abstract class ReviewLocalDatabase : RoomDatabase() {
                     context,
                     ReviewLocalDatabase::class.java,
                     "snapledger-review.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }
@@ -704,6 +708,17 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            """
+            ALTER TABLE `ledger_transactions`
+            ADD COLUMN `incomePeriod` TEXT NOT NULL DEFAULT '${LedgerIncomePeriod.BOTH.name}'
+            """.trimIndent(),
+        )
+    }
+}
+
 fun LedgerTransactionEntity.toDomain(): LedgerTransaction {
     return LedgerTransaction(
         id = id,
@@ -715,6 +730,7 @@ fun LedgerTransactionEntity.toDomain(): LedgerTransaction {
         note = note,
         category = category,
         createdAtMillis = createdAtMillis,
+        incomePeriod = LedgerIncomePeriod.valueOf(incomePeriod),
     )
 }
 
@@ -729,6 +745,7 @@ fun LedgerTransaction.toEntity(): LedgerTransactionEntity {
         note = note,
         category = category,
         createdAtMillis = createdAtMillis,
+        incomePeriod = incomePeriod.name,
     )
 }
 
