@@ -298,8 +298,7 @@ fun SnapLedgerNavHost(
         }
         composable("settings") {
             SettingsRoute(
-                initialUserName = profile.displayName,
-                onNameChanged = onDisplayNameChange
+                profileRepository = profileRepository,
             )
         }
     }
