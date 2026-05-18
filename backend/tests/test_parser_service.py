@@ -5,6 +5,7 @@ from datetime import date
 from decimal import Decimal
 from io import BytesIO
 
+import httpx
 from PIL import Image
 
 from app.core.config import get_settings
@@ -184,6 +185,68 @@ def test_parse_receipt_image_maps_mocked_gemini_response(monkeypatch) -> None:
     assert candidate.total_amount == Decimal("7.75")
     assert [item.name for item in candidate.items] == ["Latte", "Blueberry Muffin"]
     assert candidate.warning_codes == []
+
+
+def test_parse_receipt_image_gemini_failure_falls_back_to_ocr_lines(monkeypatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
+    get_settings.cache_clear()
+
+    def fake_call_gemini_extract(**_: object) -> str:
+        raise httpx.HTTPStatusError(
+            "upstream error",
+            request=httpx.Request("POST", "https://example.test"),
+            response=httpx.Response(503, request=httpx.Request("POST", "https://example.test")),
+        )
+
+    monkeypatch.setattr(parser_service, "_call_gemini_extract", fake_call_gemini_extract)
+    try:
+        candidate = parse_receipt(
+            ReceiptProcessRequest(
+                image_base64=_tiny_jpeg_base64(),
+                image_mime_type="image/jpeg",
+                ocr_lines=[
+                    "BEAN BARN CAFE",
+                    "04/29/2026",
+                    "Latte 4.50",
+                    "TOTAL 4.50",
+                ],
+            )
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert candidate.merchant == "BEAN BARN CAFE"
+    assert candidate.expense_date == date(2026, 4, 29)
+    assert candidate.total_amount == Decimal("4.50")
+    assert "gemini_upstream_unavailable" in candidate.warning_codes
+
+
+def test_parse_receipt_image_gemini_failure_returns_structured_null_candidate(monkeypatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
+    get_settings.cache_clear()
+
+    def fake_call_gemini_extract(**_: object) -> str:
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(parser_service, "_call_gemini_extract", fake_call_gemini_extract)
+    try:
+        candidate = parse_receipt(
+            ReceiptProcessRequest(
+                image_base64=_tiny_jpeg_base64(),
+                image_mime_type="image/jpeg",
+            )
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert candidate.merchant is None
+    assert candidate.expense_date is None
+    assert candidate.total_amount is None
+    assert candidate.items == []
+    assert candidate.field_confidence is not None
+    assert candidate.field_confidence.total_amount == 0.0
+    assert "gemini_timeout" in candidate.warning_codes
+    assert "total_amount_missing" in candidate.warning_codes
 
 
 def test_call_gemini_extract_uses_header_key_and_structured_response_schema(monkeypatch) -> None:

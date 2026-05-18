@@ -206,28 +206,37 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
                     response_body,
                 )
                 if status == 429:
-                    raise GeminiProcessError(
-                        429,
-                        "Receipt extraction is rate-limited. Try again shortly.",
-                    ) from exc
+                    return _fallback_candidate_from_gemini_failure(
+                        payload,
+                        warning_codes=["gemini_rate_limited"],
+                        warnings=["Receipt extraction is rate-limited. Try again shortly."],
+                    )
                 if status in (401, 403):
-                    raise GeminiProcessError(
-                        502,
-                        "Receipt extraction auth failed. Check Gemini API key configuration.",
-                    ) from exc
+                    return _fallback_candidate_from_gemini_failure(
+                        payload,
+                        warning_codes=["gemini_auth_failed"],
+                        warnings=[
+                            "Receipt extraction auth failed. Check Gemini API key configuration."
+                        ],
+                    )
                 if status in (500, 502, 503, 504) and has_fallback_remaining:
                     last_exception = exc
                     continue
-                raise GeminiProcessError(
-                    502,
-                    "Receipt extraction upstream request failed.",
-                ) from exc
+                return _fallback_candidate_from_gemini_failure(
+                    payload,
+                    warning_codes=["gemini_upstream_unavailable"],
+                    warnings=["Receipt extraction upstream request failed."],
+                )
             except TimeoutError as exc:
                 logger.error("gemini_receipt_failure type=timeout model=%s", model_name)
                 if has_fallback_remaining:
                     last_exception = exc
                     continue
-                raise GeminiProcessError(504, "Receipt extraction timed out.") from exc
+                return _fallback_candidate_from_gemini_failure(
+                    payload,
+                    warning_codes=["gemini_timeout"],
+                    warnings=["Receipt extraction timed out."],
+                )
             except json.JSONDecodeError as exc:
                 logger.error(
                     "gemini_receipt_failure type=invalid_json model=%s error=%s",
@@ -237,20 +246,33 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
                 if has_fallback_remaining:
                     last_exception = exc
                     continue
-                raise GeminiProcessError(502, "Receipt extraction returned invalid JSON.") from exc
+                return _fallback_candidate_from_gemini_failure(
+                    payload,
+                    warning_codes=["gemini_invalid_json"],
+                    warnings=["Receipt extraction returned invalid JSON."],
+                )
             except Exception as exc:
                 logger.exception("gemini_receipt_failure type=unexpected model=%s", model_name)
                 if has_fallback_remaining:
                     last_exception = exc
                     continue
-                raise GeminiProcessError(502, f"Receipt extraction failed: {exc}") from exc
-        raise GeminiProcessError(
-            502,
-            "Receipt extraction upstream request failed.",
-        ) from last_exception
+                return _fallback_candidate_from_gemini_failure(
+                    payload,
+                    warning_codes=["gemini_unexpected_failure"],
+                    warnings=["Receipt extraction failed."],
+                )
+        return _fallback_candidate_from_gemini_failure(
+            payload,
+            warning_codes=["gemini_upstream_unavailable"],
+            warnings=["Receipt extraction upstream request failed."],
+        )
     except TimeoutError as exc:
         logger.error("gemini_receipt_failure type=timeout")
-        raise GeminiProcessError(504, "Receipt extraction timed out.") from exc
+        return _fallback_candidate_from_gemini_failure(
+            payload,
+            warning_codes=["gemini_timeout"],
+            warnings=["Receipt extraction timed out."],
+        )
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         response_body = _truncate_for_log(exc.response.text)
@@ -260,22 +282,71 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
             response_body,
         )
         if status == 429:
-            raise GeminiProcessError(
-                429,
-                "Receipt extraction is rate-limited. Try again shortly.",
-            ) from exc
+            return _fallback_candidate_from_gemini_failure(
+                payload,
+                warning_codes=["gemini_rate_limited"],
+                warnings=["Receipt extraction is rate-limited. Try again shortly."],
+            )
         if status in (401, 403):
-            raise GeminiProcessError(
-                502,
-                "Receipt extraction auth failed. Check Gemini API key configuration.",
-            ) from exc
-        raise GeminiProcessError(502, "Receipt extraction upstream request failed.") from exc
+            return _fallback_candidate_from_gemini_failure(
+                payload,
+                warning_codes=["gemini_auth_failed"],
+                warnings=["Receipt extraction auth failed. Check Gemini API key configuration."],
+            )
+        return _fallback_candidate_from_gemini_failure(
+            payload,
+            warning_codes=["gemini_upstream_unavailable"],
+            warnings=["Receipt extraction upstream request failed."],
+        )
     except json.JSONDecodeError as exc:
         logger.error("gemini_receipt_failure type=invalid_json error=%s", str(exc))
-        raise GeminiProcessError(502, "Receipt extraction returned invalid JSON.") from exc
+        return _fallback_candidate_from_gemini_failure(
+            payload,
+            warning_codes=["gemini_invalid_json"],
+            warnings=["Receipt extraction returned invalid JSON."],
+        )
     except Exception as exc:
         logger.exception("gemini_receipt_failure type=unexpected")
-        raise GeminiProcessError(502, f"Receipt extraction failed: {exc}") from exc
+        return _fallback_candidate_from_gemini_failure(
+            payload,
+            warning_codes=["gemini_unexpected_failure"],
+            warnings=["Receipt extraction failed."],
+        )
+
+
+def _fallback_candidate_from_gemini_failure(
+    payload: ReceiptProcessRequest,
+    *,
+    warning_codes: list[str],
+    warnings: list[str],
+) -> ParsedReceiptCandidate:
+    if payload.ocr_lines:
+        candidate = _parse_receipt_from_ocr_lines(payload.ocr_lines)
+        return candidate.model_copy(
+            update={
+                "warnings": _dedupe_strings([*warnings, *candidate.warnings]),
+                "warning_codes": _dedupe_strings([*warning_codes, *candidate.warning_codes]),
+            }
+        )
+
+    field_confidence = ParsedReceiptFieldConfidence(
+        merchant=0.0,
+        expense_date=0.0,
+        total_amount=0.0,
+        items=0.0,
+    )
+    return ParsedReceiptCandidate(
+        warnings=_dedupe_strings(
+            [
+                *warnings,
+                "Receipt extraction is currently unavailable; review fields manually.",
+            ]
+        ),
+        warning_codes=_dedupe_strings(
+            [*warning_codes, "merchant_missing", "expense_date_missing", "total_amount_missing"]
+        ),
+        field_confidence=field_confidence,
+    )
 
 
 def _parse_receipt_from_ocr_lines(ocr_lines: list[str]) -> ParsedReceiptCandidate:

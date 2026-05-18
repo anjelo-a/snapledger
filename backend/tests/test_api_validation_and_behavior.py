@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -504,6 +505,50 @@ def test_receipt_process_rejects_overlong_total_text(client: TestClient) -> None
     assert response.status_code == 422
     payload = response.json()
     assert payload["error"]["code"] == "validation_error"
+
+
+def test_receipt_process_image_upstream_failure_returns_structured_candidate(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
+    get_settings.cache_clear()
+
+    def fake_call_gemini_extract(**_: object) -> str:
+        request = httpx.Request("POST", "https://example.test")
+        response = httpx.Response(503, request=request)
+        raise httpx.HTTPStatusError("upstream error", request=request, response=response)
+
+    monkeypatch.setattr("app.services.parser_service._call_gemini_extract", fake_call_gemini_extract)
+
+    try:
+        response = client.post(
+            "/v1/receipts/process",
+            json={
+                "image_base64": _tiny_jpeg_base64(),
+                "image_mime_type": "image/jpeg",
+                "ocr_lines": ["ACME MART", "04/29/2026", "TOTAL 123.45"],
+            },
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["merchant"] == "ACME MART"
+    assert payload["total_amount"] == "123.45"
+    assert "gemini_upstream_unavailable" in payload["warning_codes"]
+
+
+def _tiny_jpeg_base64() -> str:
+    return (
+        "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsL"
+        "DBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/"
+        "2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIy"
+        "MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QA"
+        "FAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAI"
+        "AQEAAD8Af//Z"
+    )
 
 
 def _sync_expense_create_mutation(
