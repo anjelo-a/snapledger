@@ -512,31 +512,16 @@ private fun BudgetCard(
     onPeriodChanged: (DashboardBudgetPeriod) -> Unit,
     onManageClick: () -> Unit
 ) {
-    var previousPeriod by remember { mutableStateOf(selectedPeriod) }
     val tiltAngle = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
     val totalBalance = budget.totalIncome - budget.totalExpenses
-
-    LaunchedEffect(selectedPeriod) {
-        if (previousPeriod != selectedPeriod) {
-            val targetAngle = if (selectedPeriod == DashboardBudgetPeriod.MONTHLY) 3f else -3f
-            tiltAngle.animateTo(targetAngle, animationSpec = tween(150))
-            tiltAngle.animateTo(
-                targetValue = 0f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessLow
-                )
-            )
-            previousPeriod = selectedPeriod
-        }
-    }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer {
-                rotationZ = tiltAngle.value
+                rotationY = tiltAngle.value
+                cameraDistance = 12f * density
             },
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF00A86B)),
@@ -602,6 +587,10 @@ private fun BudgetCard(
                             .clip(RoundedCornerShape(15.dp))
                             .noRippleClickable {
                                 if (selectedPeriod != DashboardBudgetPeriod.WEEKLY) {
+                                    coroutineScope.launch {
+                                        tiltAngle.animateTo(-8f, animationSpec = tween(100))
+                                        tiltAngle.animateTo(0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
+                                    }
                                     onPeriodChanged(DashboardBudgetPeriod.WEEKLY)
                                 }
                             },
@@ -621,6 +610,10 @@ private fun BudgetCard(
                             .clip(RoundedCornerShape(15.dp))
                             .noRippleClickable {
                                 if (selectedPeriod != DashboardBudgetPeriod.MONTHLY) {
+                                    coroutineScope.launch {
+                                        tiltAngle.animateTo(8f, animationSpec = tween(100))
+                                        tiltAngle.animateTo(0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
+                                    }
                                     onPeriodChanged(DashboardBudgetPeriod.MONTHLY)
                                 }
                             },
