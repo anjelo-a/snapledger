@@ -2,19 +2,24 @@ package com.snapledger.feature.budget.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +40,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -61,11 +67,15 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
@@ -74,13 +84,13 @@ import com.snapledger.core.ledger.LedgerBudgetPeriod
 import com.snapledger.core.ledger.LedgerRepository
 import com.snapledger.core.ledger.LedgerSnapshot
 import com.snapledger.core.ledger.LedgerTransactionType
+import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
-// OPTIMIZATION: Hoisted formatters and Regex
 private val currencyFormatter = NumberFormat.getCurrencyInstance(Locale("en", "PH"))
 private val amountInputRegex = Regex("^\\d{0,3}(,\\d{3})*(\\.\\d*)?$|^\\d*(\\.\\d*)?$")
 private fun formatPhp(amount: Double): String = currencyFormatter.format(amount).replace("₱", "PHP ")
@@ -139,7 +149,7 @@ fun BudgetRoute(ledgerRepository: LedgerRepository) {
                 val spent = snapshot.transactions
                     .filter {
                         it.type == LedgerTransactionType.EXPENSE &&
-                            it.category.equals(category.name, ignoreCase = true)
+                                it.category.equals(category.name, ignoreCase = true)
                     }
                     .sumOf { it.amount }
 
@@ -201,7 +211,6 @@ fun BudgetScreen(
             .background(Color(0xFFF8F9FA))
             .padding(top = 24.dp)
     ) {
-        // --- 1. STICKY HEADER ---
         Column(modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 16.dp)) {
             Text(
                 text = "Budget",
@@ -217,14 +226,17 @@ fun BudgetScreen(
             )
         }
 
-        // --- 2. SCROLLABLE AREA WITH FADE ---
         Box(modifier = Modifier.weight(1f)) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 120.dp),
+                contentPadding = PaddingValues(
+                    start = 24.dp,
+                    end = 24.dp,
+                    top = 8.dp,
+                    bottom = 40.dp //bottom screen spacing
+                ),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Period Switcher
                 item {
                     BudgetPeriodSwitcher(
                         currentPeriod = uiState.period,
@@ -232,14 +244,12 @@ fun BudgetScreen(
                     )
                 }
 
-                // Main Budget Summary Card (Only show if there are categories)
                 if (uiState.categories.isNotEmpty()) {
                     item {
                         MainBudgetCard(uiState)
                     }
                 }
 
-                // Categories Header
                 item {
                     Row(
                         modifier = Modifier
@@ -277,9 +287,7 @@ fun BudgetScreen(
                     }
                 }
 
-                // Animated Add Category Card
                 item {
-                    // FIX: Wrapped in Column to provide the required ColumnScope
                     Column(modifier = Modifier.fillMaxWidth()) {
                         AnimatedVisibility(
                             visible = isAddingCategory,
@@ -296,22 +304,21 @@ fun BudgetScreen(
                     }
                 }
 
-                // Category List or Empty State
                 if (uiState.categories.isEmpty() && !isAddingCategory) {
                     item {
                         BudgetEmptyState()
                     }
                 } else {
                     items(uiState.categories, key = { it.id }) { category ->
-                        BudgetCategoryCard(
+                        SwipeRevealCategoryCard(
                             category = category,
-                            onEditClicked = { categoryToEdit = category }
+                            onEditClicked = { categoryToEdit = category },
+                            onDeleteClicked = { onDeleteCategory(category.id) }
                         )
                     }
                 }
             }
 
-            // The 12.dp Fading Gradient Overlay
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -326,7 +333,6 @@ fun BudgetScreen(
         }
     }
 
-    // Edit Category Dialog
     if (categoryToEdit != null) {
         EditCategoryDialog(
             category = categoryToEdit!!,
@@ -334,12 +340,113 @@ fun BudgetScreen(
             onSave = { name, allocated ->
                 onSaveEditedCategory(categoryToEdit!!.id, name, allocated)
                 categoryToEdit = null
-            },
-            onDelete = {
-                onDeleteCategory(categoryToEdit!!.id)
-                categoryToEdit = null
             }
         )
+    }
+}
+
+@Composable
+private fun SwipeRevealCategoryCard(
+    category: BudgetCategoryUiModel,
+    onEditClicked: () -> Unit,
+    onDeleteClicked: () -> Unit
+) {
+    val offsetX = remember { Animatable(0f) }
+    val revealWidth = 144.dp //distance of card and actions (edit,delete)
+    val density = LocalDensity.current
+    val revealWidthPx = remember(density) { with(density) { revealWidth.toPx() } }
+    val coroutineScope = rememberCoroutineScope()
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+    ) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 4.dp)
+                .graphicsLayer {
+                    val progress = (revealWidthPx + offsetX.value) / revealWidthPx
+                    translationX = -progress * (revealWidthPx * 0.25f)
+                    this.alpha = (1f - progress).coerceIn(0f, 1f)
+                },
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(60.dp)
+                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF00A86B)) //card color
+                    .clickable {
+                        coroutineScope.launch { offsetX.animateTo(0f) }
+                        onEditClicked()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.Edit, tint = Color(0xFFFFFFFF), contentDescription = "Edit") //icon color and stuff
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(60.dp)
+                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFFFF5252))
+                    .clickable {
+                        coroutineScope.launch { offsetX.animateTo(0f) }
+                        onDeleteClicked()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.Delete, tint = Color(0xFFFFFFFF), contentDescription = "Delete")
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { _, dragAmount ->
+                            coroutineScope.launch {
+                                val newOffset = (offsetX.value + dragAmount).coerceIn(-revealWidthPx, 0f)
+                                offsetX.snapTo(newOffset)
+                            }
+                        },
+                        onDragEnd = {
+                            coroutineScope.launch {
+                                if (offsetX.value < -revealWidthPx / 2) {
+                                    offsetX.animateTo(
+                                        targetValue = -revealWidthPx,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioLowBouncy,
+                                            stiffness = Spring.StiffnessMedium
+                                        )
+                                    )
+                                } else {
+                                    offsetX.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                            stiffness = Spring.StiffnessMedium
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    )
+                }
+        ) {
+            BudgetCategoryCard(category = category)
+        }
     }
 }
 
@@ -437,8 +544,7 @@ private fun AddCategoryInlineCard(onSave: (String, Double) -> Unit) {
 private fun EditCategoryDialog(
     category: BudgetCategoryUiModel,
     onDismiss: () -> Unit,
-    onSave: (String, Double) -> Unit,
-    onDelete: () -> Unit
+    onSave: (String, Double) -> Unit
 ) {
     var selectedCategory by remember { mutableStateOf(category.toBudgetCategoryOption()) }
     var amount by remember { mutableStateOf(category.allocated.toFormattedAmountValue()) }
@@ -481,8 +587,8 @@ private fun EditCategoryDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDelete) {
-                Text("Delete", color = Color(0xFFFF5252))
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = Color(0xFF757575))
             }
         }
     )
@@ -722,8 +828,7 @@ private fun MainBudgetCard(uiState: BudgetUiState) {
 
 @Composable
 private fun BudgetCategoryCard(
-    category: BudgetCategoryUiModel,
-    onEditClicked: () -> Unit
+    category: BudgetCategoryUiModel
 ) {
     val progressColor = remember(category.percentage) {
         when {
@@ -821,44 +926,17 @@ private fun BudgetCategoryCard(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val remainingText = if (category.remaining < 0) {
-                            "-${formatPhp(category.remaining * -1)} over"
-                        } else {
-                            "-${formatPhp(category.remaining)} left"
-                        }
-
-                        Text(
-                            text = remainingText,
-                            fontSize = 12.sp,
-                            color = Color(0xFF9E9E9E)
-                        )
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .noRippleClickable { onEditClicked() }
-                                .padding(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Edit,
-                                contentDescription = "Edit",
-                                tint = Color(0xFF00C875),
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Text(
-                                text = "Edit",
-                                color = Color(0xFF00C875),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(start = 4.dp)
-                            )
-                        }
+                    val remainingText = if (category.remaining < 0) {
+                        "-${formatPhp(category.remaining * -1)} over"
+                    } else {
+                        "-${formatPhp(category.remaining)} left"
                     }
+
+                    Text(
+                        text = remainingText,
+                        fontSize = 12.sp,
+                        color = Color(0xFF9E9E9E)
+                    )
                 }
             }
         }

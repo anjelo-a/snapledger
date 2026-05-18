@@ -1,5 +1,9 @@
 package com.snapledger.navigation
 
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -49,6 +53,17 @@ import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+// Helper to determine order of bottom nav items for lateral sliding
+private fun getBottomNavIndex(route: String?): Int {
+    return when (route) {
+        SnapLedgerDestination.Home.route -> 0
+        SnapLedgerDestination.Budgets.route -> 1
+        SnapLedgerDestination.History.route -> 2
+        "settings" -> 3
+        else -> -1
+    }
+}
+
 @Composable
 fun SnapLedgerNavHost(
     navController: NavHostController,
@@ -95,7 +110,67 @@ fun SnapLedgerNavHost(
     NavHost(
         navController = navController,
         startDestination = SnapLedgerDestination.Home.route,
-        modifier = modifier
+        modifier = modifier,
+        enterTransition = {
+            val fromIndex = getBottomNavIndex(initialState.destination.route)
+            val toIndex = getBottomNavIndex(targetState.destination.route)
+
+            if (fromIndex != -1 && toIndex != -1) {
+                val direction = if (fromIndex < toIndex) {
+                    AnimatedContentTransitionScope.SlideDirection.Left
+                } else {
+                    AnimatedContentTransitionScope.SlideDirection.Right
+                }
+                slideIntoContainer(direction, tween(250))
+            } else {
+                slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Up, tween(250))
+            }
+        },
+        exitTransition = {
+            val fromIndex = getBottomNavIndex(initialState.destination.route)
+            val toIndex = getBottomNavIndex(targetState.destination.route)
+
+            if (fromIndex != -1 && toIndex != -1) {
+                val direction = if (fromIndex < toIndex) {
+                    AnimatedContentTransitionScope.SlideDirection.Left
+                } else {
+                    AnimatedContentTransitionScope.SlideDirection.Right
+                }
+                slideOutOfContainer(direction, tween(250))
+            } else {
+                fadeOut(tween(250))
+            }
+        },
+        popEnterTransition = {
+            val fromIndex = getBottomNavIndex(initialState.destination.route)
+            val toIndex = getBottomNavIndex(targetState.destination.route)
+
+            if (fromIndex != -1 && toIndex != -1) {
+                val direction = if (fromIndex < toIndex) {
+                    AnimatedContentTransitionScope.SlideDirection.Left
+                } else {
+                    AnimatedContentTransitionScope.SlideDirection.Right
+                }
+                slideIntoContainer(direction, tween(250))
+            } else {
+                fadeIn(tween(250))
+            }
+        },
+        popExitTransition = {
+            val fromIndex = getBottomNavIndex(initialState.destination.route)
+            val toIndex = getBottomNavIndex(targetState.destination.route)
+
+            if (fromIndex != -1 && toIndex != -1) {
+                val direction = if (fromIndex < toIndex) {
+                    AnimatedContentTransitionScope.SlideDirection.Left
+                } else {
+                    AnimatedContentTransitionScope.SlideDirection.Right
+                }
+                slideOutOfContainer(direction, tween(250))
+            } else {
+                slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Down, tween(250))
+            }
+        }
     ) {
         composable(SnapLedgerDestination.Home.route) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -116,9 +191,9 @@ fun SnapLedgerNavHost(
             }
         }
         composable(SnapLedgerDestination.Scan.route) {
-            val context = LocalContext.current
+            val scanContext = LocalContext.current
             val scanViewModel: ScanViewModel = viewModel(
-                factory = ScanViewModel.factory(context)
+                factory = ScanViewModel.factory(scanContext)
             )
 
             ScanRoute(
@@ -131,10 +206,14 @@ fun SnapLedgerNavHost(
                 }
             )
         }
-        composable("review") {
-            val context = LocalContext.current
+        composable(
+            route = "review",
+            enterTransition = { slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(250)) },
+            popExitTransition = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(250)) }
+        ) {
+            val reviewContext = LocalContext.current
 
-            val repository = LocalFirstReviewRepository.getInstance(context)
+            val repository = LocalFirstReviewRepository.getInstance(reviewContext)
 
             val reviewViewModel: ReviewViewModel = viewModel(
                 factory = ReviewViewModel.factory(repository)
@@ -206,7 +285,7 @@ private fun LedgerSnapshot.toDashboardState(userName: String): DashboardUiState 
         } ?: true
         val isCurrentWeek = parsedDate?.let { date ->
             date.get(weekFields.weekBasedYear()) == currentWeekYear &&
-                date.get(weekFields.weekOfWeekBasedYear()) == currentWeek
+                    date.get(weekFields.weekOfWeekBasedYear()) == currentWeek
         } ?: true
 
         if (isCurrentMonth) monthlyTransactions += transaction
