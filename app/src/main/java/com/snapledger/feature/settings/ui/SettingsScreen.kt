@@ -29,14 +29,13 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
 import com.snapledger.feature.settings.vm.SettingsUiState
+import com.snapledger.feature.settings.vm.SettingsViewModel
 
 // Utility for clean interactions
 fun Modifier.noRippleClickable(
@@ -71,9 +71,7 @@ fun Modifier.noRippleClickable(
 @Composable
 fun SettingsRoute(
     initialUserName: String,
-    isGoogleLinkBusy: Boolean = false,
-    onNameChanged: (String) -> Unit,
-    onLinkGoogleAccount: () -> Unit = {}
+    onNameChanged: (String) -> Unit
 ) {
     var isDevToolsExpanded by remember { mutableStateOf(false) }
 
@@ -84,9 +82,7 @@ fun SettingsRoute(
 
     SettingsScreen(
         uiState = state,
-        isGoogleLinkBusy = isGoogleLinkBusy,
         onNameChanged = onNameChanged,
-        onLinkGoogleAccount = onLinkGoogleAccount,
         onToggleDevTools = { isDevToolsExpanded = !isDevToolsExpanded }
     )
 }
@@ -94,12 +90,11 @@ fun SettingsRoute(
 @Composable
 fun SettingsScreen(
     uiState: SettingsUiState,
-    isGoogleLinkBusy: Boolean,
     onNameChanged: (String) -> Unit,
-    onLinkGoogleAccount: () -> Unit,
     onToggleDevTools: () -> Unit
 ) {
     var isEditingName by remember { mutableStateOf(false) }
+    // Initialize draft with current name when dialog opens
     var nameDraft by remember { mutableStateOf("") }
 
     Column(
@@ -118,13 +113,14 @@ fun SettingsScreen(
             )
         }
 
+        // --- 2. SCROLLABLE AREA WITH FADE ---
         Box(modifier = Modifier.weight(1f)) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 120.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Profile & Account Section
+                // Profile Section
                 item {
                     Text(
                         text = "Account",
@@ -194,39 +190,6 @@ fun SettingsScreen(
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Google Link Button
-                    OutlinedButton(
-                        onClick = onLinkGoogleAccount,
-                        enabled = !isGoogleLinkBusy,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE0E0E0))
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (isGoogleLinkBusy) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier
-                                        .padding(end = 8.dp)
-                                        .size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color(0xFF00C875)
-                                )
-                            }
-                            Text(
-                                text = "Link Google Account",
-                                color = Color(0xFF1F1F1F),
-                                fontWeight = FontWeight.Medium
-                            )
                         }
                     }
                 }
@@ -313,6 +276,7 @@ fun SettingsScreen(
                 }
             }
 
+            // The 12.dp Fading Gradient Overlay
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

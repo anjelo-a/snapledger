@@ -102,6 +102,7 @@ private fun SnapLedgerAppRoot(
             AppHomeScreen(
                 navController = navController,
                 profile = state.profile,
+                profileRepository = profileRepository,
                 onDisplayNameChange = onDisplayNameChange,
             )
         }

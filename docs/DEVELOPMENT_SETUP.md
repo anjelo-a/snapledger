@@ -53,7 +53,8 @@ In Google Cloud:
 - Create an Android OAuth client for `com.snapledger` with the debug/release SHA fingerprints.
 - Create a Web OAuth client ID.
 
-Set the Web OAuth client ID in root `local.properties`:
+Set the Web OAuth client ID in `local.properties`.
+The app now accepts either the repo root file or `app/local.properties`:
 
 ```properties
 SNAPLEDGER_GOOGLE_WEB_CLIENT_ID=your-web-client-id.apps.googleusercontent.com

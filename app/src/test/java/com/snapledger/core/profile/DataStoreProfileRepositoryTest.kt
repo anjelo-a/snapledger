@@ -105,6 +105,51 @@ class DataStoreProfileRepositoryTest {
         assertNull(profile?.photoUrl)
     }
 
+    @Test
+    fun `clear profile removes local account and returns setup state`() = runTest {
+        val repository = repository(
+            idFactory = { "profile-local" },
+            clockMillis = { 500L },
+        )
+        repository.createLocalProfile("Mina")
+
+        repository.clearProfile()
+
+        assertNull(repository.profileFlow.first())
+    }
+
+    @Test
+    fun `logged out local account remains available in saved profiles`() = runTest {
+        val repository = repository(
+            idFactory = { "profile-local" },
+            clockMillis = { 600L },
+        )
+        repository.createLocalProfile("Mina")
+
+        repository.clearProfile()
+
+        val savedProfiles = repository.savedProfilesFlow.first()
+        assertEquals(1, savedProfiles.size)
+        assertEquals("profile-local", savedProfiles.first().localProfileId)
+        assertEquals("Mina", savedProfiles.first().displayName)
+    }
+
+    @Test
+    fun `can reactivate saved local profile after logout`() = runTest {
+        val repository = repository(
+            idFactory = { "profile-local" },
+            clockMillis = { 700L },
+        )
+        repository.createLocalProfile("Mina")
+        repository.clearProfile()
+
+        val profile = repository.activateProfile("profile-local")
+
+        assertEquals("profile-local", profile?.localProfileId)
+        assertEquals(AccountMode.LOCAL, profile?.accountMode)
+        assertEquals("Mina", repository.profileFlow.first()?.displayName)
+    }
+
     private fun repository(
         idFactory: () -> String,
         clockMillis: () -> Long,

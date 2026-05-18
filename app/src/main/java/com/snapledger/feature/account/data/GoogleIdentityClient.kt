@@ -24,7 +24,7 @@ class GoogleIdentityClient(
     suspend fun signIn(context: Context): GoogleSignInResult {
         if (serverClientId.isBlank()) {
             return GoogleSignInResult.Failure(
-                "Google Sign-In is not configured yet. Add SNAPLEDGER_GOOGLE_WEB_CLIENT_ID to local.properties.",
+                "Google Sign-In is not configured yet. Add SNAPLEDGER_GOOGLE_WEB_CLIENT_ID to root or app/local.properties.",
             )
         }
 
