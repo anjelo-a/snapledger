@@ -116,9 +116,26 @@ class DashboardIncomePeriodTest {
             ),
         ).toDashboardState(userName = "Ada", today = today)
 
-        assertEquals(listOf(10.0, 30.0, 60.0, 100.0, 150.0), state.allTimeTrend.dataPoints)
+        assertEquals(listOf(10.0, 20.0, 30.0, 40.0, 50.0), state.allTimeTrend.dataPoints)
         assertEquals(5, state.allTimeTrend.dataLabels.size)
         assertEquals("All time by month", state.allTimeTrend.period)
+    }
+
+    @Test
+    fun `all-time spending trend compresses many months into readable buckets`() {
+        val transactions = (1..12).map { month ->
+            expense(
+                id = "expense-$month",
+                amount = month.toDouble(),
+                date = "%02d/10/2026".format(month),
+            )
+        }
+
+        val state = LedgerSnapshot(transactions = transactions)
+            .toDashboardState(userName = "Ada", today = today)
+
+        assertEquals(listOf(3.0, 7.0, 11.0, 15.0, 19.0, 23.0), state.allTimeTrend.dataPoints)
+        assertEquals(6, state.allTimeTrend.dataLabels.size)
     }
 
     private fun income(
