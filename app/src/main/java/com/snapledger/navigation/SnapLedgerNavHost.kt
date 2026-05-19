@@ -59,7 +59,6 @@ import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// Helper to determine order of bottom nav items for lateral sliding
 private fun getBottomNavIndex(route: String?): Int {
     return when (route) {
         SnapLedgerDestination.Home.route -> 0
@@ -195,7 +194,9 @@ fun SnapLedgerNavHost(
                         insightActionTip = insightActionTip,
                         isInsightLoading = isInsightLoading,
                     ),
-                    onDisplayNameChange = onDisplayNameChange,
+                    onSettingsClick = {
+                        navController.navigate("settings")
+                    },
                     onManageBudgetClick = {
                         navController.navigate(SnapLedgerDestination.Budgets.route)
                     },
@@ -228,7 +229,11 @@ fun SnapLedgerNavHost(
                 },
             )
         }
-        composable(SnapLedgerDestination.Scan.route) {
+        composable(
+            route = SnapLedgerDestination.Scan.route,
+            enterTransition = { slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Up, tween(300)) },
+            popExitTransition = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Down, tween(300)) }
+        ) {
             val scanContext = LocalContext.current
             val scanViewModel: ScanViewModel = viewModel(
                 factory = ScanViewModel.factory(scanContext)
@@ -279,7 +284,11 @@ fun SnapLedgerNavHost(
         composable(SnapLedgerDestination.Budgets.route) {
             BudgetRoute(ledgerRepository = ledgerRepository)
         }
-        composable(SnapLedgerDestination.AddExpense.route) {
+        composable(
+            route = SnapLedgerDestination.AddExpense.route,
+            enterTransition = { slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Up, tween(300)) },
+            popExitTransition = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Down, tween(300)) }
+        ) {
             AddTransactionRoute(
                 ledgerRepository = ledgerRepository,
                 transactionType = TransactionType.EXPENSE,
@@ -288,7 +297,11 @@ fun SnapLedgerNavHost(
                 }
             )
         }
-        composable(SnapLedgerDestination.AddIncome.route) {
+        composable(
+            route = SnapLedgerDestination.AddIncome.route,
+            enterTransition = { slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Up, tween(300)) },
+            popExitTransition = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Down, tween(300)) }
+        ) {
             AddTransactionRoute(
                 ledgerRepository = ledgerRepository,
                 transactionType = TransactionType.INCOME,
@@ -381,7 +394,6 @@ private fun LedgerTransaction.incomeAppliesTo(period: LedgerBudgetPeriod): Boole
     }
 }
 
-// FIX: Generate cumulative data points so the chart renders properly
 private fun LedgerSnapshot.buildTrendSummary(today: LocalDate = LocalDate.now()): TrendSummary {
     val previousMonth = today.minusMonths(1)
     var thisMonth = 0.0
@@ -408,7 +420,6 @@ private fun LedgerSnapshot.buildTrendSummary(today: LocalDate = LocalDate.now())
         }
     }
 
-    // Cumulative sum gives the line an upward trend throughout the month
     val cumulativePoints = listOf(
         week1,
         week1 + week2,
