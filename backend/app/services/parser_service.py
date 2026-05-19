@@ -211,6 +211,8 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
                     response_body,
                 )
                 if status == 429:
+                    if has_fallback_remaining:
+                        continue
                     return _fallback_candidate_from_gemini_failure(
                         payload,
                         warning_codes=["gemini_rate_limited"],
