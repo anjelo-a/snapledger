@@ -46,3 +46,8 @@ class SyncPullResponse(StrictSchema):
     cursor: str
     has_more: bool
     changes: list[SyncPullChange]
+
+
+class SyncAccountDeleteResponse(StrictSchema):
+    deleted_expenses: int
+    deleted_logs: int

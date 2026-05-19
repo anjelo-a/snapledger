@@ -36,6 +36,8 @@ interface ProfileRepository {
     suspend fun activateProfile(localProfileId: String): UserProfile?
 
     suspend fun getProfile(localProfileId: String): UserProfile?
+
+    suspend fun deleteProfile(localProfileId: String)
 }
 
 private val Context.snapLedgerProfileDataStore: DataStore<Preferences> by preferencesDataStore(
@@ -158,6 +160,29 @@ class DataStoreProfileRepository(
         return dataStore.data.first()
             .toStoredProfiles()
             .firstOrNull { it.localProfileId == localProfileId }
+    }
+
+    override suspend fun deleteProfile(localProfileId: String) {
+        dataStore.edit { preferences ->
+            val remainingProfiles = preferences.toStoredProfiles()
+                .filterNot { it.localProfileId == localProfileId }
+            val currentProfile = preferences.toProfileOrNull()
+            if (currentProfile?.localProfileId == localProfileId) {
+                preferences.remove(CURRENT_PROFILE_ID)
+                preferences.remove(LOCAL_PROFILE_ID)
+                preferences.remove(ACCOUNT_MODE)
+                preferences.remove(DISPLAY_NAME)
+                preferences.remove(GOOGLE_SUBJECT)
+                preferences.remove(EMAIL)
+                preferences.remove(PHOTO_URL)
+                preferences.remove(CREATED_AT_MILLIS)
+            }
+            if (remainingProfiles.isEmpty()) {
+                preferences.remove(SAVED_PROFILES)
+            } else {
+                preferences.writeSavedProfiles(remainingProfiles)
+            }
+        }
     }
 
     private fun Preferences.toProfileOrNull(): UserProfile? {

@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from pydantic import Field, ValidationError
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
@@ -19,6 +19,7 @@ from app.models.sync_mutation_log import SyncMutationLog
 from app.repositories.expense_repo import ExpenseRepository
 from app.schemas.expense import ExpenseItemWrite, ExpenseWrite
 from app.schemas.sync import (
+    SyncAccountDeleteResponse,
     SyncMutation,
     SyncMutationResult,
     SyncPullChange,
@@ -136,6 +137,37 @@ class SyncService:
             cursor=next_cursor,
             has_more=has_more,
             changes=changes,
+        )
+
+    @staticmethod
+    def delete_account(db: Session, *, owner_key: str) -> SyncAccountDeleteResponse:
+        try:
+            expenses = list(
+                db.scalars(
+                    select(Expense)
+                    .where(Expense.owner_key == owner_key)
+                    .options(selectinload(Expense.items))
+                ).all()
+            )
+            deleted_expenses = len(expenses)
+            for expense in expenses:
+                db.delete(expense)
+
+            deleted_logs = db.execute(
+                delete(SyncMutationLog).where(
+                    SyncMutationLog.idempotency_key.like(f"{owner_key}::%"),
+                )
+            ).rowcount or 0
+            db.commit()
+        except SQLAlchemyError as exc:
+            db.rollback()
+            raise ServiceUnavailableError(
+                "Database operation failed while deleting synced account data."
+            ) from exc
+
+        return SyncAccountDeleteResponse(
+            deleted_expenses=deleted_expenses,
+            deleted_logs=deleted_logs,
         )
 
 

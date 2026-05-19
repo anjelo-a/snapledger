@@ -186,6 +186,28 @@ class DataStoreProfileRepositoryTest {
         assertEquals("Mina", repository.profileFlow.first()?.displayName)
     }
 
+    @Test
+    fun `deleting current profile removes it from saved profiles and clears session`() = runTest {
+        val repository = repository(
+            idFactory = { "profile-delete" },
+            clockMillis = { 800L },
+        )
+        repository.createGoogleProfile(
+            candidate = GoogleProfileCandidate(
+                googleSubject = "google-subject-delete",
+                email = "delete@example.com",
+                displayName = "Delete Me",
+                photoUrl = null,
+            ),
+            displayName = "Delete Me",
+        )
+
+        repository.deleteProfile("profile-delete")
+
+        assertNull(repository.profileFlow.first())
+        assertEquals(emptyList<SavedProfileOption>(), repository.savedProfilesFlow.first())
+    }
+
     private fun repository(
         idFactory: () -> String,
         clockMillis: () -> Long,

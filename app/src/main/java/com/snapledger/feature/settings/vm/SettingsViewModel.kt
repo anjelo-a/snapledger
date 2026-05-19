@@ -6,12 +6,19 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.snapledger.core.profile.AccountMode
 import com.snapledger.core.profile.ProfileRepository
+import com.snapledger.core.profile.toProfileSession
+import com.snapledger.core.sync.ReceiptSyncWorker
+import com.snapledger.feature.review.domain.LocalFirstReviewRepository
+import com.snapledger.feature.review.data.ReviewLocalDatabase
 import com.snapledger.feature.account.data.GoogleIdentityClient
+import com.snapledger.feature.settings.data.AccountDeletionService
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import androidx.work.WorkManager
 
 data class SettingsUiState(
     val userName: String = "",
@@ -24,6 +31,7 @@ data class SettingsUiState(
 class SettingsViewModel(
     private val profileRepository: ProfileRepository,
     private val googleIdentityClient: GoogleIdentityClient = GoogleIdentityClient(),
+    private val accountDeletionService: AccountDeletionService = AccountDeletionService(),
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = mutableUiState.asStateFlow()
@@ -73,10 +81,40 @@ class SettingsViewModel(
         }
     }
 
+    fun deleteAccount(context: Context) {
+        viewModelScope.launch {
+            mutableUiState.update { it.copy(isSaving = true) }
+            val profile = profileRepository.profileFlow.first()
+            if (profile == null) {
+                mutableUiState.update { it.copy(isSaving = false) }
+                return@launch
+            }
+
+            val session = profile.toProfileSession()
+            if (session.cloudSyncEnabled) {
+                session.syncOwnerKey?.let { ownerKey ->
+                    accountDeletionService.deleteRemoteAccountData(ownerKey)
+                }
+                googleIdentityClient.clearCredentialState(context)
+            }
+
+            WorkManager.getInstance(context.applicationContext).cancelUniqueWork(
+                ReceiptSyncWorker.uniqueWorkName(profile.localProfileId),
+            )
+            LocalFirstReviewRepository.removeInstance(profile.localProfileId)
+            ReviewLocalDatabase.deleteProfileDatabase(
+                context = context.applicationContext,
+                profileId = profile.localProfileId,
+            )
+            profileRepository.deleteProfile(profile.localProfileId)
+        }
+    }
+
     companion object {
         fun factory(
             profileRepository: ProfileRepository,
             googleIdentityClient: GoogleIdentityClient = GoogleIdentityClient(),
+            accountDeletionService: AccountDeletionService = AccountDeletionService(),
         ): ViewModelProvider.Factory {
             return object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
@@ -84,6 +122,7 @@ class SettingsViewModel(
                     return SettingsViewModel(
                         profileRepository = profileRepository,
                         googleIdentityClient = googleIdentityClient,
+                        accountDeletionService = accountDeletionService,
                     ) as T
                 }
             }

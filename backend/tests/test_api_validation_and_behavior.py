@@ -891,6 +891,37 @@ def test_sync_pull_scopes_changes_per_owner_key(client: TestClient) -> None:
     assert other_owner_pull.json()["changes"] == []
 
 
+def test_sync_account_delete_removes_owner_scoped_remote_data(client: TestClient) -> None:
+    owner_key = "google:delete-owner"
+    client.post(
+        "/v1/sync/push",
+        headers=_sync_headers(owner_key),
+        json={
+            "mutations": [
+                _sync_expense_create_mutation(
+                    idempotency_key="delete-owner-create",
+                    receipt_id="delete-owner-receipt",
+                    merchant="Delete Owner Merchant",
+                )
+            ],
+        },
+    )
+
+    response = client.delete(
+        "/v1/sync/account",
+        headers=_sync_headers(owner_key),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["deleted_expenses"] == 1
+    assert payload["deleted_logs"] >= 1
+
+    pulled = client.get("/v1/sync/pull", headers=_sync_headers(owner_key))
+    assert pulled.status_code == 200
+    assert pulled.json()["changes"] == []
+
+
 def test_sync_pull_returns_delete_tombstones_after_cursor(client: TestClient) -> None:
     receipt_id = "pull-delete-001"
     created = client.post(
