@@ -3,6 +3,18 @@
 The extraction baseline has two versioned datasets:
 - `receipt_canary.jsonl`: frozen regression guardrail, run on every backend PR.
 - `receipt_full.jsonl`: working benchmark set, run on extraction-sensitive PRs and nightly.
+- `receipt_non_fabrication_fields.jsonl`: field-level null-on-uncertainty checks for
+  merchant, date, total, and items.
+- `receipt_injection.jsonl`: mocked Gemini adversarial responses that must be discarded with
+  `GEMINI_PROMPT_INJECTION_DETECTED`.
+
+Additional guardrail eval lanes:
+- `insight_guardrail_adversarial.jsonl`: verifies read-only insight guardrails block mutation,
+  secret, and raw OCR/database requests.
+- `insight_contract_robustness.jsonl`: verifies insight chat returns the structured response
+  envelope for edge inputs.
+- `sync_determinism_stress.jsonl`: verifies sync idempotency, unsupported entity rejection,
+  retry-storm determinism, and delete tombstones.
 
 ## Scale and composition
 - `canary`: 8 receipts.
@@ -62,4 +74,14 @@ cd backend
 .venv/bin/python scripts/manage_receipt_eval_staging.py stats
 .venv/bin/python scripts/manage_receipt_eval_staging.py approve --all-clean
 .venv/bin/python scripts/manage_receipt_eval_staging.py promote --target evals/receipt_full.jsonl --prefix real --limit 10
+```
+
+## Phase guardrail eval commands
+```bash
+cd backend
+.venv/bin/python scripts/run_receipt_eval.py --dataset evals/receipt_non_fabrication_fields.jsonl
+.venv/bin/python scripts/run_receipt_eval.py --dataset evals/receipt_injection.jsonl
+.venv/bin/python scripts/run_insight_eval.py --dataset evals/insight_guardrail_adversarial.jsonl
+.venv/bin/python scripts/run_insight_eval.py --dataset evals/insight_contract_robustness.jsonl
+.venv/bin/python scripts/run_sync_eval.py --dataset evals/sync_determinism_stress.jsonl
 ```
