@@ -99,8 +99,12 @@ data class DashboardUiState(
     val userName: String = "",
     val monthlyBudget: BudgetSummary = BudgetSummary(),
     val weeklyBudget: BudgetSummary = BudgetSummary(),
+    val allTimeBudget: BudgetSummary = BudgetSummary(),
     val alert: AlertSummary? = null,
     val trend: TrendSummary = TrendSummary(),
+    val weeklyTrend: TrendSummary = TrendSummary(),
+    val monthlyTrend: TrendSummary = trend,
+    val allTimeTrend: TrendSummary = TrendSummary(),
     val insight: String? = null,
     val insightActionTip: String? = null,
     val isInsightLoading: Boolean = false,
@@ -112,7 +116,11 @@ data class DashboardUiState(
     val hasUnreadNotifications: Boolean get() = notifications.any { it.isUnread }
 }
 
-enum class DashboardBudgetPeriod { WEEKLY, MONTHLY }
+enum class DashboardBudgetPeriod(val label: String) {
+    WEEKLY("Weekly"),
+    MONTHLY("Monthly"),
+    ALL_TIME("All Time"),
+}
 
 data class BudgetSummary(
     val limit: Double = 0.0,
@@ -135,7 +143,8 @@ data class TrendSummary(
     val percentageChange: Double = 0.0,
     val isUp: Boolean = true,
     val period: String = "Last 4 weeks",
-    val dataPoints: List<Double> = emptyList()
+    val dataPoints: List<Double> = emptyList(),
+    val dataLabels: List<String> = emptyList(),
 )
 
 data class CategorySummary(
@@ -196,11 +205,32 @@ fun DashboardScreen(
     var nameDraft by remember { mutableStateOf(state.userName) }
     var showNotifications by remember { mutableStateOf(false) }
     var selectedBudgetPeriod by remember { mutableStateOf(DashboardBudgetPeriod.MONTHLY) }
-    val selectedBudget by remember(state.weeklyBudget, state.monthlyBudget, selectedBudgetPeriod) {
+    var selectedTrendPeriod by remember { mutableStateOf(DashboardBudgetPeriod.MONTHLY) }
+    val selectedBudget by remember(
+        state.weeklyBudget,
+        state.monthlyBudget,
+        state.allTimeBudget,
+        selectedBudgetPeriod,
+    ) {
         derivedStateOf {
             when (selectedBudgetPeriod) {
                 DashboardBudgetPeriod.WEEKLY -> state.weeklyBudget
                 DashboardBudgetPeriod.MONTHLY -> state.monthlyBudget
+                DashboardBudgetPeriod.ALL_TIME -> state.allTimeBudget
+            }
+        }
+    }
+    val selectedTrend by remember(
+        state.weeklyTrend,
+        state.monthlyTrend,
+        state.allTimeTrend,
+        selectedTrendPeriod,
+    ) {
+        derivedStateOf {
+            when (selectedTrendPeriod) {
+                DashboardBudgetPeriod.WEEKLY -> state.weeklyTrend
+                DashboardBudgetPeriod.MONTHLY -> state.monthlyTrend
+                DashboardBudgetPeriod.ALL_TIME -> state.allTimeTrend
             }
         }
     }
@@ -237,7 +267,13 @@ fun DashboardScreen(
                     item { AlertCard(alert = state.alert) }
                 }
 
-                item { TrendCard(trend = state.trend) }
+                item {
+                    TrendCard(
+                        trend = selectedTrend,
+                        selectedPeriod = selectedTrendPeriod,
+                        onPeriodChanged = { selectedTrendPeriod = it },
+                    )
+                }
 
                 item {
                     InsightEntryCard(
@@ -527,7 +563,11 @@ private fun BudgetCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (selectedPeriod == DashboardBudgetPeriod.WEEKLY) "Weekly budget" else "Monthly budget",
+                    text = when (selectedPeriod) {
+                        DashboardBudgetPeriod.WEEKLY -> "Weekly budget"
+                        DashboardBudgetPeriod.MONTHLY -> "Monthly budget"
+                        DashboardBudgetPeriod.ALL_TIME -> "All-time budget"
+                    },
                     color = Color.White,
                     fontSize = 14.sp
                 )
@@ -553,77 +593,73 @@ private fun BudgetCard(
                 modifier = Modifier
                     .padding(top = 14.dp)
                     .height(34.dp)
-                    .width(180.dp)
+                    .fillMaxWidth()
                     .background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(18.dp))
                     .padding(3.dp)
             ) {
-                val tabWidth = 87.dp
+                val periods = DashboardBudgetPeriod.entries
                 val offsetX by animateDpAsState(
-                    targetValue = if (selectedPeriod == DashboardBudgetPeriod.WEEKLY) 0.dp else tabWidth,
+                    targetValue = when (selectedPeriod) {
+                        DashboardBudgetPeriod.WEEKLY -> 0.dp
+                        DashboardBudgetPeriod.MONTHLY -> 1.dp
+                        DashboardBudgetPeriod.ALL_TIME -> 2.dp
+                    },
                     animationSpec = tween(durationMillis = 200),
                     label = "sliderAnim"
                 )
 
-                Box(
-                    modifier = Modifier
-                        .offset(x = offsetX)
-                        .width(tabWidth)
-                        .fillMaxHeight()
-                        .background(Color.White, RoundedCornerShape(15.dp))
-                )
-
                 Row(modifier = Modifier.fillMaxSize()) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(15.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
+                    periods.forEachIndexed { index, period ->
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (selectedPeriod == period) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.White, RoundedCornerShape(15.dp))
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(15.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ) {
+                                        if (selectedPeriod != period) {
+                                            coroutineScope.launch {
+                                                val direction = index - offsetX.value.toInt()
+                                                tiltAngle.animateTo(
+                                                    targetValue = if (direction < 0) -8f else 8f,
+                                                    animationSpec = tween(100),
+                                                )
+                                                tiltAngle.animateTo(
+                                                    targetValue = 0f,
+                                                    animationSpec = spring(
+                                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                        stiffness = Spring.StiffnessLow,
+                                                    ),
+                                                )
+                                            }
+                                            onPeriodChanged(period)
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center,
                             ) {
-                                if (selectedPeriod != DashboardBudgetPeriod.WEEKLY) {
-                                    coroutineScope.launch {
-                                        tiltAngle.animateTo(-8f, animationSpec = tween(100))
-                                        tiltAngle.animateTo(0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
-                                    }
-                                    onPeriodChanged(DashboardBudgetPeriod.WEEKLY)
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Weekly",
-                            color = if (offsetX < (tabWidth / 2)) Color(0xFF00A86B) else Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(15.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                if (selectedPeriod != DashboardBudgetPeriod.MONTHLY) {
-                                    coroutineScope.launch {
-                                        tiltAngle.animateTo(8f, animationSpec = tween(100))
-                                        tiltAngle.animateTo(0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
-                                    }
-                                    onPeriodChanged(DashboardBudgetPeriod.MONTHLY)
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Monthly",
-                            color = if (offsetX >= (tabWidth / 2)) Color(0xFF00A86B) else Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                                Text(
+                                    text = period.label,
+                                    color = if (selectedPeriod == period) {
+                                        Color(0xFF00A86B)
+                                    } else {
+                                        Color.White
+                                    },
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -785,7 +821,11 @@ private fun AlertCard(alert: AlertSummary) {
 }
 
 @Composable
-private fun TrendCard(trend: TrendSummary) {
+private fun TrendCard(
+    trend: TrendSummary,
+    selectedPeriod: DashboardBudgetPeriod,
+    onPeriodChanged: (DashboardBudgetPeriod) -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -826,8 +866,10 @@ private fun TrendCard(trend: TrendSummary) {
                 }
             }
 
-            val lineColor = if (trend.isUp) Color(0xFFD32F2F) else Color(0xFF00A86B)
+            val lineColor = Color(0xFF00A86B)
             val gradientColors = listOf(lineColor.copy(alpha = 0.3f), Color.Transparent)
+            val chartPoints = trend.dataPoints.takeIf { it.isNotEmpty() }
+                ?: listOf(0.0, 0.0, 0.0, 0.0)
 
             Canvas(
                 modifier = Modifier
@@ -835,18 +877,16 @@ private fun TrendCard(trend: TrendSummary) {
                     .height(100.dp)
                     .padding(top = 24.dp)
             ) {
-                if (trend.dataPoints.isEmpty()) return@Canvas
-
-                val maxPoint = trend.dataPoints.maxOrNull() ?: 1.0
-                val minPoint = trend.dataPoints.minOrNull() ?: 0.0
+                val maxPoint = chartPoints.maxOrNull() ?: 1.0
+                val minPoint = chartPoints.minOrNull() ?: 0.0
                 val range = (maxPoint - minPoint).takeIf { it > 0 } ?: 1.0
                 val yMultiplier = size.height / range
-                val xStep = size.width / (trend.dataPoints.size - 1).coerceAtLeast(1)
+                val xStep = size.width / (chartPoints.size - 1).coerceAtLeast(1)
 
                 val path = Path()
                 val fillPath = Path()
 
-                trend.dataPoints.forEachIndexed { index, value ->
+                chartPoints.forEachIndexed { index, value ->
                     val x = index * xStep
                     val y = size.height - ((value - minPoint) * yMultiplier).toFloat()
 
@@ -876,20 +916,85 @@ private fun TrendCard(trend: TrendSummary) {
                 )
             }
 
-            if (trend.dataPoints.isNotEmpty()) {
+            val labels = trend.dataLabels.takeIf { it.size == trend.dataPoints.size }
+                ?: defaultTrendLabels(trend.dataPoints.size)
+            if (labels.isNotEmpty()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(text = "W1", color = Color(0xFF9E9E9E), fontSize = 12.sp)
-                    Text(text = "W2", color = Color(0xFF9E9E9E), fontSize = 12.sp)
-                    Text(text = "W3", color = Color(0xFF9E9E9E), fontSize = 12.sp)
-                    Text(text = "W4", color = Color(0xFF9E9E9E), fontSize = 12.sp)
+                    labels.forEach { label ->
+                        Text(
+                            text = label,
+                            color = Color(0xFF9E9E9E),
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
+
+            TrendPeriodSwitcher(
+                selectedPeriod = selectedPeriod,
+                onPeriodChanged = onPeriodChanged,
+                modifier = Modifier
+                    .padding(top = 16.dp)
+                    .fillMaxWidth(),
+            )
         }
+    }
+}
+
+@Composable
+private fun TrendPeriodSwitcher(
+    selectedPeriod: DashboardBudgetPeriod,
+    onPeriodChanged: (DashboardBudgetPeriod) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .height(36.dp)
+            .background(Color(0xFFF1F8F5), RoundedCornerShape(18.dp))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        DashboardBudgetPeriod.entries.forEach { period ->
+            val isSelected = selectedPeriod == period
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(if (isSelected) Color(0xFF00A86B) else Color.Transparent)
+                    .noRippleClickable {
+                        if (!isSelected) onPeriodChanged(period)
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = period.label,
+                    color = if (isSelected) Color.White else Color(0xFF757575),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+private fun defaultTrendLabels(size: Int): List<String> {
+    return when (size) {
+        0 -> emptyList()
+        1 -> listOf("Now")
+        2 -> listOf("Prev", "Now")
+        3 -> listOf("P1", "P2", "P3")
+        4 -> listOf("W1", "W2", "W3", "W4")
+        else -> (1..size).map { it.toString() }
     }
 }
 
