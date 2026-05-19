@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -30,9 +30,10 @@ def _validation_error_response(message: str) -> JSONResponse:
 def push_sync(
     payload: SyncPushRequest,
     db: Annotated[Session, Depends(get_db)],
+    owner_key: Annotated[str | None, Header(alias="x-sync-owner")] = None,
 ) -> SyncPushResponse | JSONResponse:
     try:
-        return SyncService.push(db, payload)
+        return SyncService.push(db, payload, owner_key=_normalize_owner_key(owner_key))
     except SyncPayloadValidationError as exc:
         return _validation_error_response(str(exc))
     except DomainError as exc:
@@ -43,10 +44,20 @@ def push_sync(
 def pull_sync(
     db: Annotated[Session, Depends(get_db)],
     cursor: str = Query(default="0"),
+    owner_key: Annotated[str | None, Header(alias="x-sync-owner")] = None,
 ) -> SyncPullResponse | JSONResponse:
     try:
-        return SyncService.pull(db, cursor)
+        return SyncService.pull(db, cursor, owner_key=_normalize_owner_key(owner_key))
     except SyncPayloadValidationError as exc:
         return _validation_error_response(str(exc))
     except DomainError as exc:
         raise to_http_exception(exc) from exc
+
+
+def _normalize_owner_key(owner_key: str | None) -> str:
+    normalized = (owner_key or "public").strip()
+    if not normalized:
+        return "public"
+    if len(normalized) > 191:
+        raise SyncPayloadValidationError("Sync owner key must be at most 191 characters.")
+    return normalized

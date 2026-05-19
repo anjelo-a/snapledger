@@ -3,9 +3,14 @@ package com.snapledger.feature.review.domain
 import android.content.Context
 import com.snapledger.core.ledger.DataStoreLedgerRepository
 import com.snapledger.core.ledger.LedgerRepository
+import com.snapledger.core.ledger.LedgerIncomePeriod
 import com.snapledger.core.ledger.LedgerTransactionSource
 import com.snapledger.core.ledger.LedgerTransactionType
+import com.snapledger.core.profile.AccountMode
+import com.snapledger.core.profile.ProfileSession
+import com.snapledger.core.profile.ProfileSessionResolver
 import com.snapledger.feature.review.data.ReviewLocalDatabase
+import com.snapledger.feature.review.data.RoomReviewLocalReceiptStore
 import com.snapledger.feature.review.data.RoomReviewAtomicSaveStore
 import com.snapledger.core.sync.WorkManagerReviewSyncDispatcher
 import com.snapledger.feature.scan.domain.ParsedReceiptCandidate
@@ -96,8 +101,10 @@ interface ReviewSyncDispatcher {
 }
 
 class LocalFirstReviewRepository(
+    private val localReceiptStore: ReviewLocalReceiptStore,
     private val atomicSaveStore: ReviewAtomicSaveStore,
     private val syncDispatcher: ReviewSyncDispatcher,
+    private val profileSession: ProfileSession,
     private val ledgerRepository: LedgerRepository? = null,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
     private val clock: () -> Long = { System.currentTimeMillis() },
@@ -131,11 +138,14 @@ class LocalFirstReviewRepository(
             payloadSnapshot = receiptRecord.toSyncPayloadSnapshot(),
             queuedAtMillis = now,
         )
-
-        atomicSaveStore.saveReceiptAndQueue(
-            receiptRecord = receiptRecord,
-            syncRecord = syncRecord,
-        )
+        if (profileSession.cloudSyncEnabled) {
+            atomicSaveStore.saveReceiptAndQueue(
+                receiptRecord = receiptRecord,
+                syncRecord = syncRecord,
+            )
+        } else {
+            localReceiptStore.saveReceipt(receiptRecord)
+        }
         ledgerRepository?.saveTransaction(
             type = LedgerTransactionType.EXPENSE,
             amount = receiptRecord.totalAmountMinor.toDouble() / 100.0,
@@ -143,12 +153,25 @@ class LocalFirstReviewRepository(
             date = receiptRecord.expenseDate,
             note = null,
             category = validatedState.category,
+            incomePeriod = LedgerIncomePeriod.BOTH,
             transactionId = receiptRecord.receiptId,
             source = LedgerTransactionSource.SCAN,
-            syncToBackend = false,
+            syncToBackend = profileSession.cloudSyncEnabled,
         )
 
-        return try {
+        return if (!profileSession.cloudSyncEnabled) {
+            latestDraft = validateReviewState(
+                validatedState.copy(
+                    isSaving = false,
+                    saveStatusMessage = "Saved locally as ${receiptRecord.receiptId}. Cloud sync is only enabled for Google-linked profiles.",
+                ),
+            )
+            ReviewSaveResult.Success(
+                receiptId = receiptRecord.receiptId,
+                syncQueueId = syncRecord.queueId,
+                dispatchedSyncAttempt = false,
+            )
+        } else try {
             syncDispatcher.dispatch(syncRecord)
             latestDraft = validateReviewState(
                 validatedState.copy(
@@ -203,10 +226,24 @@ class LocalFirstReviewRepository(
         }
 
         private fun buildRepository(applicationContext: Context): LocalFirstReviewRepository {
-            val database = ReviewLocalDatabase.getInstance(applicationContext)
+            val profileSession = ProfileSessionResolver.resolveActiveSession(applicationContext)
+                ?: ProfileSession(
+                    localProfileId = "local-default",
+                    accountMode = AccountMode.LOCAL,
+                    googleSubject = null,
+                )
+            val database = ReviewLocalDatabase.getInstance(
+                context = applicationContext,
+                profileId = profileSession.localProfileId,
+            )
             return LocalFirstReviewRepository(
+                localReceiptStore = RoomReviewLocalReceiptStore(database),
                 atomicSaveStore = RoomReviewAtomicSaveStore(database),
-                syncDispatcher = WorkManagerReviewSyncDispatcher(applicationContext),
+                syncDispatcher = WorkManagerReviewSyncDispatcher(
+                    context = applicationContext,
+                    profileSession = profileSession,
+                ),
+                profileSession = profileSession,
                 ledgerRepository = DataStoreLedgerRepository.getInstance(applicationContext),
             )
         }

@@ -18,6 +18,8 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.snapledger.core.profile.AccountMode
+import com.snapledger.core.profile.ProfileSession
 import com.snapledger.feature.review.domain.LocalFirstReviewRepository
 import com.snapledger.feature.review.domain.ReviewAtomicSaveStore
 import com.snapledger.feature.review.domain.LocalReceiptRecord
@@ -42,8 +44,14 @@ class ReceiptFlowSmokeTest {
     fun mockScanParseReviewAndSaveFlow() {
         val atomicSaveStore = RecordingAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
+            localReceiptStore = RecordingLocalReceiptStore(),
             atomicSaveStore = atomicSaveStore,
             syncDispatcher = NoOpSyncDispatcher,
+            profileSession = ProfileSession(
+                localProfileId = "profile-google",
+                accountMode = AccountMode.GOOGLE,
+                googleSubject = "subject-123",
+            ),
             idGenerator = sequentialIds(),
             clock = { 1_777_000_000_000L },
         )
@@ -140,6 +148,10 @@ private class RecordingAtomicSaveStore : ReviewAtomicSaveStore {
         savedReceipts += receiptRecord
         queuedRecords += syncRecord
     }
+}
+
+private class RecordingLocalReceiptStore : com.snapledger.feature.review.domain.ReviewLocalReceiptStore {
+    override suspend fun saveReceipt(record: LocalReceiptRecord) = Unit
 }
 
 private object NoOpSyncDispatcher : ReviewSyncDispatcher {

@@ -186,7 +186,7 @@ private fun AccountSetupScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = "Google sign-in only identifies this local profile. Ledger data stays on this device unless you choose a network feature like receipt extraction.",
+            text = "Local profiles stay on this device. Google-linked profiles keep a separate ledger and sync it across devices signed in to the same Google account.",
             color = Color(0xFF757575),
             fontSize = 12.sp,
             textAlign = TextAlign.Center,

@@ -54,7 +54,7 @@ class SyncService:
     """Phase 4 receipts-first sync workflows."""
 
     @staticmethod
-    def push(db: Session, payload: SyncPushRequest) -> SyncPushResponse:
+    def push(db: Session, payload: SyncPushRequest, *, owner_key: str) -> SyncPushResponse:
         results: list[SyncMutationResult] = []
         recorded_results: dict[str, SyncMutationResult] = {}
         try:
@@ -63,15 +63,16 @@ class SyncService:
                     results.append(recorded_results[mutation.idempotency_key])
                     continue
 
-                existing = db.get(SyncMutationLog, mutation.idempotency_key)
+                log_key = _namespaced_idempotency_key(owner_key, mutation.idempotency_key)
+                existing = db.get(SyncMutationLog, log_key)
                 if existing is not None:
                     result = _result_from_log(existing)
                     recorded_results[mutation.idempotency_key] = result
                     results.append(result)
                     continue
 
-                result = _apply_mutation(db, mutation)
-                db.add(_log_from_result(result))
+                result = _apply_mutation(db, mutation, owner_key=owner_key)
+                db.add(_log_from_result(result, namespaced_idempotency_key=log_key))
                 recorded_results[mutation.idempotency_key] = result
                 results.append(result)
 
@@ -92,10 +93,14 @@ class SyncService:
         )
 
     @staticmethod
-    def pull(db: Session, cursor: str) -> SyncPullResponse:
+    def pull(db: Session, cursor: str, *, owner_key: str) -> SyncPullResponse:
         try:
             cursor_key = _decode_pull_cursor(cursor)
-            stmt = select(Expense).options(selectinload(Expense.items))
+            stmt = (
+                select(Expense)
+                .where(Expense.owner_key == owner_key)
+                .options(selectinload(Expense.items))
+            )
             if cursor_key is not None:
                 updated_at, expense_id = cursor_key
                 stmt = stmt.where(
@@ -134,7 +139,7 @@ class SyncService:
         )
 
 
-def _apply_mutation(db: Session, mutation: SyncMutation) -> SyncMutationResult:
+def _apply_mutation(db: Session, mutation: SyncMutation, *, owner_key: str) -> SyncMutationResult:
     if mutation.entity != "expense":
         return SyncMutationResult(
             idempotency_key=mutation.idempotency_key,
@@ -147,18 +152,20 @@ def _apply_mutation(db: Session, mutation: SyncMutation) -> SyncMutationResult:
 
     receipt_id = _extract_receipt_id(mutation.payload)
     if mutation.operation == "create":
-        return _create_expense(db, mutation, receipt_id)
+        return _create_expense(db, mutation, receipt_id, owner_key=owner_key)
     if mutation.operation == "update":
-        return _update_expense(db, mutation, receipt_id)
-    return _delete_expense(db, mutation, receipt_id)
+        return _update_expense(db, mutation, receipt_id, owner_key=owner_key)
+    return _delete_expense(db, mutation, receipt_id, owner_key=owner_key)
 
 
 def _create_expense(
     db: Session,
     mutation: SyncMutation,
     receipt_id: str,
+    *,
+    owner_key: str,
 ) -> SyncMutationResult:
-    if db.get(Expense, receipt_id) is not None:
+    if _get_expense(db, receipt_id, owner_key=owner_key) is not None:
         return _rejected_result(
             mutation=mutation,
             entity_id=receipt_id,
@@ -169,6 +176,7 @@ def _create_expense(
     payload = _validate_payload(ExpenseWrite, mutation.payload, exclude_id=True)
     expense = Expense(
         id=receipt_id,
+        owner_key=owner_key,
         source=payload.source,
         merchant=payload.merchant,
         expense_date=payload.expense_date,
@@ -197,9 +205,11 @@ def _update_expense(
     db: Session,
     mutation: SyncMutation,
     receipt_id: str,
+    *,
+    owner_key: str,
 ) -> SyncMutationResult:
     payload = _validate_payload(_SyncExpensePatch, mutation.payload, exclude_id=True)
-    expense = ExpenseRepository.get_active_by_id(db, receipt_id)
+    expense = _get_expense(db, receipt_id, owner_key=owner_key)
     if expense is None:
         return _rejected_result(
             mutation=mutation,
@@ -232,13 +242,15 @@ def _delete_expense(
     db: Session,
     mutation: SyncMutation,
     receipt_id: str,
+    *,
+    owner_key: str,
 ) -> SyncMutationResult:
     unexpected_fields = set(mutation.payload.keys()) - {"id"}
     if unexpected_fields:
         fields = ", ".join(sorted(unexpected_fields))
         raise SyncPayloadValidationError(f"Delete payload only supports id; got: {fields}.")
 
-    deleted = ExpenseRepository.soft_delete_active(db, receipt_id)
+    deleted = _soft_delete_expense(db, receipt_id, owner_key=owner_key)
     if not deleted:
         return _rejected_result(
             mutation=mutation,
@@ -303,10 +315,14 @@ def _rejected_result(
     )
 
 
-def _log_from_result(result: SyncMutationResult) -> SyncMutationLog:
+def _log_from_result(
+    result: SyncMutationResult,
+    *,
+    namespaced_idempotency_key: str,
+) -> SyncMutationLog:
     summary = json.dumps(result.model_dump(mode="json"), separators=(",", ":"))
     return SyncMutationLog(
-        idempotency_key=result.idempotency_key,
+        idempotency_key=namespaced_idempotency_key,
         entity=result.entity,
         operation=result.operation,
         entity_id=result.entity_id,
@@ -358,6 +374,38 @@ def _to_pull_change(expense: Expense) -> SyncPullChange:
         updated_at=_normalize_datetime(expense.updated_at),
         payload=payload,
     )
+
+
+def _get_expense(db: Session, receipt_id: str, *, owner_key: str) -> Expense | None:
+    stmt = (
+        select(Expense)
+        .where(
+            Expense.id == receipt_id,
+            Expense.owner_key == owner_key,
+            Expense.deleted_at.is_(None),
+        )
+        .options(selectinload(Expense.items))
+    )
+    return db.scalar(stmt)
+
+
+def _soft_delete_expense(db: Session, receipt_id: str, *, owner_key: str) -> bool:
+    expense = _get_expense(db, receipt_id, owner_key=owner_key)
+    if expense is None:
+        return False
+
+    deleted_at = datetime.now(UTC)
+    expense.deleted_at = deleted_at
+    for item in expense.items:
+        if item.deleted_at is None:
+            item.deleted_at = deleted_at
+
+    db.flush()
+    return True
+
+
+def _namespaced_idempotency_key(owner_key: str, idempotency_key: str) -> str:
+    return f"{owner_key}::{idempotency_key}"
 
 
 def _active_items(expense: Expense) -> list[ExpenseItem]:

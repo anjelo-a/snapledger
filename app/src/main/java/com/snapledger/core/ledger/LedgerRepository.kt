@@ -16,6 +16,9 @@ import com.snapledger.feature.review.data.toEntity
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord
 import com.snapledger.feature.review.domain.ReviewSyncDispatcher
 import com.snapledger.feature.review.domain.ReviewSyncQueueStore
+import com.snapledger.core.profile.AccountMode
+import com.snapledger.core.profile.ProfileSession
+import com.snapledger.core.profile.ProfileSessionResolver
 import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
@@ -124,6 +127,7 @@ private val Context.snapLedgerLedgerDataStore: DataStore<Preferences> by prefere
 class DataStoreLedgerRepository(
     private val database: ReviewLocalDatabase,
     private val legacyDataStore: DataStore<Preferences>,
+    private val profileSession: ProfileSession,
     private val syncQueueStore: ReviewSyncQueueStore? = null,
     private val syncDispatcher: ReviewSyncDispatcher? = null,
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
@@ -292,7 +296,11 @@ class DataStoreLedgerRepository(
         operation: String,
         syncToBackend: Boolean = true,
     ) {
-        if (!syncToBackend || transaction.type != LedgerTransactionType.EXPENSE) {
+        if (
+            !syncToBackend ||
+            !profileSession.cloudSyncEnabled ||
+            transaction.type != LedgerTransactionType.EXPENSE
+        ) {
             return
         }
 
@@ -308,6 +316,9 @@ class DataStoreLedgerRepository(
     }
 
     private suspend fun enqueueDeleteMutation(receiptId: String) {
+        if (!profileSession.cloudSyncEnabled) {
+            return
+        }
         val queueRecord = ReceiptSyncQueueRecord(
             queueId = idFactory(),
             receiptId = receiptId,
@@ -324,11 +335,25 @@ class DataStoreLedgerRepository(
     companion object {
         fun getInstance(context: Context): DataStoreLedgerRepository {
             val appContext = context.applicationContext
+            val profileSession = ProfileSessionResolver.resolveActiveSession(appContext)
+                ?: ProfileSession(
+                    localProfileId = "local-default",
+                    accountMode = AccountMode.LOCAL,
+                    googleSubject = null,
+                )
+            val database = ReviewLocalDatabase.getInstance(
+                context = appContext,
+                profileId = profileSession.localProfileId,
+            )
             return DataStoreLedgerRepository(
-                database = ReviewLocalDatabase.getInstance(appContext),
+                database = database,
                 legacyDataStore = appContext.snapLedgerLedgerDataStore,
-                syncQueueStore = RoomReviewSyncQueueStore(ReviewLocalDatabase.getInstance(appContext)),
-                syncDispatcher = WorkManagerReviewSyncDispatcher(appContext),
+                profileSession = profileSession,
+                syncQueueStore = RoomReviewSyncQueueStore(database),
+                syncDispatcher = WorkManagerReviewSyncDispatcher(
+                    context = appContext,
+                    profileSession = profileSession,
+                ),
             )
         }
 
