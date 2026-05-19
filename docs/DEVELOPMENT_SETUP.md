@@ -45,8 +45,9 @@ Important:
 
 ## 4) Android Google Sign-In setup
 
-SnapLedger uses Android Credential Manager + Sign in with Google for identity-only local profiles.
-Ledger data remains local; this does not create backend user records or cloud sync ownership.
+SnapLedger uses Android Credential Manager + Sign in with Google for Google-linked profiles.
+Local profiles remain device-only. Google-linked profiles sync their receipt/expense ledger
+through the backend using the Google account's stable subject as the sync owner key.
 
 In Google Cloud:
 - Configure the OAuth consent screen.

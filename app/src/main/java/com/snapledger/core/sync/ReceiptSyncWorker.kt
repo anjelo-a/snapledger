@@ -12,6 +12,8 @@ import androidx.work.WorkerParameters
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
+import com.snapledger.core.profile.ProfileSession
+import com.snapledger.core.profile.ProfileSessionResolver
 import com.snapledger.feature.review.data.ReviewLocalDatabase
 import com.snapledger.feature.review.data.RoomReceiptSyncCursorStore
 import com.snapledger.feature.review.data.RoomReviewLocalReceiptStore
@@ -290,13 +292,22 @@ class ReceiptSyncPullProcessor(
 
 class WorkManagerReviewSyncDispatcher(
     context: Context,
+    private val profileSession: ProfileSession,
     private val workManager: WorkManager = WorkManager.getInstance(context.applicationContext),
 ) : ReviewSyncDispatcher {
     override suspend fun dispatch(record: ReceiptSyncQueueRecord) {
+        if (!profileSession.cloudSyncEnabled) {
+            return
+        }
         workManager.enqueueUniqueWork(
-            ReceiptSyncWorker.UNIQUE_WORK_NAME,
+            ReceiptSyncWorker.uniqueWorkName(profileSession.localProfileId),
             ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<ReceiptSyncWorker>()
+                .setInputData(
+                    androidx.work.workDataOf(
+                        ReceiptSyncWorker.INPUT_PROFILE_ID to profileSession.localProfileId,
+                    ),
+                )
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -317,8 +328,15 @@ class ReceiptSyncWorker(
     workerParams: WorkerParameters,
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result {
+        val profileId = inputData.getString(INPUT_PROFILE_ID).orEmpty()
         val dependencies = dependencyFactory?.invoke(applicationContext)
-            ?: buildDefaultDependencies(applicationContext)
+            ?: buildDefaultDependencies(
+                context = applicationContext,
+                profileId = profileId,
+            )
+        if (!dependencies.syncEnabled) {
+            return Result.success()
+        }
         val pushResult = ReceiptSyncPushProcessor(
             mutationStore = dependencies.mutationStore,
             pushGateway = dependencies.pushGateway,
@@ -346,22 +364,35 @@ class ReceiptSyncWorker(
     }
 
     companion object {
-        const val UNIQUE_WORK_NAME = "receipt-sync-push"
+        const val INPUT_PROFILE_ID = "profile_id"
 
         internal var dependencyFactory: ((Context) -> ReceiptSyncWorkerDependencies)? = null
 
+        fun uniqueWorkName(profileId: String): String {
+            return "receipt-sync-push-$profileId"
+        }
+
         private fun buildDefaultDependencies(
             context: Context,
+            profileId: String,
         ): ReceiptSyncWorkerDependencies {
-            val database = ReviewLocalDatabase.getInstance(context.applicationContext)
+            val profileSession = ProfileSessionResolver.resolveSession(
+                context = context.applicationContext,
+                localProfileId = profileId,
+            ) ?: return ReceiptSyncWorkerDependencies(syncEnabled = false)
+            val database = ReviewLocalDatabase.getInstance(
+                context = context.applicationContext,
+                profileId = profileSession.localProfileId,
+            )
             val queueStore = RoomReviewSyncQueueStore(database)
             return ReceiptSyncWorkerDependencies(
+                syncEnabled = profileSession.cloudSyncEnabled,
                 mutationStore = queueStore,
                 pushGateway = NetworkReceiptSyncPushGateway(
-                    ReceiptSyncRemoteDataSource.create(),
+                    ReceiptSyncRemoteDataSource.create(ownerKey = profileSession.syncOwnerKey),
                 ),
                 pullGateway = NetworkReceiptSyncPullGateway(
-                    ReceiptSyncRemoteDataSource.create(),
+                    ReceiptSyncRemoteDataSource.create(ownerKey = profileSession.syncOwnerKey),
                 ),
                 localStore = RoomReviewLocalReceiptStore(database),
                 cursorStore = RoomReceiptSyncCursorStore(database),
@@ -372,14 +403,54 @@ class ReceiptSyncWorker(
 }
 
 data class ReceiptSyncWorkerDependencies(
-    val mutationStore: ReceiptSyncMutationStore,
-    val pushGateway: ReceiptSyncPushGateway,
-    val pullGateway: ReceiptSyncPullGateway,
-    val localStore: ReceiptSyncLocalStore,
-    val cursorStore: ReceiptSyncCursorStore,
-    val pendingMutationStore: ReceiptSyncPendingMutationStore,
+    val syncEnabled: Boolean = true,
+    val mutationStore: ReceiptSyncMutationStore = NoopReceiptSyncMutationStore,
+    val pushGateway: ReceiptSyncPushGateway = NoopReceiptSyncPushGateway,
+    val pullGateway: ReceiptSyncPullGateway = NoopReceiptSyncPullGateway,
+    val localStore: ReceiptSyncLocalStore = NoopReceiptSyncLocalStore,
+    val cursorStore: ReceiptSyncCursorStore = NoopReceiptSyncCursorStore,
+    val pendingMutationStore: ReceiptSyncPendingMutationStore = NoopReceiptSyncPendingMutationStore,
     val clock: () -> Long = { System.currentTimeMillis() },
 )
+
+private object NoopReceiptSyncMutationStore : ReceiptSyncMutationStore {
+    override suspend fun loadDueMutations(nowMillis: Long, limit: Int): List<ReceiptSyncQueueRecord> = emptyList()
+    override suspend fun markInFlight(queueIds: List<String>) = Unit
+    override suspend fun markSynced(queueId: String) = Unit
+    override suspend fun markFailed(queueId: String, lastError: String, nextRetryAtMillis: Long?) = Unit
+    override suspend fun markTerminalFailed(queueId: String, lastError: String) = Unit
+    override suspend fun hasPendingMutation(receiptId: String): Boolean = false
+}
+
+private object NoopReceiptSyncPushGateway : ReceiptSyncPushGateway {
+    override suspend fun push(request: ReceiptSyncPushRequest): ReceiptSyncPushResponse {
+        return ReceiptSyncPushResponse(accepted = 0, rejected = 0, results = emptyList())
+    }
+}
+
+private object NoopReceiptSyncPullGateway : ReceiptSyncPullGateway {
+    override suspend fun pull(cursor: String): ReceiptSyncPullResponse {
+        return ReceiptSyncPullResponse(
+            cursor = cursor,
+            hasMore = false,
+            changes = emptyList(),
+        )
+    }
+}
+
+private object NoopReceiptSyncLocalStore : ReceiptSyncLocalStore {
+    override suspend fun upsertReceipt(record: LocalReceiptRecord) = Unit
+    override suspend fun deleteReceipt(receiptId: String) = Unit
+}
+
+private object NoopReceiptSyncCursorStore : ReceiptSyncCursorStore {
+    override suspend fun readCursor(): String = INITIAL_RECEIPT_SYNC_CURSOR
+    override suspend fun writeCursor(cursor: String) = Unit
+}
+
+private object NoopReceiptSyncPendingMutationStore : ReceiptSyncPendingMutationStore {
+    override suspend fun hasPendingMutation(receiptId: String): Boolean = false
+}
 
 private fun ReceiptSyncQueueRecord.toPushMutation(): ReceiptSyncPushMutation {
     return when (operation) {

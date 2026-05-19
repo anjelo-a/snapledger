@@ -28,3 +28,27 @@ data class GoogleProfileCandidate(
     val displayName: String?,
     val photoUrl: String?,
 )
+
+data class ProfileSession(
+    val localProfileId: String,
+    val accountMode: AccountMode,
+    val googleSubject: String?,
+) {
+    val syncOwnerKey: String?
+        get() = if (accountMode == AccountMode.GOOGLE) {
+            googleSubject?.trim()?.takeIf(String::isNotBlank)?.let { "google:$it" }
+        } else {
+            null
+        }
+
+    val cloudSyncEnabled: Boolean
+        get() = syncOwnerKey != null
+}
+
+fun UserProfile.toProfileSession(): ProfileSession {
+    return ProfileSession(
+        localProfileId = localProfileId,
+        accountMode = accountMode,
+        googleSubject = googleSubject,
+    )
+}

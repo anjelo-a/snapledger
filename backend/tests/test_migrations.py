@@ -33,8 +33,12 @@ def test_phase0_migration_creates_core_tables_and_seeds(tmp_path: Path) -> None:
         "ix_expenses_expense_date",
         "ix_expenses_category_id",
         "ix_expenses_merchant",
+        "ix_expenses_owner_key",
         "ix_expenses_total_amount",
     }.issubset(expense_indexes)
+
+    expense_columns = {column["name"] for column in inspector.get_columns("expenses")}
+    assert "owner_key" in expense_columns
 
     sync_columns = {column["name"] for column in inspector.get_columns("sync_mutation_log")}
     assert {

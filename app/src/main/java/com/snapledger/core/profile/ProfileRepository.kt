@@ -13,6 +13,7 @@ import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 interface ProfileRepository {
@@ -33,6 +34,8 @@ interface ProfileRepository {
     suspend fun clearProfile()
 
     suspend fun activateProfile(localProfileId: String): UserProfile?
+
+    suspend fun getProfile(localProfileId: String): UserProfile?
 }
 
 private val Context.snapLedgerProfileDataStore: DataStore<Preferences> by preferencesDataStore(
@@ -82,15 +85,24 @@ class DataStoreProfileRepository(
         candidate: GoogleProfileCandidate,
         displayName: String,
     ): UserProfile {
-        val profile = UserProfile(
-            localProfileId = idFactory(),
-            accountMode = AccountMode.GOOGLE,
-            displayName = displayName.cleanDisplayName(),
-            googleSubject = candidate.googleSubject,
-            email = candidate.email,
-            photoUrl = candidate.photoUrl,
-            createdAtMillis = clockMillis(),
-        )
+        val profile = dataStore.data.first().toStoredProfiles()
+            .firstOrNull { it.googleSubject == candidate.googleSubject }
+            ?.copy(
+                accountMode = AccountMode.GOOGLE,
+                displayName = displayName.cleanDisplayName(),
+                googleSubject = candidate.googleSubject,
+                email = candidate.email,
+                photoUrl = candidate.photoUrl,
+            )
+            ?: UserProfile(
+                localProfileId = idFactory(),
+                accountMode = AccountMode.GOOGLE,
+                displayName = displayName.cleanDisplayName(),
+                googleSubject = candidate.googleSubject,
+                email = candidate.email,
+                photoUrl = candidate.photoUrl,
+                createdAtMillis = clockMillis(),
+            )
         dataStore.writeProfile(profile)
         return profile
     }
@@ -140,6 +152,12 @@ class DataStoreProfileRepository(
             activatedProfile?.let { preferences.writeCurrentProfile(it) }
         }
         return activatedProfile
+    }
+
+    override suspend fun getProfile(localProfileId: String): UserProfile? {
+        return dataStore.data.first()
+            .toStoredProfiles()
+            .firstOrNull { it.localProfileId == localProfileId }
     }
 
     private fun Preferences.toProfileOrNull(): UserProfile? {

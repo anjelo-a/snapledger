@@ -106,6 +106,42 @@ class DataStoreProfileRepositoryTest {
     }
 
     @Test
+    fun `same google subject reuses saved profile id instead of creating duplicate`() = runTest {
+        var generatedIds = 0
+        val repository = repository(
+            idFactory = {
+                generatedIds += 1
+                "profile-$generatedIds"
+            },
+            clockMillis = { 450L },
+        )
+        repository.createGoogleProfile(
+            candidate = GoogleProfileCandidate(
+                googleSubject = "google-subject-1",
+                email = "mina@example.com",
+                displayName = "Mina One",
+                photoUrl = null,
+            ),
+            displayName = "Mina",
+        )
+        repository.clearProfile()
+
+        val secondProfile = repository.createGoogleProfile(
+            candidate = GoogleProfileCandidate(
+                googleSubject = "google-subject-1",
+                email = "mina+updated@example.com",
+                displayName = "Mina Updated",
+                photoUrl = "https://example.com/new-photo.png",
+            ),
+            displayName = "Mina Updated",
+        )
+
+        assertEquals("profile-1", secondProfile.localProfileId)
+        assertEquals("mina+updated@example.com", secondProfile.email)
+        assertEquals(1, repository.savedProfilesFlow.first().size)
+    }
+
+    @Test
     fun `clear profile removes local account and returns setup state`() = runTest {
         val repository = repository(
             idFactory = { "profile-local" },

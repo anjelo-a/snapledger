@@ -8,6 +8,7 @@ import com.snapledger.core.network.dto.ReceiptSyncPushResponseDto
 import com.squareup.moshi.Moshi
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import retrofit2.http.Header
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
@@ -16,11 +17,13 @@ import retrofit2.http.Query
 interface ReceiptSyncApiService {
     @POST("v1/sync/push")
     suspend fun push(
+        @Header("x-sync-owner") ownerKey: String?,
         @Body request: ReceiptSyncPushRequestDto,
     ): ReceiptSyncPushResponseDto
 
     @GET("v1/sync/pull")
     suspend fun pull(
+        @Header("x-sync-owner") ownerKey: String?,
         @Query("cursor") cursor: String,
     ): ReceiptSyncPullResponseDto
 

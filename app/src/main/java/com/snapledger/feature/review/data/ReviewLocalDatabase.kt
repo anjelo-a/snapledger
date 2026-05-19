@@ -41,6 +41,7 @@ import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STA
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STATUS_SYNCED
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STATUS_TERMINAL_FAILED
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.runBlocking
 import kotlin.math.roundToLong
 
 @Entity(tableName = "local_receipts")
@@ -141,6 +142,12 @@ data class LedgerBudgetCategoryEntity(
 
 @Dao
 interface LocalReceiptDao {
+    @Query("SELECT * FROM local_receipts")
+    suspend fun getAllReceipts(): List<LocalReceiptEntity>
+
+    @Query("SELECT * FROM local_receipt_items")
+    suspend fun getAllItems(): List<LocalReceiptItemEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertReceipt(entity: LocalReceiptEntity)
 
@@ -174,6 +181,9 @@ interface LocalReceiptDao {
 
 @Dao
 interface ReceiptSyncQueueDao {
+    @Query("SELECT * FROM receipt_sync_queue")
+    suspend fun getAllQueueRecords(): List<ReceiptSyncQueueEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertQueueRecord(entity: ReceiptSyncQueueEntity)
 
@@ -276,6 +286,9 @@ interface ReceiptSyncQueueDao {
 
 @Dao
 interface ReceiptSyncStateDao {
+    @Query("SELECT * FROM receipt_sync_state")
+    suspend fun getAllStates(): List<ReceiptSyncStateEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertState(entity: ReceiptSyncStateEntity)
 
@@ -285,6 +298,9 @@ interface ReceiptSyncStateDao {
 
 @Dao
 interface LedgerTransactionDao {
+    @Query("SELECT * FROM ledger_transactions")
+    suspend fun getAll(): List<LedgerTransactionEntity>
+
     @Query("SELECT * FROM ledger_transactions ORDER BY createdAtMillis ASC, id ASC")
     fun observeTransactions(): Flow<List<LedgerTransactionEntity>>
 
@@ -303,6 +319,9 @@ interface LedgerTransactionDao {
 
 @Dao
 interface LedgerBudgetCategoryDao {
+    @Query("SELECT * FROM ledger_budget_categories")
+    suspend fun getAll(): List<LedgerBudgetCategoryEntity>
+
     @Query("SELECT * FROM ledger_budget_categories ORDER BY createdAtMillis ASC, id ASC")
     fun observeBudgetCategories(): Flow<List<LedgerBudgetCategoryEntity>>
 
@@ -340,19 +359,106 @@ abstract class ReviewLocalDatabase : RoomDatabase() {
 
     companion object {
         @Volatile
-        private var instance: ReviewLocalDatabase? = null
+        private var legacyInstance: ReviewLocalDatabase? = null
+        private val profileInstances = mutableMapOf<String, ReviewLocalDatabase>()
 
-        fun getInstance(context: Context): ReviewLocalDatabase {
-            return instance ?: synchronized(this) {
-                instance ?: Room.databaseBuilder(
-                    context,
-                    ReviewLocalDatabase::class.java,
-                    "snapledger-review.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
-                    .build()
-                    .also { instance = it }
+        fun getInstance(
+            context: Context,
+            profileId: String,
+        ): ReviewLocalDatabase {
+            val appContext = context.applicationContext
+            return synchronized(this) {
+                profileInstances[profileId] ?: buildProfileDatabase(
+                    context = appContext,
+                    profileId = profileId,
+                ).also { profileInstances[profileId] = it }
             }
         }
+
+        private fun buildProfileDatabase(
+            context: Context,
+            profileId: String,
+        ): ReviewLocalDatabase {
+            val databaseName = profileDatabaseName(profileId)
+            val profileDbPath = context.getDatabasePath(databaseName)
+            val shouldSeedFromLegacy = !profileDbPath.exists() && context.getDatabasePath(LEGACY_DATABASE_NAME).exists()
+            val database = buildDatabase(
+                context = context,
+                databaseName = databaseName,
+            )
+            if (shouldSeedFromLegacy) {
+                seedProfileDatabaseFromLegacy(
+                    profileDatabase = database,
+                    legacyDatabase = getLegacySharedInstance(context),
+                )
+            }
+            return database
+        }
+
+        private fun getLegacySharedInstance(context: Context): ReviewLocalDatabase {
+            return legacyInstance ?: synchronized(this) {
+                legacyInstance ?: buildDatabase(
+                    context = context.applicationContext,
+                    databaseName = LEGACY_DATABASE_NAME,
+                ).also { legacyInstance = it }
+            }
+        }
+
+        private fun buildDatabase(
+            context: Context,
+            databaseName: String,
+        ): ReviewLocalDatabase {
+            return Room.databaseBuilder(
+                context,
+                ReviewLocalDatabase::class.java,
+                databaseName,
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .build()
+        }
+
+        private fun seedProfileDatabaseFromLegacy(
+            profileDatabase: ReviewLocalDatabase,
+            legacyDatabase: ReviewLocalDatabase,
+        ) {
+            runBlocking {
+                profileDatabase.withTransaction {
+                    val localReceipts = legacyDatabase.localReceiptDao().getAllReceipts()
+                    val receiptItems = legacyDatabase.localReceiptDao().getAllItems()
+                    val queueRecords = legacyDatabase.receiptSyncQueueDao().getAllQueueRecords()
+                    val states = legacyDatabase.receiptSyncStateDao().getAllStates()
+                    val transactions = legacyDatabase.ledgerTransactionDao().getAll()
+                    val budgetCategories = legacyDatabase.ledgerBudgetCategoryDao().getAll()
+
+                    localReceipts.forEach { receipt ->
+                        profileDatabase.localReceiptDao().insertReceipt(receipt)
+                    }
+                    if (receiptItems.isNotEmpty()) {
+                        profileDatabase.localReceiptDao().insertItems(receiptItems)
+                    }
+                    queueRecords.forEach { queueRecord ->
+                        profileDatabase.receiptSyncQueueDao().insertQueueRecord(queueRecord)
+                    }
+                    states.forEach { state ->
+                        profileDatabase.receiptSyncStateDao().upsertState(state)
+                    }
+                    if (transactions.isNotEmpty()) {
+                        profileDatabase.ledgerTransactionDao().upsertAll(transactions)
+                    }
+                    if (budgetCategories.isNotEmpty()) {
+                        profileDatabase.ledgerBudgetCategoryDao().upsertAll(budgetCategories)
+                    }
+                }
+            }
+        }
+
+        private fun profileDatabaseName(profileId: String): String {
+            val normalizedProfileId = profileId.trim()
+                .ifBlank { "default" }
+                .replace(Regex("[^A-Za-z0-9._-]"), "_")
+            return "snapledger-review-$normalizedProfileId.db"
+        }
+
+        private const val LEGACY_DATABASE_NAME = "snapledger-review.db"
     }
 }
 

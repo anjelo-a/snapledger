@@ -582,6 +582,10 @@ def _sync_expense_create_mutation(
     }
 
 
+def _sync_headers(owner_key: str) -> dict[str, str]:
+    return {"x-sync-owner": owner_key}
+
+
 def test_sync_push_creates_receipt_with_client_id(client: TestClient) -> None:
     receipt_id = "client-receipt-create"
     response = client.post(
@@ -835,6 +839,56 @@ def test_sync_pull_returns_upsert_changes_after_cursor(client: TestClient) -> No
     assert change["id"] == second_id
     assert change["payload"]["merchant"] == "Second Pull Merchant"
     assert change["payload"]["items"][0]["name"] == "Coffee"
+
+
+def test_sync_push_same_google_account_reuses_owner_bucket(client: TestClient) -> None:
+    owner_key = "google:subject-123"
+    receipt_id = "owner-scope-001"
+    created = client.post(
+        "/v1/sync/push",
+        headers=_sync_headers(owner_key),
+        json={
+            "mutations": [
+                _sync_expense_create_mutation(
+                    idempotency_key="owner-scope-create",
+                    receipt_id=receipt_id,
+                    merchant="Scoped Merchant",
+                )
+            ],
+        },
+    )
+    assert created.status_code == 200
+
+    pulled = client.get("/v1/sync/pull", headers=_sync_headers(owner_key))
+    assert pulled.status_code == 200
+    payload = pulled.json()
+    assert len(payload["changes"]) == 1
+    assert payload["changes"][0]["id"] == receipt_id
+    assert payload["changes"][0]["payload"]["merchant"] == "Scoped Merchant"
+
+
+def test_sync_pull_scopes_changes_per_owner_key(client: TestClient) -> None:
+    shared_receipt_id = "owner-a-receipt"
+    client.post(
+        "/v1/sync/push",
+        headers=_sync_headers("google:owner-a"),
+        json={
+            "mutations": [
+                _sync_expense_create_mutation(
+                    idempotency_key="owner-a-create",
+                    receipt_id=shared_receipt_id,
+                    merchant="Owner A Merchant",
+                )
+            ],
+        },
+    )
+
+    other_owner_pull = client.get(
+        "/v1/sync/pull",
+        headers=_sync_headers("google:owner-b"),
+    )
+    assert other_owner_pull.status_code == 200
+    assert other_owner_pull.json()["changes"] == []
 
 
 def test_sync_pull_returns_delete_tombstones_after_cursor(client: TestClient) -> None:

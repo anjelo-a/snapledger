@@ -1,5 +1,7 @@
 package com.snapledger.feature.review.domain
 
+import com.snapledger.core.profile.AccountMode
+import com.snapledger.core.profile.ProfileSession
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -15,10 +17,12 @@ class LocalFirstReviewRepositoryTest {
     fun `save succeeds without backend`() = runTest {
         val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
+            localReceiptStore = FakeLocalReceiptStore(),
             atomicSaveStore = atomicSaveStore,
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
             },
+            profileSession = googleProfileSession(),
             idGenerator = sequentialIds(),
             clock = { 1000L },
         )
@@ -34,10 +38,12 @@ class LocalFirstReviewRepositoryTest {
     fun `save succeeds with partial or empty items`() = runTest {
         val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
+            localReceiptStore = FakeLocalReceiptStore(),
             atomicSaveStore = atomicSaveStore,
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
             },
+            profileSession = googleProfileSession(),
             idGenerator = sequentialIds(),
             clock = { 1000L },
         )
@@ -52,10 +58,12 @@ class LocalFirstReviewRepositoryTest {
     fun `invalid required fields do not save`() = runTest {
         val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
+            localReceiptStore = FakeLocalReceiptStore(),
             atomicSaveStore = atomicSaveStore,
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
             },
+            profileSession = googleProfileSession(),
             idGenerator = sequentialIds(),
             clock = { 1000L },
         )
@@ -71,10 +79,12 @@ class LocalFirstReviewRepositoryTest {
     fun `queue record is created separately from local receipt`() = runTest {
         val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
+            localReceiptStore = FakeLocalReceiptStore(),
             atomicSaveStore = atomicSaveStore,
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
             },
+            profileSession = googleProfileSession(),
             idGenerator = sequentialIds(),
             clock = { 1000L },
         )
@@ -99,12 +109,14 @@ class LocalFirstReviewRepositoryTest {
     fun `save still succeeds when sync api fails`() = runTest {
         val atomicSaveStore = FakeAtomicSaveStore()
         val repository = LocalFirstReviewRepository(
+            localReceiptStore = FakeLocalReceiptStore(),
             atomicSaveStore = atomicSaveStore,
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) {
                     error("backend unavailable")
                 }
             },
+            profileSession = googleProfileSession(),
             idGenerator = sequentialIds(),
             clock = { 1000L },
         )
@@ -125,10 +137,12 @@ class LocalFirstReviewRepositoryTest {
             onSave = { _, _ -> error("database write failed") },
         )
         val repository = LocalFirstReviewRepository(
+            localReceiptStore = FakeLocalReceiptStore(),
             atomicSaveStore = atomicSaveStore,
             syncDispatcher = object : ReviewSyncDispatcher {
                 override suspend fun dispatch(record: ReceiptSyncQueueRecord) = Unit
             },
+            profileSession = googleProfileSession(),
             idGenerator = sequentialIds(),
             clock = { 1000L },
         )
@@ -163,6 +177,14 @@ private class FakeAtomicSaveStore(
 
         savedReceipts += receiptRecord
         queuedRecords += syncRecord
+    }
+}
+
+private class FakeLocalReceiptStore : ReviewLocalReceiptStore {
+    val savedReceipts = mutableListOf<LocalReceiptRecord>()
+
+    override suspend fun saveReceipt(record: LocalReceiptRecord) {
+        savedReceipts += record
     }
 }
 
@@ -212,4 +234,12 @@ private fun sequentialIds(): () -> String {
         counter += 1
         "id-$counter"
     }
+}
+
+private fun googleProfileSession(): ProfileSession {
+    return ProfileSession(
+        localProfileId = "profile-google",
+        accountMode = AccountMode.GOOGLE,
+        googleSubject = "subject-123",
+    )
 }
