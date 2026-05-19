@@ -10,6 +10,7 @@ import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
@@ -38,28 +39,19 @@ class GoogleIdentityClient(
             )
 
         return try {
-            requestGoogleCredential(activity = activity, useExplicitGoogleSignIn = false)
+            requestGoogleCredential(activity = activity, useExplicitGoogleSignIn = true)
         } catch (_: GetCredentialCancellationException) {
             GoogleSignInResult.Failure("Google Sign-In was cancelled.")
-        } catch (error: GetCredentialException) {
-            if (error.message?.contains("No credentials", ignoreCase = true) == true) {
-                runCatching {
-                    requestGoogleCredential(activity = activity, useExplicitGoogleSignIn = true)
-                }.getOrElse { fallbackError ->
-                    val message = fallbackError.message ?: error.message
-                    GoogleSignInResult.Failure(
-                        message ?: "Google Sign-In could not start. Check your Google client ID and device setup.",
-                    )
-                }
-            } else {
-                GoogleSignInResult.Failure(
-                    error.message ?: "Google Sign-In could not start. Check your Google client ID and device setup.",
-                )
+        } catch (_: NoCredentialException) {
+            runCatching {
+                requestGoogleCredential(activity = activity, useExplicitGoogleSignIn = false)
+            }.getOrElse { fallbackError ->
+                fallbackError.toGoogleSignInFailure()
             }
+        } catch (error: GetCredentialException) {
+            error.toGoogleSignInFailure()
         } catch (error: Exception) {
-            GoogleSignInResult.Failure(
-                error.message ?: "Google Sign-In could not complete. Please try again.",
-            )
+            error.toGoogleSignInFailure()
         }
     }
 
@@ -111,6 +103,27 @@ class GoogleIdentityClient(
         }
         return GoogleSignInResult.Failure("Google did not return a usable account.")
     }
+}
+
+private fun Throwable.toGoogleSignInFailure(): GoogleSignInResult.Failure {
+    val message = when (this) {
+        is NoCredentialException ->
+            "No Google credentials are available on this device. Make sure a Google account is signed in and Google Play services are up to date."
+        is GetCredentialCancellationException ->
+            "Google Sign-In was cancelled."
+        is GetCredentialException -> {
+            when {
+                this.message?.contains("developer console", ignoreCase = true) == true ->
+                    "Google Sign-In is misconfigured in Google Cloud. Recheck the web client ID, Android package name, and SHA fingerprints."
+                this.message?.contains("provider", ignoreCase = true) == true ->
+                    "Google Sign-In provider is unavailable right now. Update Google Play services and try again."
+                else ->
+                    this.message ?: "Google Sign-In could not start. Check your Google client ID and device setup."
+            }
+        }
+        else -> this.message ?: "Google Sign-In could not complete. Please try again."
+    }
+    return GoogleSignInResult.Failure(message)
 }
 
 private tailrec fun Context.findActivity(): Activity? {
