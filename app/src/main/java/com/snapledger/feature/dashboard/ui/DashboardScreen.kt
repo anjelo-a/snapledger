@@ -868,52 +868,74 @@ private fun TrendCard(
 
             val lineColor = Color(0xFF00A86B)
             val gradientColors = listOf(lineColor.copy(alpha = 0.3f), Color.Transparent)
-            val chartPoints = trend.dataPoints.takeIf { it.isNotEmpty() }
-                ?: listOf(0.0, 0.0, 0.0, 0.0)
+            val chartPoints = trend.dataPoints
+                .map { value -> value.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0 }
+            val hasTrendData = chartPoints.isNotEmpty()
 
-            Canvas(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(100.dp)
-                    .padding(top = 24.dp)
+                    .padding(top = 24.dp),
             ) {
-                val maxPoint = chartPoints.maxOrNull() ?: 1.0
-                val minPoint = chartPoints.minOrNull() ?: 0.0
-                val range = (maxPoint - minPoint).takeIf { it > 0 } ?: 1.0
-                val yMultiplier = size.height / range
-                val xStep = size.width / (chartPoints.size - 1).coerceAtLeast(1)
+                Canvas(modifier = Modifier.matchParentSize()) {
+                    val drawablePoints = chartPoints.takeIf { it.isNotEmpty() }
+                        ?: listOf(0.0, 0.0, 0.0, 0.0)
+                    val maxPoint = drawablePoints.maxOrNull() ?: 1.0
+                    val minPoint = drawablePoints.minOrNull() ?: 0.0
+                    val isFlat = maxPoint == minPoint
+                    val range = (maxPoint - minPoint).takeIf { it > 0.0 } ?: 1.0
+                    val verticalPadding = 6.dp.toPx()
+                    val chartHeight = (size.height - verticalPadding * 2).coerceAtLeast(1f)
+                    val yMultiplier = chartHeight / range
+                    val xStep = size.width / (drawablePoints.size - 1).coerceAtLeast(1)
+                    val baselineY = size.height - verticalPadding
 
-                val path = Path()
-                val fillPath = Path()
+                    val path = Path()
+                    val fillPath = Path()
 
-                chartPoints.forEachIndexed { index, value ->
-                    val x = index * xStep
-                    val y = size.height - ((value - minPoint) * yMultiplier).toFloat()
+                    drawablePoints.forEachIndexed { index, value ->
+                        val x = index * xStep
+                        val y = if (isFlat) {
+                            baselineY
+                        } else {
+                            baselineY - ((value - minPoint) * yMultiplier).toFloat()
+                        }.coerceIn(verticalPadding, baselineY)
 
-                    if (index == 0) {
-                        path.moveTo(x, y)
-                        fillPath.moveTo(x, size.height)
-                        fillPath.lineTo(x, y)
-                    } else {
-                        path.lineTo(x, y)
-                        fillPath.lineTo(x, y)
+                        if (index == 0) {
+                            path.moveTo(x, y)
+                            fillPath.moveTo(x, size.height)
+                            fillPath.lineTo(x, y)
+                        } else {
+                            path.lineTo(x, y)
+                            fillPath.lineTo(x, y)
+                        }
                     }
+
+                    fillPath.lineTo(size.width, size.height)
+                    fillPath.close()
+
+                    drawPath(
+                        path = fillPath,
+                        brush = Brush.verticalGradient(colors = gradientColors),
+                        style = Fill,
+                    )
+
+                    drawPath(
+                        path = path,
+                        color = lineColor,
+                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+                    )
                 }
 
-                fillPath.lineTo(size.width, size.height)
-                fillPath.close()
-
-                drawPath(
-                    path = fillPath,
-                    brush = Brush.verticalGradient(colors = gradientColors),
-                    style = Fill
-                )
-
-                drawPath(
-                    path = path,
-                    color = lineColor,
-                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-                )
+                if (!hasTrendData) {
+                    Text(
+                        text = "No spending history yet",
+                        color = Color(0xFF9E9E9E),
+                        fontSize = 12.sp,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                }
             }
 
             val labels = trend.dataLabels.takeIf { it.size == trend.dataPoints.size }
@@ -923,15 +945,17 @@ private fun TrendCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     labels.forEach { label ->
                         Text(
                             text = label,
                             color = Color(0xFF9E9E9E),
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }

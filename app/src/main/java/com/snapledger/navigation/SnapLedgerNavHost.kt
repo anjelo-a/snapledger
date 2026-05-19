@@ -526,15 +526,11 @@ private fun LedgerSnapshot.buildAllTimeTrendSummary(): TrendSummary {
         currentTotal = currentTotal,
         previousTotal = previousTotal,
         periodLabel = "All time by month",
-        dataPoints = displayedTotals.runningTotals(),
+        dataPoints = displayedTotals,
         dataLabels = buckets.map { bucket ->
             val firstMonth = bucket.first().key
             val lastMonth = bucket.last().key
-            if (firstMonth == lastMonth) {
-                firstMonth.shortLabel()
-            } else {
-                "${firstMonth.shortLabel()}-${lastMonth.shortLabel()}"
-            }
+            firstMonth.rangeLabel(lastMonth)
         },
     )
 }
@@ -584,8 +580,18 @@ private fun List<Double>.runningTotals(): List<Double> {
     }
 }
 
-private fun YearMonth.shortLabel(): String {
-    return format(DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault()))
+private fun YearMonth.rangeLabel(end: YearMonth): String {
+    return if (this == end) {
+        format(DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault()))
+    } else if (year == end.year) {
+        val startLabel = format(DateTimeFormatter.ofPattern("MMM", Locale.getDefault()))
+        val endLabel = end.format(DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault()))
+        "$startLabel-$endLabel"
+    } else {
+        val startLabel = format(DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault()))
+        val endLabel = end.format(DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault()))
+        "$startLabel-$endLabel"
+    }
 }
 
 private const val MAX_TREND_POINTS = 6
