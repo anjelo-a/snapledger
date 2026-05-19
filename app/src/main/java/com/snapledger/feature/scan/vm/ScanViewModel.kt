@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.snapledger.feature.scan.domain.CameraCaptureRepository
 import com.snapledger.feature.scan.domain.CameraPermissionState
+import com.snapledger.feature.scan.domain.CaptureSource
 import com.snapledger.feature.scan.domain.CapturedImageMetadata
 import com.snapledger.feature.scan.domain.OcrUiState
 import com.snapledger.feature.scan.domain.ParserPhase
@@ -17,6 +18,7 @@ import com.snapledger.feature.scan.domain.PendingCapture
 import com.snapledger.feature.scan.domain.ScanCapturePhase
 import com.snapledger.feature.scan.domain.ScanRepository
 import com.snapledger.feature.scan.domain.ScanUiState
+import com.snapledger.feature.scan.domain.UploadQualityGateResult
 import com.snapledger.feature.review.domain.LocalFirstReviewRepository
 import com.snapledger.feature.review.domain.ReviewRepository
 import com.snapledger.feature.scan.network.ReceiptProcessService
@@ -113,13 +115,29 @@ class ScanViewModel(
         return pendingCapture
     }
 
+    fun prepareGalleryImport(cacheDirectory: File): PendingCapture {
+        val pendingCapture = repository.createPendingCapture(
+            cacheDirectory = cacheDirectory,
+            timestampMillis = System.currentTimeMillis(),
+        )
+        uiState = uiState.copy(
+            status = "Importing receipt",
+            captureStatus = "Preparing selected gallery image for processing",
+            capturePhase = ScanCapturePhase.Capturing,
+            cameraErrorMessage = null,
+        )
+        return pendingCapture
+    }
+
     fun onCaptureSucceeded(
         outputPath: String,
         savedUri: String?,
+        source: CaptureSource = CaptureSource.Camera,
     ) {
         val metadata = repository.readCapturedImageMetadata(
             outputPath = outputPath,
             savedUri = savedUri,
+            source = source,
         )
         applyCapturedImage(metadata)
     }
@@ -181,6 +199,32 @@ class ScanViewModel(
                 ),
             )
             return
+        }
+
+        if (capturedImage.source == CaptureSource.Gallery) {
+            when (val gateResult = repository.evaluateUploadQuality(capturedImage)) {
+                is UploadQualityGateResult.Pass -> Unit
+                is UploadQualityGateResult.Fail -> {
+                    reviewRepository.storeParsedCandidate(null)
+                    val focusSuffix = gateResult.focusScore?.let {
+                        " (focus score: ${"%.1f".format(it)})"
+                    } ?: ""
+                    uiState = uiState.copy(
+                        parser = ParserUiState(
+                            phase = ParserPhase.Failure,
+                            status = "Upload quality check failed",
+                            errorMessage = buildString {
+                                append("Please take another picture. Upload quality gates were not met")
+                                append(focusSuffix)
+                                append(": ")
+                                append(gateResult.reasons.joinToString(separator = " "))
+                            },
+                        ),
+                        captureStatus = "Retake with camera for better OCR reliability.",
+                    )
+                    return
+                }
+            }
         }
 
         reviewRepository.storeParsedCandidate(null)

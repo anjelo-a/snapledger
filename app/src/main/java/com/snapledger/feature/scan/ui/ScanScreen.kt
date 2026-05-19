@@ -71,6 +71,7 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import com.snapledger.R
 import com.snapledger.feature.scan.domain.CameraPermissionState
+import com.snapledger.feature.scan.domain.CaptureSource
 import com.snapledger.feature.scan.domain.OcrExtractionPhase
 import com.snapledger.feature.scan.domain.PendingCapture
 import com.snapledger.feature.scan.domain.ParserPhase
@@ -122,7 +123,11 @@ fun ScanRoute(
                 outputPath = pending.outputPath,
             )
             if (copied) {
-                viewModel.onCaptureSucceeded(pending.outputPath, pageUri.toString())
+                viewModel.onCaptureSucceeded(
+                    pending.outputPath,
+                    pageUri.toString(),
+                    CaptureSource.Camera,
+                )
             } else {
                 viewModel.onCaptureFailed("Document scan output could not be copied for OCR.")
             }
@@ -130,6 +135,29 @@ fun ScanRoute(
             viewModel.onCaptureFailed("Document scan was cancelled or returned no page.")
         }
         pendingCapture = null
+    }
+    val galleryPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { selectedUri ->
+        if (selectedUri == null) {
+            viewModel.onCaptureFailed("No image selected from gallery.")
+            return@rememberLauncherForActivityResult
+        }
+        val pending = viewModel.prepareGalleryImport(context.cacheDir)
+        val copied = copyUriToPath(
+            context = context,
+            sourceUri = selectedUri,
+            outputPath = pending.outputPath,
+        )
+        if (copied) {
+            viewModel.onCaptureSucceeded(
+                pending.outputPath,
+                selectedUri.toString(),
+                CaptureSource.Gallery,
+            )
+        } else {
+            viewModel.onCaptureFailed("Selected image could not be copied for processing.")
+        }
     }
 
     val scannerOptions = remember {
@@ -190,6 +218,7 @@ fun ScanRoute(
         },
         onCaptureSucceeded = viewModel::onCaptureSucceeded,
         onCaptureFailed = viewModel::onCaptureFailed,
+        onGalleryPickRequested = { galleryPickerLauncher.launch("image/*") },
         onCameraPreviewReady = viewModel::onCameraPreviewReady,
         onCameraFailure = viewModel::onCameraFailure,
         onRetryCapture = viewModel::onRetryCapture,
@@ -210,6 +239,7 @@ fun ScanScreen(
     onDocumentScanRequested: (PendingCapture) -> Unit,
     onCaptureSucceeded: (String, String?) -> Unit,
     onCaptureFailed: (String) -> Unit,
+    onGalleryPickRequested: () -> Unit,
     onCameraPreviewReady: () -> Unit,
     onCameraFailure: (String) -> Unit,
     onRetryCapture: () -> Unit,
@@ -322,6 +352,27 @@ fun ScanScreen(
                     color = Color.White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium
+                )
+            }
+
+            androidx.compose.material3.Button(
+                onClick = onGalleryPickRequested,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp)
+                    .height(52.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF263238),
+                    disabledContainerColor = Color(0xFF455A64),
+                ),
+                shape = RoundedCornerShape(14.dp),
+                enabled = uiState.canSelectFromGallery,
+            ) {
+                Text(
+                    text = "Upload from Gallery",
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
                 )
             }
 

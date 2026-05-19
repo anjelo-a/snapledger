@@ -20,11 +20,17 @@ data class CapturedImageMetadata(
     val fileName: String,
     val absolutePath: String,
     val contentUri: String,
+    val source: CaptureSource = CaptureSource.Camera,
     val capturedAtMillis: Long,
     val fileSizeBytes: Long,
     val widthPx: Int?,
     val heightPx: Int?,
 )
+
+enum class CaptureSource {
+    Camera,
+    Gallery,
+}
 
 data class PendingCapture(
     val outputPath: String,
@@ -139,6 +145,10 @@ data class ScanUiState(
     val canRunOcr: Boolean
         get() = capturedImage != null &&
             ocr.phase != OcrExtractionPhase.Running &&
+            parser.phase != ParserPhase.Running
+
+    val canSelectFromGallery: Boolean
+        get() = ocr.phase != OcrExtractionPhase.Running &&
             parser.phase != ParserPhase.Running
 
     val canRunParser: Boolean

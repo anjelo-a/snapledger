@@ -177,6 +177,9 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
                     locale=payload.locale,
                     currency_hint=payload.currency_hint,
                     model_name=model_name,
+                    retry_on_rate_limit=_should_retry_rate_limit_on_same_model(
+                        has_fallback_remaining
+                    ),
                 )
                 try:
                     return _map_gemini_response_to_candidate(response_text)
@@ -193,6 +196,9 @@ def _parse_receipt_with_gemini(payload: ReceiptProcessRequest) -> ParsedReceiptC
                         currency_hint=payload.currency_hint,
                         model_name=model_name,
                         strict_json_repair=True,
+                        retry_on_rate_limit=_should_retry_rate_limit_on_same_model(
+                            has_fallback_remaining
+                        ),
                     )
                     return _map_gemini_response_to_candidate(repair_text)
             except httpx.HTTPStatusError as exc:
@@ -418,6 +424,10 @@ def _prepare_image_for_gemini(image_bytes: bytes) -> tuple[bytes, str]:
     return output.getvalue(), "image/jpeg"
 
 
+def _should_retry_rate_limit_on_same_model(has_fallback_remaining: bool) -> bool:
+    return not has_fallback_remaining
+
+
 def _call_gemini_extract(
     *,
     image_bytes: bytes,
@@ -426,6 +436,7 @@ def _call_gemini_extract(
     currency_hint: str | None,
     model_name: str,
     strict_json_repair: bool = False,
+    retry_on_rate_limit: bool = True,
 ) -> str:
     settings = get_settings()
     prompt = (
@@ -508,7 +519,7 @@ def _call_gemini_extract(
                 )
                 time.sleep(backoff_seconds)
                 continue
-            if response.status_code == 429 and attempt == 0:
+            if response.status_code == 429 and attempt == 0 and retry_on_rate_limit:
                 logger.warning(
                     "gemini_receipt_429_retry model=%s attempt=%s backoff_seconds=%.2f",
                     model_name,
