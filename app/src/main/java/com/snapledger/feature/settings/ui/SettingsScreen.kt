@@ -60,7 +60,6 @@ import com.snapledger.core.profile.ProfileRepository
 import com.snapledger.feature.settings.vm.SettingsUiState
 import com.snapledger.feature.settings.vm.SettingsViewModel
 
-// Utility for clean interactions
 fun Modifier.noRippleClickable(
     enabled: Boolean = true,
     onClick: () -> Unit
@@ -86,7 +85,7 @@ fun SettingsRoute(
     SettingsScreen(
         uiState = state,
         onNameChanged = viewModel::updateDisplayName,
-        onToggleDevTools = viewModel::toggleDeveloperTools,
+        onToggleDevTools = viewModel::toggleAboutDevelopers,
         onLogOut = { viewModel.logOut(context) },
         onDeleteAccount = { viewModel.deleteAccount(context) },
     )
@@ -102,7 +101,6 @@ fun SettingsScreen(
 ) {
     var isEditingName by remember { mutableStateOf(false) }
     var isConfirmingDelete by remember { mutableStateOf(false) }
-    // Initialize draft with current name when dialog opens
     var nameDraft by remember { mutableStateOf("") }
 
     Column(
@@ -111,7 +109,6 @@ fun SettingsScreen(
             .background(Color(0xFFF8F9FA))
             .padding(top = 24.dp)
     ) {
-        // --- 1. STICKY HEADER ---
         Column(modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 16.dp)) {
             Text(
                 text = "Settings",
@@ -121,11 +118,10 @@ fun SettingsScreen(
             )
         }
 
-        // --- 2. SCROLLABLE AREA WITH FADE ---
         Box(modifier = Modifier.weight(1f)) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 120.dp),
+                contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 50.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Profile Section
@@ -259,11 +255,11 @@ fun SettingsScreen(
                     }
                 }
 
-                // Developer Tools Section
+                // about developers section
                 item {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Developer",
+                        text = "About the developers",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color(0xFF9E9E9E),
@@ -293,7 +289,7 @@ fun SettingsScreen(
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Text(
-                                        text = "Developer Tools",
+                                        text = "Developer Info",
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = Color(0xFF1F1F1F),
@@ -302,7 +298,7 @@ fun SettingsScreen(
                                 }
 
                                 val rotation by animateFloatAsState(
-                                    targetValue = if (uiState.isDeveloperToolsExpanded) 180f else 0f,
+                                    targetValue = if (uiState.isAboutDevelopersExpanded) 180f else 0f,
                                     label = "chevron_rotation"
                                 )
                                 Icon(
@@ -315,21 +311,79 @@ fun SettingsScreen(
 
                             // Expandable Content
                             AnimatedVisibility(
-                                visible = uiState.isDeveloperToolsExpanded,
+                                visible = uiState.isAboutDevelopersExpanded,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
                             ) {
-                                Column(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.fillMaxWidth()
+                                ) {
                                     HorizontalDivider(color = Color(0xFFF5F5F5))
 
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(24.dp),
-                                        contentAlignment = Alignment.Center
+                                            .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 3.dp)
                                     ) {
                                         Text(
-                                            text = "Test features and dummy data injectors will go here.",
+                                            text = "Anjelo Benedict Arnaez",
+                                            fontSize = 18.sp,
+                                            color = Color(0xFFBDBDBD),
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = 24.dp, end = 24.dp, bottom = 10.dp)
+                                    ) {
+                                        Text(
+                                            text = "Project Head / Backend Developer",
+                                            fontSize = 12.sp,
+                                            color = Color(0xFFBDBDBD)
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = 24.dp, end = 24.dp, top = 10.dp, bottom = 3.dp)
+                                    ) {
+                                        Text(
+                                            text = "Aaliyah Balocating",
+                                            fontSize = 18.sp,
+                                            color = Color(0xFFBDBDBD),
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = 24.dp, end = 24.dp, bottom = 10.dp)
+                                    ) {
+                                        Text(
+                                            text = "UI Design / Backend Developer",
+                                            fontSize = 12.sp,
+                                            color = Color(0xFFBDBDBD)
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = 24.dp, end = 24.dp, top = 10.dp, bottom = 3.dp)
+                                    ) {
+                                        Text(
+                                            text = "Gian Brent Maligaya",
+                                            fontSize = 18.sp,
+                                            color = Color(0xFFBDBDBD),
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = 24.dp, end = 24.dp, bottom = 24.dp)
+                                    ) {
+                                        Text(
+                                            text = "UI/UX Developer",
                                             fontSize = 12.sp,
                                             color = Color(0xFFBDBDBD)
                                         )
@@ -341,7 +395,6 @@ fun SettingsScreen(
                 }
             }
 
-            // The 12.dp Fading Gradient Overlay
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
