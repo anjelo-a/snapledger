@@ -40,8 +40,16 @@ class GoogleIdentityClient(
 
         return try {
             requestGoogleCredential(activity = activity, useExplicitGoogleSignIn = true)
-        } catch (_: GetCredentialCancellationException) {
-            GoogleSignInResult.Failure("Google Sign-In was cancelled.")
+        } catch (error: GetCredentialCancellationException) {
+            if (error.isRecoverableGoogleCancellation()) {
+                runCatching {
+                    requestGoogleCredential(activity = activity, useExplicitGoogleSignIn = false)
+                }.getOrElse { fallbackError ->
+                    fallbackError.toGoogleSignInFailure()
+                }
+            } else {
+                GoogleSignInResult.Failure("Google Sign-In was cancelled.")
+            }
         } catch (_: NoCredentialException) {
             runCatching {
                 requestGoogleCredential(activity = activity, useExplicitGoogleSignIn = false)
@@ -110,7 +118,11 @@ private fun Throwable.toGoogleSignInFailure(): GoogleSignInResult.Failure {
         is NoCredentialException ->
             "No Google credentials are available on this device. Make sure a Google account is signed in and Google Play services are up to date."
         is GetCredentialCancellationException ->
-            "Google Sign-In was cancelled."
+            if (isRecoverableGoogleCancellation()) {
+                "Google Sign-In could not complete because Google account authorization failed on the device. Re-add the Google account or update Google Play services, then try again."
+            } else {
+                "Google Sign-In was cancelled."
+            }
         is GetCredentialException -> {
             when {
                 this.message?.contains("developer console", ignoreCase = true) == true ->
@@ -124,6 +136,14 @@ private fun Throwable.toGoogleSignInFailure(): GoogleSignInResult.Failure {
         else -> this.message ?: "Google Sign-In could not complete. Please try again."
     }
     return GoogleSignInResult.Failure(message)
+}
+
+private fun GetCredentialCancellationException.isRecoverableGoogleCancellation(): Boolean {
+    val text = message.orEmpty()
+    return text.contains("reauth", ignoreCase = true) ||
+        text.contains("authorization", ignoreCase = true) ||
+        text.contains("authorized", ignoreCase = true) ||
+        text.contains("account", ignoreCase = true)
 }
 
 private tailrec fun Context.findActivity(): Activity? {
