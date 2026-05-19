@@ -99,6 +99,23 @@ def test_rate_limit_middleware_blocks_after_threshold(monkeypatch) -> None:
     blocked = client.get("/ok")
     assert blocked.status_code == 429
 
+
+def test_rate_limit_uses_forwarded_for_when_available(monkeypatch) -> None:
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "true")
+    monkeypatch.setenv("RATE_LIMIT_REQUESTS", "1")
+    monkeypatch.setenv("RATE_LIMIT_WINDOW_SECONDS", "60")
+    get_settings.cache_clear()
+
+    client = TestClient(_build_test_app())
+    first = client.get("/ok", headers={"x-forwarded-for": "198.51.100.10"})
+    second = client.get("/ok", headers={"x-forwarded-for": "203.0.113.25"})
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+    blocked = client.get("/ok", headers={"x-forwarded-for": "198.51.100.10"})
+    assert blocked.status_code == 429
+
+
 def test_https_enforcement_blocks_http(monkeypatch) -> None:
     monkeypatch.setenv("ENFORCE_HTTPS", "true")
     get_settings.cache_clear()

@@ -10,6 +10,19 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.config import get_settings
 
 
+def _client_identifier(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "").strip()
+    if forwarded_for:
+        first_hop = forwarded_for.split(",")[0].strip()
+        if first_hop:
+            return first_hop
+
+    if request.client and request.client.host:
+        return request.client.host
+
+    return "unknown"
+
+
 class ApiKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         settings = get_settings()
@@ -53,8 +66,7 @@ class InMemoryRateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path == "/health":
             return await call_next(request)
 
-        client_host = request.client.host if request.client else "unknown"
-        key = f"{client_host}:{request.url.path}"
+        key = f"{_client_identifier(request)}:{request.url.path}"
         now = time.time()
         window = self._windows[key]
 
