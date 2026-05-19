@@ -1,11 +1,15 @@
 package com.snapledger.feature.account.data
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Base64
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.snapledger.BuildConfig
@@ -27,6 +31,10 @@ class GoogleIdentityClient(
                 "Google Sign-In is not configured yet. Add SNAPLEDGER_GOOGLE_WEB_CLIENT_ID to root or app/local.properties.",
             )
         }
+        val activity = context.findActivity()
+            ?: return GoogleSignInResult.Failure(
+                "Google Sign-In requires an active app screen. Reopen SnapLedger and try again.",
+            )
 
         return try {
             val googleIdOption = GetGoogleIdOption.Builder()
@@ -37,8 +45,8 @@ class GoogleIdentityClient(
             val request = GetCredentialRequest.Builder()
                 .addCredentialOption(googleIdOption)
                 .build()
-            val response = credentialManagerFactory(context).getCredential(
-                context = context,
+            val response = credentialManagerFactory(activity).getCredential(
+                context = activity,
                 request = request,
             )
             val credential = response.credential
@@ -63,8 +71,16 @@ class GoogleIdentityClient(
             } else {
                 GoogleSignInResult.Failure("Google did not return a usable account.")
             }
+        } catch (_: GetCredentialCancellationException) {
+            GoogleSignInResult.Failure("Google Sign-In was cancelled.")
+        } catch (error: GetCredentialException) {
+            GoogleSignInResult.Failure(
+                error.message ?: "Google Sign-In could not start. Check your Google client ID and device setup.",
+            )
         } catch (error: Exception) {
-            GoogleSignInResult.Failure(error.message ?: "Google Sign-In was cancelled.")
+            GoogleSignInResult.Failure(
+                error.message ?: "Google Sign-In could not complete. Please try again.",
+            )
         }
     }
 
@@ -72,6 +88,14 @@ class GoogleIdentityClient(
         runCatching {
             credentialManagerFactory(context).clearCredentialState(ClearCredentialStateRequest())
         }
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? {
+    return when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
     }
 }
 

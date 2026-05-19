@@ -13,8 +13,8 @@ kotlin {
 
 val localProps = Properties().apply {
     listOf(
-        rootProject.file("local.properties"),
         project.file("local.properties"),
+        rootProject.file("local.properties"),
     ).forEach { file ->
         if (file.exists()) {
             file.inputStream().use { load(it) }
