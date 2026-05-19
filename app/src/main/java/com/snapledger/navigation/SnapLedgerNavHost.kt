@@ -30,6 +30,7 @@ import com.snapledger.core.profile.ProfileRepository
 import com.snapledger.core.profile.UserProfile
 import com.snapledger.feature.budget.ui.BudgetRoute
 import com.snapledger.feature.dashboard.ui.BudgetSummary
+import com.snapledger.feature.dashboard.ui.DashboardBudgetPeriod
 import com.snapledger.feature.dashboard.network.DashboardInsightResult
 import com.snapledger.feature.dashboard.network.DashboardInsightMetrics
 import com.snapledger.feature.dashboard.network.DashboardInsightService
@@ -52,6 +53,7 @@ import com.snapledger.feature.scan.ui.ScanRoute
 import com.snapledger.feature.scan.vm.ScanViewModel
 import com.snapledger.feature.settings.ui.SettingsRoute
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.time.temporal.WeekFields
@@ -328,6 +330,7 @@ internal fun LedgerSnapshot.toDashboardState(
 
     val monthlyTransactions = mutableListOf<LedgerTransaction>()
     val weeklyTransactions = mutableListOf<LedgerTransaction>()
+    val allTimeTransactions = mutableListOf<LedgerTransaction>()
     val expenseTransactions = mutableListOf<LedgerTransaction>()
 
     transactions.forEach { transaction ->
@@ -344,6 +347,7 @@ internal fun LedgerSnapshot.toDashboardState(
             LedgerTransactionType.EXPENSE -> {
                 if (isCurrentMonth) monthlyTransactions += transaction
                 if (isCurrentWeek) weeklyTransactions += transaction
+                allTimeTransactions += transaction
                 expenseTransactions += transaction
             }
 
@@ -354,6 +358,7 @@ internal fun LedgerSnapshot.toDashboardState(
                 if (isCurrentWeek && transaction.incomeAppliesTo(LedgerBudgetPeriod.WEEKLY)) {
                     weeklyTransactions += transaction
                 }
+                allTimeTransactions += transaction
             }
         }
     }
@@ -368,7 +373,14 @@ internal fun LedgerSnapshot.toDashboardState(
             period = LedgerBudgetPeriod.WEEKLY,
             periodTransactions = weeklyTransactions,
         ),
-        trend = buildTrendSummary(),
+        allTimeBudget = buildBudgetSummary(
+            period = null,
+            periodTransactions = allTimeTransactions,
+        ),
+        trend = buildTrendSummary(period = DashboardBudgetPeriod.MONTHLY, today = today),
+        weeklyTrend = buildTrendSummary(period = DashboardBudgetPeriod.WEEKLY, today = today),
+        monthlyTrend = buildTrendSummary(period = DashboardBudgetPeriod.MONTHLY, today = today),
+        allTimeTrend = buildTrendSummary(period = DashboardBudgetPeriod.ALL_TIME, today = today),
         categories = buildCategorySummaries(expenseTransactions),
         recentActivity = transactions
             .sortedByDescending { it.createdAtMillis }
@@ -394,7 +406,50 @@ private fun LedgerTransaction.incomeAppliesTo(period: LedgerBudgetPeriod): Boole
     }
 }
 
-private fun LedgerSnapshot.buildTrendSummary(today: LocalDate = LocalDate.now()): TrendSummary {
+private fun LedgerSnapshot.buildTrendSummary(
+    period: DashboardBudgetPeriod,
+    today: LocalDate = LocalDate.now(),
+): TrendSummary {
+    return when (period) {
+        DashboardBudgetPeriod.WEEKLY -> buildWeeklyTrendSummary(today)
+        DashboardBudgetPeriod.MONTHLY -> buildMonthlyTrendSummary(today)
+        DashboardBudgetPeriod.ALL_TIME -> buildAllTimeTrendSummary()
+    }
+}
+
+private fun LedgerSnapshot.buildWeeklyTrendSummary(today: LocalDate): TrendSummary {
+    val currentWeekStart = today.with(java.time.DayOfWeek.MONDAY)
+    val previousWeekStart = currentWeekStart.minusWeeks(1)
+    val dailyTotals = MutableList(7) { 0.0 }
+    var currentWeekTotal = 0.0
+    var previousWeekTotal = 0.0
+
+    transactions.forEach { transaction ->
+        if (transaction.type != LedgerTransactionType.EXPENSE) return@forEach
+        val date = transaction.parsedDate() ?: return@forEach
+
+        when {
+            !date.isBefore(currentWeekStart) && !date.isAfter(currentWeekStart.plusDays(6)) -> {
+                currentWeekTotal += transaction.amount
+                dailyTotals[date.dayOfWeek.value - 1] += transaction.amount
+            }
+
+            !date.isBefore(previousWeekStart) && !date.isAfter(previousWeekStart.plusDays(6)) -> {
+                previousWeekTotal += transaction.amount
+            }
+        }
+    }
+
+    return trendSummaryFromTotals(
+        currentTotal = currentWeekTotal,
+        previousTotal = previousWeekTotal,
+        periodLabel = "This week vs last week",
+        dataPoints = dailyTotals.runningTotals(),
+        dataLabels = listOf("M", "T", "W", "T", "F", "S", "S"),
+    )
+}
+
+private fun LedgerSnapshot.buildMonthlyTrendSummary(today: LocalDate): TrendSummary {
     val previousMonth = today.minusMonths(1)
     var thisMonth = 0.0
     var prevMonthTotal = 0.0
@@ -427,32 +482,113 @@ private fun LedgerSnapshot.buildTrendSummary(today: LocalDate = LocalDate.now())
         week1 + week2 + week3 + week4
     )
 
-    if (thisMonth == 0.0 && prevMonthTotal == 0.0) {
+    return trendSummaryFromTotals(
+        currentTotal = thisMonth,
+        previousTotal = prevMonthTotal,
+        periodLabel = "This month vs last month",
+        dataPoints = cumulativePoints,
+        dataLabels = listOf("W1", "W2", "W3", "W4"),
+    )
+}
+
+private fun LedgerSnapshot.buildAllTimeTrendSummary(): TrendSummary {
+    val totalsByMonth = sortedMapOf<YearMonth, Double>()
+    transactions.forEach { transaction ->
+        if (transaction.type != LedgerTransactionType.EXPENSE) return@forEach
+        val date = transaction.parsedDate() ?: return@forEach
+        val month = YearMonth.from(date)
+        totalsByMonth[month] = (totalsByMonth[month] ?: 0.0) + transaction.amount
+    }
+
+    if (totalsByMonth.isEmpty()) {
         return TrendSummary(
             percentageChange = 0.0,
             isUp = false,
-            period = "This month vs last month",
-            dataPoints = cumulativePoints
+            period = "All expense history",
+            dataPoints = emptyList(),
+            dataLabels = emptyList(),
         )
     }
 
-    if (prevMonthTotal == 0.0) {
+    val monthlyEntries = totalsByMonth.entries.toList()
+    val bucketSize = ((monthlyEntries.size + MAX_TREND_POINTS - 1) / MAX_TREND_POINTS)
+        .coerceAtLeast(1)
+    val buckets = monthlyEntries.chunked(bucketSize)
+    val displayedTotals = buckets.map { bucket -> bucket.sumOf { it.value } }
+    val previousTotal = if (displayedTotals.size >= 2) {
+        displayedTotals[displayedTotals.lastIndex - 1]
+    } else {
+        0.0
+    }
+    val currentTotal = displayedTotals.lastOrNull() ?: 0.0
+
+    return trendSummaryFromTotals(
+        currentTotal = currentTotal,
+        previousTotal = previousTotal,
+        periodLabel = "All time by month",
+        dataPoints = displayedTotals.runningTotals(),
+        dataLabels = buckets.map { bucket ->
+            val firstMonth = bucket.first().key
+            val lastMonth = bucket.last().key
+            if (firstMonth == lastMonth) {
+                firstMonth.shortLabel()
+            } else {
+                "${firstMonth.shortLabel()}-${lastMonth.shortLabel()}"
+            }
+        },
+    )
+}
+
+private fun trendSummaryFromTotals(
+    currentTotal: Double,
+    previousTotal: Double,
+    periodLabel: String,
+    dataPoints: List<Double>,
+    dataLabels: List<String>,
+): TrendSummary {
+    if (currentTotal == 0.0 && previousTotal == 0.0) {
+        return TrendSummary(
+            percentageChange = 0.0,
+            isUp = false,
+            period = periodLabel,
+            dataPoints = dataPoints,
+            dataLabels = dataLabels,
+        )
+    }
+
+    if (previousTotal == 0.0) {
         return TrendSummary(
             percentageChange = 100.0,
             isUp = true,
-            period = "This month vs last month",
-            dataPoints = cumulativePoints
+            period = periodLabel,
+            dataPoints = dataPoints,
+            dataLabels = dataLabels,
         )
     }
 
-    val delta = ((thisMonth - prevMonthTotal) / prevMonthTotal) * 100.0
+    val delta = ((currentTotal - previousTotal) / previousTotal) * 100.0
     return TrendSummary(
         percentageChange = kotlin.math.abs(delta),
         isUp = delta >= 0.0,
-        period = "This month vs last month",
-        dataPoints = cumulativePoints
+        period = periodLabel,
+        dataPoints = dataPoints,
+        dataLabels = dataLabels,
     )
 }
+
+private fun List<Double>.runningTotals(): List<Double> {
+    var total = 0.0
+    return map { value ->
+        total += value
+        total
+    }
+}
+
+private fun YearMonth.shortLabel(): String {
+    return format(DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault()))
+}
+
+private const val MAX_TREND_POINTS = 6
 
 private fun buildCategorySummaries(expenses: List<LedgerTransaction>): List<CategorySummary> {
     if (expenses.isEmpty()) return emptyList()
@@ -480,7 +616,7 @@ private fun buildCategorySummaries(expenses: List<LedgerTransaction>): List<Cate
 }
 
 private fun LedgerSnapshot.buildBudgetSummary(
-    period: LedgerBudgetPeriod,
+    period: LedgerBudgetPeriod?,
     periodTransactions: List<LedgerTransaction>,
 ): BudgetSummary {
     var spent = 0.0
@@ -493,7 +629,9 @@ private fun LedgerSnapshot.buildBudgetSummary(
     }
 
     return BudgetSummary(
-        limit = budgetCategories.filter { it.period == period }.sumOf { it.allocated },
+        limit = period?.let { targetPeriod ->
+            budgetCategories.filter { it.period == targetPeriod }.sumOf { it.allocated }
+        } ?: 0.0,
         spent = spent,
         totalIncome = totalIncome,
         totalExpenses = spent,
