@@ -1,0 +1,4 @@
+{"id":"sync-01-idempotency-replay","case":"idempotency_replay","receipt_id":"eval-sync-idempotency","idempotency_key":"eval-sync-idempotency-key"}
+{"id":"sync-02-unsupported-entities","case":"unsupported_entities"}
+{"id":"sync-03-order-retry-storm","case":"order_retry_storm","receipt_id":"eval-sync-order"}
+{"id":"sync-04-delete-tombstone","case":"delete_tombstone","receipt_id":"eval-sync-delete"}

@@ -14,6 +14,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services import parser_service
 
 
 @dataclass
@@ -31,6 +32,18 @@ class EvalCounts:
     total_uncertain_nulled: int = 0
     warning_codes_expected: int = 0
     warning_codes_false_positive: int = 0
+    merchant_non_null_predictions: int = 0
+    merchant_non_null_correct: int = 0
+    merchant_expected_uncertain: int = 0
+    merchant_uncertain_nulled: int = 0
+    expense_date_non_null_predictions: int = 0
+    expense_date_non_null_correct: int = 0
+    expense_date_expected_uncertain: int = 0
+    expense_date_uncertain_nulled: int = 0
+    items_predictions: int = 0
+    items_correct: int = 0
+    items_expected_uncertain: int = 0
+    items_uncertain_empty: int = 0
 
 
 @dataclass
@@ -78,6 +91,59 @@ def _is_amount_equal(left: Any, right: Any) -> bool:
     if left is None or right is None:
         return left is None and right is None
     return str(left).strip() == str(right).strip()
+
+
+def _is_text_equal(left: Any, right: Any) -> bool:
+    if left is None or right is None:
+        return left is None and right is None
+    return str(left).strip().casefold() == str(right).strip().casefold()
+
+
+def _is_items_equal(left: Any, right: Any) -> bool:
+    if not isinstance(left, list) or not isinstance(right, list):
+        return left == right
+    if len(left) != len(right):
+        return False
+    for predicted, expected in zip(left, right, strict=True):
+        if not isinstance(predicted, dict) or not isinstance(expected, dict):
+            return False
+        if not _is_text_equal(predicted.get("name"), expected.get("name")):
+            return False
+        if not _is_amount_equal(predicted.get("amount"), expected.get("amount")):
+            return False
+    return True
+
+
+def _post_receipt_process(
+    client: TestClient,
+    request_payload: dict[str, Any],
+    row: dict[str, Any],
+) -> Any:
+    mock_gemini_response = row.get("mock_gemini_response")
+    if mock_gemini_response is None:
+        return client.post("/v1/receipts/process", json=request_payload)
+
+    original_call = parser_service._call_gemini_extract
+    original_prepare = parser_service._prepare_image_for_gemini
+    original_api_key = os.environ.get("GEMINI_API_KEY")
+    os.environ["GEMINI_API_KEY"] = "eval-only-key"
+    parser_service.get_settings.cache_clear()
+
+    def fake_call_gemini_extract(*args: Any, **kwargs: Any) -> str:
+        return json.dumps(mock_gemini_response, separators=(",", ":"))
+
+    parser_service._call_gemini_extract = fake_call_gemini_extract
+    parser_service._prepare_image_for_gemini = lambda image_bytes: (image_bytes, "image/jpeg")
+    try:
+        return client.post("/v1/receipts/process", json=request_payload)
+    finally:
+        parser_service._call_gemini_extract = original_call
+        parser_service._prepare_image_for_gemini = original_prepare
+        if original_api_key is None:
+            os.environ.pop("GEMINI_API_KEY", None)
+        else:
+            os.environ["GEMINI_API_KEY"] = original_api_key
+        parser_service.get_settings.cache_clear()
 
 
 def _pct(numerator: int, denominator: int) -> float:
@@ -176,7 +242,7 @@ def run_eval(dataset_path: Path, output_dir: Path) -> int:
             if not isinstance(ground_truth, dict):
                 raise ValueError("ground_truth must be an object when present")
 
-            response = client.post("/v1/receipts/process", json=request_payload)
+            response = _post_receipt_process(client, request_payload, row)
             if response.status_code != 200:
                 _classify_non_200(response.status_code, counts)
                 print(
@@ -202,6 +268,42 @@ def run_eval(dataset_path: Path, output_dir: Path) -> int:
                 if _is_amount_equal(predicted_total, expected_total):
                     counts.total_non_null_correct += 1
 
+            expected_merchant = ground_truth.get("merchant")
+            predicted_merchant = body.get("merchant")
+            uncertain_merchant = bool(ground_truth.get("merchant_uncertain", False))
+            if uncertain_merchant:
+                counts.merchant_expected_uncertain += 1
+                if predicted_merchant is None:
+                    counts.merchant_uncertain_nulled += 1
+            elif "merchant" in ground_truth and predicted_merchant is not None:
+                counts.merchant_non_null_predictions += 1
+                if _is_text_equal(predicted_merchant, expected_merchant):
+                    counts.merchant_non_null_correct += 1
+
+            expected_date = ground_truth.get("expense_date")
+            predicted_date = body.get("expense_date")
+            uncertain_date = bool(ground_truth.get("expense_date_uncertain", False))
+            if uncertain_date:
+                counts.expense_date_expected_uncertain += 1
+                if predicted_date is None:
+                    counts.expense_date_uncertain_nulled += 1
+            elif "expense_date" in ground_truth and predicted_date is not None:
+                counts.expense_date_non_null_predictions += 1
+                if _is_text_equal(predicted_date, expected_date):
+                    counts.expense_date_non_null_correct += 1
+
+            expected_items = ground_truth.get("items")
+            predicted_items = body.get("items")
+            uncertain_items = bool(ground_truth.get("items_uncertain", False))
+            if uncertain_items:
+                counts.items_expected_uncertain += 1
+                if predicted_items == []:
+                    counts.items_uncertain_empty += 1
+            elif "items" in ground_truth and isinstance(predicted_items, list):
+                counts.items_predictions += 1
+                if _is_items_equal(predicted_items, expected_items):
+                    counts.items_correct += 1
+
             expected_warning_codes = set(ground_truth.get("expected_warning_codes", []))
             predicted_warning_codes = set(body.get("warning_codes", []))
             for code in predicted_warning_codes:
@@ -224,6 +326,30 @@ def run_eval(dataset_path: Path, output_dir: Path) -> int:
         "warning_code_false_positive_rate": _rate_string(
             counts.warning_codes_false_positive,
             counts.warning_codes_expected,
+        ),
+        "merchant_non_null_precision": _rate_string(
+            counts.merchant_non_null_correct,
+            counts.merchant_non_null_predictions,
+        ),
+        "merchant_null_on_uncertainty_recall": _rate_string(
+            counts.merchant_uncertain_nulled,
+            counts.merchant_expected_uncertain,
+        ),
+        "expense_date_non_null_precision": _rate_string(
+            counts.expense_date_non_null_correct,
+            counts.expense_date_non_null_predictions,
+        ),
+        "expense_date_null_on_uncertainty_recall": _rate_string(
+            counts.expense_date_uncertain_nulled,
+            counts.expense_date_expected_uncertain,
+        ),
+        "items_exact_match_rate": _rate_string(
+            counts.items_correct,
+            counts.items_predictions,
+        ),
+        "items_empty_on_uncertainty_recall": _rate_string(
+            counts.items_uncertain_empty,
+            counts.items_expected_uncertain,
         ),
         "non_200_422": counts.http_422,
         "non_200_429": counts.http_429,
@@ -262,6 +388,24 @@ def run_eval(dataset_path: Path, output_dir: Path) -> int:
     print(
         "[receipt-eval] warning_code_false_positive_rate="
         f"{metrics['warning_code_false_positive_rate']}"
+    )
+    print(f"[receipt-eval] merchant_non_null_precision={metrics['merchant_non_null_precision']}")
+    print(
+        "[receipt-eval] merchant_null_on_uncertainty_recall="
+        f"{metrics['merchant_null_on_uncertainty_recall']}"
+    )
+    print(
+        "[receipt-eval] expense_date_non_null_precision="
+        f"{metrics['expense_date_non_null_precision']}"
+    )
+    print(
+        "[receipt-eval] expense_date_null_on_uncertainty_recall="
+        f"{metrics['expense_date_null_on_uncertainty_recall']}"
+    )
+    print(f"[receipt-eval] items_exact_match_rate={metrics['items_exact_match_rate']}")
+    print(
+        "[receipt-eval] items_empty_on_uncertainty_recall="
+        f"{metrics['items_empty_on_uncertainty_recall']}"
     )
     print(
         "[receipt-eval] non_200_breakdown="

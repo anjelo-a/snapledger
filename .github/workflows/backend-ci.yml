@@ -110,6 +110,65 @@ jobs:
         if: steps.changes.outputs.extraction != 'true'
         run: echo "No extraction-sensitive changes; full eval skipped by policy."
 
+  phase-guardrail-evals:
+    name: Phase Guardrail Evals
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "backend/pyproject.toml"
+
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run receipt non-fabrication field eval
+        run: >
+          python scripts/run_receipt_eval.py
+          --dataset evals/receipt_non_fabrication_fields.jsonl
+          --output-dir eval_artifacts
+
+      - name: Run receipt prompt-injection eval
+        run: >
+          python scripts/run_receipt_eval.py
+          --dataset evals/receipt_injection.jsonl
+          --output-dir eval_artifacts
+
+      - name: Run insight guardrail adversarial eval
+        run: >
+          python scripts/run_insight_eval.py
+          --dataset evals/insight_guardrail_adversarial.jsonl
+          --output-dir eval_artifacts
+
+      - name: Run insight structured-contract eval
+        run: >
+          python scripts/run_insight_eval.py
+          --dataset evals/insight_contract_robustness.jsonl
+          --output-dir eval_artifacts
+
+      - name: Run sync determinism stress eval
+        run: >
+          python scripts/run_sync_eval.py
+          --dataset evals/sync_determinism_stress.jsonl
+          --output-dir eval_artifacts
+
+      - name: Upload phase guardrail eval artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-guardrail-eval-artifacts
+          path: backend/eval_artifacts/*
+          if-no-files-found: error
+
   lint-and-tests:
     name: Lint and Unit Tests
     runs-on: ubuntu-latest

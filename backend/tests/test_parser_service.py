@@ -245,7 +245,10 @@ def test_parse_receipt_image_rate_limit_immediately_downgrades_to_fallback_model
                     request=httpx.Request("POST", "https://example.test"),
                 ),
             )
-        return '{"merchant":"BEAN BARN CAFE","date":null,"subtotal":null,"tax":null,"total":"7.75","line_items":[]}'
+        return (
+            '{"merchant":"BEAN BARN CAFE","date":null,"subtotal":null,"tax":null,'
+            '"total":"7.75","line_items":[]}'
+        )
 
     monkeypatch.setattr(parser_service, "_call_gemini_extract", fake_call_gemini_extract)
     try:
