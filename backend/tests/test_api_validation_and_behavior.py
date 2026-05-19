@@ -192,6 +192,41 @@ def test_receipts_confirm_alias_forces_scan_source(client: TestClient) -> None:
     assert payload["source"] == "scan"
 
 
+def test_receipts_confirm_pagination_returns_all_scanned_expenses(client: TestClient) -> None:
+    created_ids: list[str] = []
+    for idx in range(5):
+        response = client.post(
+            "/v1/receipts/confirm",
+            json=_create_receipt_payload(
+                source="manual",
+                merchant=f"Scanned Reflect {idx}",
+                total_amount="10.00",
+            ),
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["source"] == "scan"
+        created_ids.append(payload["id"])
+
+    seen_ids: set[str] = set()
+    cursor: str | None = None
+    while True:
+        params: dict[str, str | int] = {"limit": 2}
+        if cursor is not None:
+            params["cursor"] = cursor
+        page_response = client.get("/v1/receipts", params=params)
+        assert page_response.status_code == 200
+        page_payload = page_response.json()
+        for item in page_payload["items"]:
+            if item["merchant"].startswith("Scanned Reflect "):
+                seen_ids.add(item["id"])
+        cursor = page_payload["next_cursor"]
+        if cursor is None:
+            break
+
+    assert seen_ids == set(created_ids)
+
+
 def test_receipts_confirm_alias_matches_direct_receipt_shape(client: TestClient) -> None:
     direct = client.post("/v1/receipts", json=_create_receipt_payload(source="scan", items=[]))
     alias = client.post("/v1/receipts/confirm", json=_create_receipt_payload(items=[]))

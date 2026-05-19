@@ -137,7 +137,9 @@ data class ScanUiState(
         get() = parser.candidate != null
 
     val canRunOcr: Boolean
-        get() = capturedImage != null && ocr.phase != OcrExtractionPhase.Running
+        get() = capturedImage != null &&
+            ocr.phase != OcrExtractionPhase.Running &&
+            parser.phase != ParserPhase.Running
 
     val canRunParser: Boolean
         get() = ocr.lines.isNotEmpty() && parser.phase != ParserPhase.Running

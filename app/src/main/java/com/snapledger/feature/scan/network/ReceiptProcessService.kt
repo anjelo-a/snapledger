@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Base64
+import android.util.Log
 import com.snapledger.core.network.NetworkConfig
 import com.snapledger.core.network.SnapLedgerHttpClient
 import com.snapledger.feature.scan.domain.CapturedImageMetadata
@@ -42,6 +43,8 @@ class ReceiptProcessService(
     private val context: Context,
     private val api: ReceiptProcessApiService = createApi(),
 ) : ReceiptProcessClient {
+    private val tag = "ReceiptProcessService"
+
     override suspend fun processReceipt(capturedImage: CapturedImageMetadata): RemoteProcessResult {
         if (!isNetworkAvailable()) {
             return RemoteProcessResult.Failure("offline")
@@ -56,10 +59,28 @@ class ReceiptProcessService(
             RemoteProcessResult.Success(response.toDomain())
         } catch (error: HttpException) {
             if (error.code() == 429) {
+                val retryAfter = error.response()?.headers()?.get("Retry-After")
+                val errorBody = runCatching { error.response()?.errorBody()?.string() }
+                    .getOrNull()
+                    ?.take(240)
+                Log.w(
+                    tag,
+                    "receipt_process_429 retry_after=$retryAfter body=$errorBody",
+                )
                 return RemoteProcessResult.RateLimited(
-                    "Scan service is busy right now. Please wait a bit and try again.",
+                    if (retryAfter.isNullOrBlank()) {
+                        "Scan service is rate-limited. Try again shortly."
+                    } else {
+                        "Scan service is rate-limited. Retry after $retryAfter seconds."
+                    },
                 )
             }
+            Log.w(
+                tag,
+                "receipt_process_http_error code=${error.code()} body=${
+                    runCatching { error.response()?.errorBody()?.string() }.getOrNull()?.take(240)
+                }",
+            )
             RemoteProcessResult.Failure(error.message ?: "Receipt processing failed.")
         } catch (error: Exception) {
             RemoteProcessResult.Failure(error.message ?: "Receipt processing failed.")
