@@ -168,6 +168,10 @@ class ScanViewModel(
     }
 
     fun onOcrRequested() {
+        if (uiState.parser.phase == ParserPhase.Running) {
+            return
+        }
+
         val capturedImage = uiState.capturedImage ?: run {
             uiState = uiState.copy(
                 parser = ParserUiState(

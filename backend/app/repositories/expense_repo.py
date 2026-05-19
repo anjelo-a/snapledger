@@ -86,8 +86,9 @@ class ExpenseRepository:
         decoded_cursor = _decode_cursor(cursor)
         if decoded_cursor is not None:
             cursor_date, cursor_created_at, cursor_id = decoded_cursor
-            cursor_created_at_text = cursor_created_at.strftime("%Y-%m-%d %H:%M:%S")
-            created_at_key = func.strftime("%Y-%m-%d %H:%M:%S", Expense.created_at)
+            # SQLite strftime("%f") formats fractional seconds to millisecond precision (SS.SSS).
+            cursor_created_at_text = cursor_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            created_at_key = func.strftime("%Y-%m-%d %H:%M:%f", Expense.created_at)
             # Sort order: expense_date desc, created_at desc, id desc
             stmt = stmt.where(
                 or_(
