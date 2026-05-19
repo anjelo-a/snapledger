@@ -505,19 +505,6 @@ private fun AddCategoryInlineCard(onSave: (String, Double) -> Unit) {
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Text(
-                text = "Category",
-                fontSize = 12.sp,
-                color = Color(0xFF9E9E9E),
-                modifier = Modifier.padding(bottom = 10.dp),
-            )
-            BudgetCategoryPicker(
-                selectedCategory = selectedCategory,
-                onCategorySelected = { selectedCategory = it }
-            )
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            Text(
                 text = "Budget Limit (PHP)",
                 fontSize = 12.sp,
                 color = Color(0xFF9E9E9E),
@@ -531,6 +518,19 @@ private fun AddCategoryInlineCard(onSave: (String, Double) -> Unit) {
                 },
                 hint = "0.00",
                 keyboardType = KeyboardType.Decimal
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(
+                text = "Category",
+                fontSize = 12.sp,
+                color = Color(0xFF9E9E9E),
+                modifier = Modifier.padding(bottom = 10.dp),
+            )
+            BudgetCategoryPicker(
+                selectedCategory = selectedCategory,
+                onCategorySelected = { selectedCategory = it }
             )
 
             Spacer(modifier = Modifier.height(20.dp))

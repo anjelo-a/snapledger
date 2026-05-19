@@ -1,8 +1,10 @@
 package com.snapledger.feature.dashboard.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.InfiniteRepeatableSpec
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -23,6 +25,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -40,16 +43,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -62,8 +61,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -589,76 +586,79 @@ private fun BudgetCard(
                 }
             }
 
-            Box(
+            BoxWithConstraints(
                 modifier = Modifier
-                    .padding(top = 14.dp)
+                    .padding(top = 14.dp, bottom = 12.dp)
                     .height(34.dp)
                     .fillMaxWidth()
                     .background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(18.dp))
                     .padding(3.dp)
             ) {
                 val periods = DashboardBudgetPeriod.entries
+                val selectedIndex = periods.indexOf(selectedPeriod)
+                val segmentWidth = maxWidth / periods.size
+
                 val offsetX by animateDpAsState(
-                    targetValue = when (selectedPeriod) {
-                        DashboardBudgetPeriod.WEEKLY -> 0.dp
-                        DashboardBudgetPeriod.MONTHLY -> 1.dp
-                        DashboardBudgetPeriod.ALL_TIME -> 2.dp
-                    },
-                    animationSpec = tween(durationMillis = 200),
-                    label = "sliderAnim"
+                    targetValue = segmentWidth * selectedIndex,
+                    animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+                    label = "budgetSliderAnim"
+                )
+
+                // The sliding background indicator
+                Box(
+                    modifier = Modifier
+                        .offset(x = offsetX)
+                        .width(segmentWidth)
+                        .fillMaxHeight()
+                        .background(Color.White, RoundedCornerShape(15.dp))
                 )
 
                 Row(modifier = Modifier.fillMaxSize()) {
                     periods.forEachIndexed { index, period ->
-                        Box(modifier = Modifier.weight(1f)) {
-                            if (selectedPeriod == period) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(Color.White, RoundedCornerShape(15.dp))
-                                )
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(RoundedCornerShape(15.dp))
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null,
-                                    ) {
-                                        if (selectedPeriod != period) {
-                                            coroutineScope.launch {
-                                                val direction = index - offsetX.value.toInt()
-                                                tiltAngle.animateTo(
-                                                    targetValue = if (direction < 0) -8f else 8f,
-                                                    animationSpec = tween(100),
-                                                )
-                                                tiltAngle.animateTo(
-                                                    targetValue = 0f,
-                                                    animationSpec = spring(
-                                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                        stiffness = Spring.StiffnessLow,
-                                                    ),
-                                                )
-                                            }
-                                            onPeriodChanged(period)
+                        val isSelected = selectedPeriod == period
+                        val textColor by animateColorAsState(
+                            targetValue = if (isSelected) Color(0xFF00A86B) else Color.White,
+                            animationSpec = tween(durationMillis = 250),
+                            label = "textColorAnim"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(15.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) {
+                                    if (selectedPeriod != period) {
+                                        coroutineScope.launch {
+                                            val direction = index - selectedIndex
+                                            tiltAngle.animateTo(
+                                                targetValue = if (direction < 0) -8f else 8f,
+                                                animationSpec = tween(100),
+                                            )
+                                            tiltAngle.animateTo(
+                                                targetValue = 0f,
+                                                animationSpec = spring(
+                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                    stiffness = Spring.StiffnessLow,
+                                                ),
+                                            )
                                         }
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = period.label,
-                                    color = if (selectedPeriod == period) {
-                                        Color(0xFF00A86B)
-                                    } else {
-                                        Color.White
-                                    },
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
+                                        onPeriodChanged(period)
+                                    }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = period.label,
+                                color = textColor,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
                 }
@@ -686,8 +686,8 @@ private fun BudgetCard(
                 progress = { budget.percentageUsed },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(8.dp)
-                    .padding(top = 16.dp),
+                    .padding(top = 16.dp)
+                    .height(3.dp),
                 color = Color.White,
                 trackColor = Color(0x4DFFFFFF),
                 strokeCap = StrokeCap.Round
@@ -954,34 +954,62 @@ private fun TrendPeriodSwitcher(
     onPeriodChanged: (DashboardBudgetPeriod) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    val periods = DashboardBudgetPeriod.entries
+    val selectedIndex = periods.indexOf(selectedPeriod)
+
+    BoxWithConstraints(
         modifier = modifier
             .height(36.dp)
             .background(Color(0xFFF1F8F5), RoundedCornerShape(18.dp))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
+            .padding(3.dp)
     ) {
-        DashboardBudgetPeriod.entries.forEach { period ->
-            val isSelected = selectedPeriod == period
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(15.dp))
-                    .background(if (isSelected) Color(0xFF00A86B) else Color.Transparent)
-                    .noRippleClickable {
-                        if (!isSelected) onPeriodChanged(period)
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = period.label,
-                    color = if (isSelected) Color.White else Color(0xFF757575),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+        val segmentWidth = maxWidth / periods.size
+
+        val offsetX by animateDpAsState(
+            targetValue = segmentWidth * selectedIndex,
+            animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+            label = "trendSliderAnim"
+        )
+
+        // The sliding background indicator
+        Box(
+            modifier = Modifier
+                .offset(x = offsetX)
+                .width(segmentWidth)
+                .fillMaxHeight()
+                .background(Color(0xFF00A86B), RoundedCornerShape(15.dp))
+        )
+
+        Row(
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            periods.forEach { period ->
+                val isSelected = selectedPeriod == period
+                val textColor by animateColorAsState(
+                    targetValue = if (isSelected) Color.White else Color(0xFF757575),
+                    animationSpec = tween(durationMillis = 250),
+                    label = "trendTextColorAnim"
                 )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(15.dp))
+                        .noRippleClickable {
+                            if (!isSelected) onPeriodChanged(period)
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = period.label,
+                        color = textColor,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
@@ -1127,6 +1155,10 @@ private fun CategoriesSection(categories: List<CategorySummary>) {
         }
     }
 
+    val totalExpense = remember(categories) { categories.sumOf { it.amount } }
+
+    var isExpanded by remember { mutableStateOf(false) }
+
     Column {
         Row(
             modifier = Modifier
@@ -1135,7 +1167,7 @@ private fun CategoriesSection(categories: List<CategorySummary>) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = "Categories", color = Color(0xFF1F1F1F), fontSize = 16.sp)
+            Text(text = "Expense categories", color = Color(0xFF1F1F1F), fontSize = 16.sp)
         }
 
         Card(
@@ -1172,31 +1204,127 @@ private fun CategoriesSection(categories: List<CategorySummary>) {
                     )
                 }
             } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 18.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(24.dp)
-                ) {
-                    CategoryDonutChart(
-                        categories = categories,
-                        categoryStyles = categoryStyles,
-                        modifier = Modifier.size(80.dp)
-                    )
+                val categoryThreshold = 5
+                val useVerticalLayout = categories.size >= categoryThreshold
 
+                val shouldTruncate = categories.size >= 5
+                val displayedCategories = if (shouldTruncate && !isExpanded) categories.take(4) else categories
+
+                if (useVerticalLayout) {
                     Column(
                         modifier = Modifier
-                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(start = 30.dp, end = 30.dp, top = 30.dp, bottom = 20.dp) //card padding
                     ) {
-                        categories.forEach { category ->
-                            CategoryItem(
-                                name = category.name,
-                                amount = formatCurrency(category.amount),
-                                percentage = category.percentage,
-                                color = categoryStyles.getValue(category.name).color
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center // Center both the pie chart and the text block
+                        ) {
+                            CategoryDonutChart(
+                                categories = categories,
+                                categoryStyles = categoryStyles,
+                                modifier = Modifier.size(100.dp) // pie chart size
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Spacer(modifier = Modifier.width(24.dp))
+
+                            Column {
+                                Text(
+                                    text = "Total expense:",
+                                    color = Color(0xFF757575),
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = formatCurrency(totalExpense),
+                                    color = Color(0xFF1F1F1F),
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(start = 2.dp, top = 4.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Column(modifier = Modifier
+                            .fillMaxWidth()
+                            .animateContentSize()
+                            .padding(top = 10.dp)
+                        ) {
+                            displayedCategories.forEach { category ->
+                                CategoryItem(
+                                    name = category.name,
+                                    amount = formatCurrency(category.amount),
+                                    percentage = category.percentage,
+                                    color = categoryStyles.getValue(category.name).color
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+
+                            if (shouldTruncate) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    Text(
+                                        text = if (isExpanded) "See less" else "See more",
+                                        color = Color(0xFF00A86B),
+                                        fontSize = 14.sp,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .noRippleClickable { isExpanded = !isExpanded }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(24.dp)
+                    ) {
+                        CategoryDonutChart(
+                            categories = categories,
+                            categoryStyles = categoryStyles,
+                            modifier = Modifier.size(80.dp) // <-- ADJUST HERE: Size of pie chart when categories are on the side
+                        )
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .animateContentSize()
+                        ) {
+                            displayedCategories.forEach { category ->
+                                CategoryItem(
+                                    name = category.name,
+                                    amount = formatCurrency(category.amount),
+                                    percentage = category.percentage,
+                                    color = categoryStyles.getValue(category.name).color
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+
+                            if (shouldTruncate) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    Text(
+                                        text = if (isExpanded) "See less" else "See more",
+                                        color = Color(0xFF00A86B),
+                                        fontSize = 14.sp,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .noRippleClickable { isExpanded = !isExpanded }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
