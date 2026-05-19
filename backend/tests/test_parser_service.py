@@ -221,6 +221,49 @@ def test_parse_receipt_image_gemini_failure_falls_back_to_ocr_lines(monkeypatch)
     assert "gemini_upstream_unavailable" in candidate.warning_codes
 
 
+def test_parse_receipt_image_rate_limit_immediately_downgrades_to_fallback_model(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-2.5-flash")
+    monkeypatch.setenv("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash")
+    get_settings.cache_clear()
+    calls: list[tuple[str, bool]] = []
+
+    def fake_call_gemini_extract(**kwargs: object) -> str:
+        model_name = kwargs["model_name"]
+        retry_on_rate_limit = kwargs["retry_on_rate_limit"]
+        assert isinstance(model_name, str)
+        assert isinstance(retry_on_rate_limit, bool)
+        calls.append((model_name, retry_on_rate_limit))
+        if model_name == "gemini-2.5-flash":
+            raise httpx.HTTPStatusError(
+                "rate limited",
+                request=httpx.Request("POST", "https://example.test"),
+                response=httpx.Response(
+                    429,
+                    request=httpx.Request("POST", "https://example.test"),
+                ),
+            )
+        return '{"merchant":"BEAN BARN CAFE","date":null,"subtotal":null,"tax":null,"total":"7.75","line_items":[]}'
+
+    monkeypatch.setattr(parser_service, "_call_gemini_extract", fake_call_gemini_extract)
+    try:
+        candidate = parse_receipt(
+            ReceiptProcessRequest(
+                image_base64=_tiny_jpeg_base64(),
+                image_mime_type="image/jpeg",
+            )
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert calls == [("gemini-2.5-flash", False), ("gemini-2.0-flash", True)]
+    assert candidate.merchant == "BEAN BARN CAFE"
+    assert candidate.total_amount == Decimal("7.75")
+    assert "gemini_rate_limited" not in candidate.warning_codes
+
+
 def test_parse_receipt_image_gemini_failure_returns_structured_null_candidate(monkeypatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
     get_settings.cache_clear()

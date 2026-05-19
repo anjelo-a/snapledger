@@ -3,6 +3,7 @@ package com.snapledger.feature.scan.vm
 import com.snapledger.feature.review.domain.ReviewRepository
 import com.snapledger.feature.review.domain.ReviewSaveResult
 import com.snapledger.feature.scan.domain.CameraPermissionState
+import com.snapledger.feature.scan.domain.CaptureSource
 import com.snapledger.feature.scan.domain.CapturedImageMetadata
 import com.snapledger.feature.scan.domain.ParsedMoneyCandidate
 import com.snapledger.feature.scan.domain.ParsedReceiptCandidate
@@ -12,6 +13,7 @@ import com.snapledger.feature.scan.domain.PendingCapture
 import com.snapledger.feature.scan.domain.ScanCapturePhase
 import com.snapledger.feature.scan.domain.ScanRepository
 import com.snapledger.feature.scan.domain.ScanUiState
+import com.snapledger.feature.scan.domain.UploadQualityGateResult
 import com.snapledger.feature.scan.network.ReceiptProcessClient
 import com.snapledger.feature.scan.network.RemoteProcessResult
 import com.snapledger.feature.scan.parser.ReceiptParserService
@@ -32,7 +34,7 @@ class ScanViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     @Test
-    fun `capture success stores metadata and enables next step`() {
+    fun captureSuccessStoresMetadataAndEnablesNextStep() {
         val viewModel = ScanViewModel(
             repository = FakeScanRepository(),
             parserService = FakeReceiptParserService(),
@@ -60,7 +62,7 @@ class ScanViewModelTest {
     }
 
     @Test
-    fun `remote success stores candidate and allows review`() = runTest {
+    fun remoteSuccessStoresCandidateAndAllowsReview() = runTest {
         val viewModel = ScanViewModel(
             repository = FakeScanRepository(),
             parserService = FakeReceiptParserService(),
@@ -94,7 +96,7 @@ class ScanViewModelTest {
     }
 
     @Test
-    fun `remote failure creates manual review candidate so local save flow is not blocked`() = runTest {
+    fun remoteFailureCreatesManualReviewCandidateSoLocalSaveFlowIsNotBlocked() = runTest {
         val reviewRepository = FakeReviewRepository()
         val viewModel = ScanViewModel(
             repository = FakeScanRepository(),
@@ -120,7 +122,7 @@ class ScanViewModelTest {
     }
 
     @Test
-    fun `capture failure is visible and retry is recoverable`() {
+    fun captureFailureIsVisibleAndRetryIsRecoverable() {
         val viewModel = ScanViewModel(
             repository = FakeScanRepository(),
             parserService = FakeReceiptParserService(),
@@ -176,16 +178,22 @@ private class FakeScanRepository : ScanRepository {
     override fun readCapturedImageMetadata(
         outputPath: String,
         savedUri: String?,
+        source: CaptureSource,
     ): CapturedImageMetadata {
         return CapturedImageMetadata(
             fileName = "fake.jpg",
             absolutePath = outputPath,
             contentUri = savedUri ?: "file:///tmp/fake.jpg",
+            source = source,
             capturedAtMillis = 123L,
             fileSizeBytes = 456L,
             widthPx = 800,
             heightPx = 600,
         )
+    }
+
+    override fun evaluateUploadQuality(capturedImage: CapturedImageMetadata): UploadQualityGateResult {
+        return UploadQualityGateResult.Pass(focusScore = 500.0)
     }
 }
 
