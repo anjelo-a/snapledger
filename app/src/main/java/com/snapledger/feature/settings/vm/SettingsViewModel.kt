@@ -24,7 +24,7 @@ data class SettingsUiState(
     val userName: String = "",
     val email: String? = null,
     val accountMode: AccountMode = AccountMode.LOCAL,
-    val isDeveloperToolsExpanded: Boolean = false,
+    val isAboutDevelopersExpanded: Boolean = false,
     val isSaving: Boolean = false,
 )
 
@@ -51,9 +51,9 @@ class SettingsViewModel(
         }
     }
 
-    fun toggleDeveloperTools() {
+    fun toggleAboutDevelopers() {
         mutableUiState.update {
-            it.copy(isDeveloperToolsExpanded = !it.isDeveloperToolsExpanded)
+            it.copy(isAboutDevelopersExpanded = !it.isAboutDevelopersExpanded)
         }
     }
 
