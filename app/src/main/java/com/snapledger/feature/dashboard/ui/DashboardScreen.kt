@@ -2,8 +2,14 @@ package com.snapledger.feature.dashboard.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.InfiniteRepeatableSpec
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -57,8 +63,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -178,13 +187,12 @@ fun Modifier.noRippleClickable(
 fun DashboardScreen(
     state: DashboardUiState = DashboardUiState(),
     onRefresh: () -> Unit = {},
-    onDisplayNameChange: (String) -> Unit = {},
+    onSettingsClick: () -> Unit = {},
     onManageBudgetClick: () -> Unit = {},
     onSeeAllActivityClick: () -> Unit = {},
     onMarkAllNotificationsAsRead: () -> Unit = {},
     onViewAiInsightsClick: () -> Unit = {},
 ) {
-    var isEditingName by remember { mutableStateOf(false) }
     var nameDraft by remember { mutableStateOf(state.userName) }
     var showNotifications by remember { mutableStateOf(false) }
     var selectedBudgetPeriod by remember { mutableStateOf(DashboardBudgetPeriod.MONTHLY) }
@@ -268,7 +276,7 @@ fun DashboardScreen(
             ) {
                 GreetingTexts(
                     userName = state.userName,
-                    onNameClick = { isEditingName = true },
+                    onNameClick = onSettingsClick,
                     modifier = Modifier.align(Alignment.CenterStart)
                 )
             }
@@ -322,37 +330,6 @@ fun DashboardScreen(
                 onDismiss = { showNotifications = false }
             )
         }
-    }
-
-    if (isEditingName) {
-        AlertDialog(
-            onDismissRequest = { isEditingName = false },
-            title = { Text("Edit name") },
-            text = {
-                OutlinedTextField(
-                    value = nameDraft,
-                    onValueChange = { nameDraft = it.take(80) },
-                    label = { Text("Name") },
-                    singleLine = true,
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onDisplayNameChange(nameDraft)
-                        isEditingName = false
-                    },
-                    enabled = nameDraft.isNotBlank(),
-                ) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { isEditingName = false }) {
-                    Text("Cancel")
-                }
-            },
-        )
     }
 }
 
@@ -928,70 +905,107 @@ private fun InsightEntryCard(
     val cardColor = if (isDataEmpty) Color.White else Color(0xFFF5F3FF)
     val iconBgColor = if (isDataEmpty) Color(0xFFF5F5F5) else Color.White
 
+    val infiniteTransition = rememberInfiniteTransition(label = "insightAnimations")
+
+    // Shine sweep animation
+    val shineOffset by infiniteTransition.animateFloat(
+        initialValue = -1f,
+        targetValue = 2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, delayMillis = 2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shineSweep"
+    )
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = Color(0xFFE5D2FE),
+                shape = RoundedCornerShape(20.dp)
+            )
             .noRippleClickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = cardColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 18.dp),
-            verticalAlignment = Alignment.Top
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(iconBgColor),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.astroid_single),
-                    contentDescription = "Insight",
-                    tint = if (isDataEmpty) Color(0xFFBDBDBD) else Color(0xFF7F22FE),
-                    modifier = Modifier.size(24.dp)
-                )
+        Box(modifier = Modifier.fillMaxWidth()) {
+            // Background Shine Effect
+            if (!isDataEmpty && !isLoading) {
+                Canvas(modifier = Modifier.matchParentSize()) {
+                    val brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color(0xFFF2E8FE),
+                            Color.Transparent
+                        ),
+                        start = Offset(size.width * (shineOffset - 0.5f), size.height * (shineOffset - 0.5f)),
+                        end = Offset(size.width * (shineOffset + 0.5f), size.height * (shineOffset + 0.5f))
+                    )
+                    drawRect(brush = brush)
+                }
             }
 
-            Column(modifier = Modifier.padding(start = 12.dp)) {
-                Text(
-                    text = "AI Insights",
-                    color = if (isDataEmpty) Color(0xFF9E9E9E) else Color(0xFF7F22FE),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Text(
-                    text = when {
-                        isLoading -> "Preparing your latest spending insight..."
-                        !insightText.isNullOrBlank() -> insightText
-                        else -> "Keep tracking your spending to unlock AI analysis."
-                    },
-                    color = displayColor,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
-
-                if (!actionTip.isNullOrBlank() && !isLoading) {
-                    Text(
-                        text = "Tip: $actionTip",
-                        color = Color(0xFF5E35B1),
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(top = 8.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 18.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(iconBgColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.astroid_single),
+                        contentDescription = "Insight",
+                        tint = if (isDataEmpty) Color(0xFFBDBDBD) else Color(0xFF7F22FE),
+                        modifier = Modifier
+                            .size(24.dp)
                     )
                 }
 
-                if (!isLoading) {
+                Column(modifier = Modifier.padding(start = 12.dp)) {
                     Text(
-                        text = "Click to view and ask more details",
-                        color = Color(0xFF9E9E9E),
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 10.dp)
+                        text = "AI Insights",
+                        color = if (isDataEmpty) Color(0xFF9E9E9E) else Color(0xFF7F22FE),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
                     )
+
+                    Text(
+                        text = when {
+                            isLoading -> "Preparing your latest spending insight..."
+                            !insightText.isNullOrBlank() -> insightText
+                            else -> "Keep tracking your spending to unlock AI analysis."
+                        },
+                        color = displayColor,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+
+                    if (!actionTip.isNullOrBlank() && !isLoading) {
+                        Text(
+                            text = "Tip: $actionTip",
+                            color = Color(0xFF5E35B1),
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+
+                    if (!isLoading) {
+                        Text(
+                            text = "Click to view and ask more details",
+                            color = Color(0xFF9E9E9E),
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
+                    }
                 }
             }
         }

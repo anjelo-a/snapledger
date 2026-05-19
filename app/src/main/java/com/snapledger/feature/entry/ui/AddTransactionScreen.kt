@@ -77,6 +77,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.launch
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
 
 private val amountInputRegex = Regex("^\\d{0,3}(,\\d{3})*(\\.\\d*)?$|^\\d*(\\.\\d*)?$")
 private val dateFormatter = SimpleDateFormat("MM/dd/yyyy", Locale.US)
@@ -425,6 +430,9 @@ private fun IncomePeriodCard(
     selectedPeriod: IncomePeriodOption,
     onEvent: (AddTransactionEvent) -> Unit,
 ) {
+    val options = IncomePeriodOption.values()
+    val selectedIndex = options.indexOf(selectedPeriod)
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -439,34 +447,62 @@ private fun IncomePeriodCard(
                 modifier = Modifier.padding(bottom = 16.dp),
             )
 
-            Row(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
                     .background(Color(0xFFF8F9FA), RoundedCornerShape(14.dp))
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    .padding(4.dp)
             ) {
-                IncomePeriodOption.values().forEach { option ->
-                    val isSelected = selectedPeriod == option
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(11.dp))
-                            .background(if (isSelected) Color(0xFF00C875) else Color.Transparent)
-                            .noRippleClickable {
-                                onEvent(AddTransactionEvent.OnIncomePeriodChanged(option))
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = option.label,
-                            color = if (isSelected) Color.White else Color(0xFF757575),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
+                val gap = 4.dp
+                val segmentWidth = (maxWidth - (gap * 2)) / 3
+
+                val indicatorOffset by animateDpAsState(
+                    targetValue = (segmentWidth + gap) * selectedIndex,
+                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                    label = "indicatorOffset"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .offset(x = indicatorOffset)
+                        .width(segmentWidth)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(Color(0xFF00C875))
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(gap),
+                ) {
+                    options.forEach { option ->
+                        val isSelected = selectedPeriod == option
+
+                        val textColor by animateColorAsState(
+                            targetValue = if (isSelected) Color.White else Color(0xFF757575),
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                            label = "textColor"
                         )
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(11.dp))
+                                .noRippleClickable {
+                                    onEvent(AddTransactionEvent.OnIncomePeriodChanged(option))
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = option.label,
+                                color = textColor,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
             }
@@ -741,8 +777,6 @@ private fun AddTransactionDateField(
         }
     }
 }
-
-//custom modifier to remove ripples
 
 fun Modifier.noRippleClickable(
     enabled: Boolean = true,

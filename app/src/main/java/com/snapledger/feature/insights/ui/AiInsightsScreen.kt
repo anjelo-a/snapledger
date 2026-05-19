@@ -69,6 +69,7 @@ import com.snapledger.feature.dashboard.network.DashboardInsightChatResult
 import com.snapledger.feature.dashboard.network.DashboardInsightClient
 import com.snapledger.feature.dashboard.network.DashboardInsightMetrics
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.imePadding
 
 private data class QuickPrompt(
     val templateKey: String,
@@ -230,6 +231,7 @@ fun AiInsightsRoute(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .imePadding()
         ) {
             LazyColumn(
                 state = listState,
