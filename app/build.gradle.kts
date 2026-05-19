@@ -12,14 +12,30 @@ kotlin {
 }
 
 val localProps = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) {
-        f.inputStream().use { load(it) }
+    listOf(
+        rootProject.file("local.properties"),
+        project.file("local.properties"),
+    ).forEach { file ->
+        if (file.exists()) {
+            file.inputStream().use { load(it) }
+        }
     }
 }
 val backendBaseUrl =
-    (localProps.getProperty("SNAPLEDGER_BACKEND_BASE_URL") ?: "http://10.0.2.2:8000/")
+    (
+        localProps.getProperty("SNAPLEDGER_BACKEND_BASE_URL")
+            ?: localProps.getProperty("SNAPLEDGER_API_BASE_URL")
+            ?: "https://snapledger-backend-75893256027.asia-southeast1.run.app/"
+        )
         .let { if (it.endsWith("/")) it else "$it/" }
+val backendApiKey =
+    localProps.getProperty("SNAPLEDGER_BACKEND_API_KEY")
+        ?: localProps.getProperty("SNAPLEDGER_API_KEY")
+        ?: ""
+val googleSignInServerClientId =
+    localProps.getProperty("SNAPLEDGER_GOOGLE_WEB_CLIENT_ID")
+        ?: localProps.getProperty("GOOGLE_SIGN_IN_SERVER_CLIENT_ID")
+        ?: ""
 
 android {
     namespace = "com.snapledger"
@@ -33,16 +49,23 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField(
+            "String",
+            "GOOGLE_SIGN_IN_SERVER_CLIENT_ID",
+            "\"$googleSignInServerClientId\"",
+        )
     }
 
     buildTypes {
         debug {
             buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
+            buildConfigField("String", "BACKEND_API_KEY", "\"$backendApiKey\"")
         }
 
         release {
             isMinifyEnabled = false
             buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
+            buildConfigField("String", "BACKEND_API_KEY", "\"$backendApiKey\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -51,12 +74,12 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = "21"
     }
 
     buildFeatures {
@@ -79,6 +102,11 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.4")
     implementation("androidx.navigation:navigation-compose:2.8.0")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")

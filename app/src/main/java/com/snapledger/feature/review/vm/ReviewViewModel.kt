@@ -18,6 +18,8 @@ class ReviewViewModel(
 ) : ViewModel() {
     var uiState: ReviewUiState by mutableStateOf(validateReviewState(repository.loadDraft()))
         private set
+    var shouldCloseAfterSave: Boolean by mutableStateOf(false)
+        private set
 
     fun onMerchantChanged(value: String) {
         updateState(
@@ -40,6 +42,12 @@ class ReviewViewModel(
             uiState.copy(
                 totalAmount = uiState.totalAmount.copy(value = value),
             ),
+        )
+    }
+
+    fun onCategoryChanged(value: String) {
+        updateState(
+            uiState.copy(category = value),
         )
     }
 
@@ -97,16 +105,12 @@ class ReviewViewModel(
             val result = repository.saveReviewedReceipt(draftToSave)
             uiState = when (result) {
                 is ReviewSaveResult.Success -> {
+                    shouldCloseAfterSave = true
                     validateReviewState(
                         uiState.copy(
                             isSaving = false,
                             saveStatusMessage = buildString {
                                 append("Saved locally as ${result.receiptId}. ")
-                                if (result.backendConfirmError == null) {
-                                    append("Backend receipt confirmed. ")
-                                } else {
-                                    append("Backend confirm failed: ${result.backendConfirmError}. ")
-                                }
                                 if (result.syncDispatchError == null) {
                                     append("Sync metadata queued as ${result.syncQueueId}.")
                                 } else {
@@ -118,6 +122,7 @@ class ReviewViewModel(
                 }
 
                 is ReviewSaveResult.ValidationFailed -> {
+                    shouldCloseAfterSave = false
                     result.uiState.copy(
                         isSaving = false,
                         saveStatusMessage = "Local save was skipped because required review fields are invalid.",
@@ -125,6 +130,10 @@ class ReviewViewModel(
                 }
             }
         }
+    }
+
+    fun onSaveCloseHandled() {
+        shouldCloseAfterSave = false
     }
 
     private fun updateState(nextState: ReviewUiState) {

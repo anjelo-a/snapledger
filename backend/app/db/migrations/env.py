@@ -4,7 +4,16 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from alembic.ddl.impl import DefaultImpl
+from sqlalchemy import (
+    Column,
+    MetaData,
+    PrimaryKeyConstraint,
+    String,
+    Table,
+    engine_from_config,
+    pool,
+)
 
 from app.core.config import get_settings
 from app.db.base import Base
@@ -27,6 +36,30 @@ configured_url = config.get_main_option("sqlalchemy.url")
 database_url = os.getenv("DATABASE_URL") or configured_url or settings.database_url
 config.set_main_option("sqlalchemy.url", database_url)
 target_metadata = Base.metadata
+
+
+def _version_table_impl_with_wider_revision_id(
+    self: DefaultImpl,
+    *,
+    version_table: str,
+    version_table_schema: str | None,
+    version_table_pk: bool,
+    **kw: object,
+) -> Table:
+    table = Table(
+        version_table,
+        MetaData(),
+        Column("version_num", String(64), nullable=False),
+        schema=version_table_schema,
+    )
+    if version_table_pk:
+        table.append_constraint(
+            PrimaryKeyConstraint("version_num", name=f"{version_table}_pkc")
+        )
+    return table
+
+
+DefaultImpl.version_table_impl = _version_table_impl_with_wider_revision_id
 
 
 def run_migrations_offline() -> None:

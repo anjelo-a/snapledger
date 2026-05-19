@@ -80,8 +80,8 @@ import com.snapledger.feature.scan.vm.ScanViewModel
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.File
+import kotlinx.coroutines.delay
 
-// --- ScanRoute remains unchanged as it handles the ViewModel connections ---
 @Composable
 fun ScanRoute(
     viewModel: ScanViewModel,
@@ -91,6 +91,14 @@ fun ScanRoute(
     val context = LocalContext.current
     val activity = context.findActivity()
     var pendingCapture by remember { mutableStateOf<PendingCapture?>(null) }
+
+    var isScreenReady by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        delay(350)
+        isScreenReady = true
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -100,6 +108,7 @@ fun ScanRoute(
             canRequestPermissionAgain = canRequestAgain,
         )
     }
+
     val documentScannerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult(),
     ) { activityResult ->
@@ -122,6 +131,7 @@ fun ScanRoute(
         }
         pendingCapture = null
     }
+
     val scannerOptions = remember {
         GmsDocumentScannerOptions.Builder()
             .setPageLimit(1)
@@ -134,6 +144,8 @@ fun ScanRoute(
     var hasRequestedPermission by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(viewModel.uiState.permissionState) {
+        delay(300)
+
         if (viewModel.uiState.permissionState == CameraPermissionState.Unknown && !hasRequestedPermission) {
             if (context.hasCameraPermission()) {
                 viewModel.onPermissionUpdated(
@@ -149,6 +161,7 @@ fun ScanRoute(
 
     ScanScreen(
         uiState = viewModel.uiState,
+        isScreenReady = isScreenReady,
         onToggleCamera = viewModel::toggleCameraActiveState,
         onBack = onBack,
         onRequestPermission = {
@@ -185,10 +198,10 @@ fun ScanRoute(
     )
 }
 
-// --- The Redesigned ScanScreen ---
 @Composable
 fun ScanScreen(
     uiState: ScanUiState,
+    isScreenReady: Boolean,
     onToggleCamera: () -> Unit,
     onBack: () -> Unit,
     onRequestPermission: () -> Unit,
@@ -207,9 +220,8 @@ fun ScanScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFF8F9FA))
-            .padding(top = 24.dp) // Status bar padding
+            .padding(top = 24.dp)
     ) {
-        // 1. Top Bar (Close button & Title)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -242,11 +254,9 @@ fun ScanScreen(
                 textAlign = TextAlign.Center
             )
 
-            // Spacer to balance the layout so title stays perfectly centered
             Spacer(modifier = Modifier.width(40.dp))
         }
 
-        // 2. Camera Preview Area
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -256,6 +266,7 @@ fun ScanScreen(
             if (uiState.capturedImage == null) {
                 CameraCardDesign(
                     uiState = uiState,
+                    isScreenReady = isScreenReady,
                     onToggleCamera = onToggleCamera,
                     onCameraPreviewReady = onCameraPreviewReady,
                     onCameraFailure = onCameraFailure,
@@ -268,14 +279,12 @@ fun ScanScreen(
             }
         }
 
-        // 3. Dynamic Footer Button
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Determine button state based on backend flow
             val buttonText = when {
                 uiState.canContinueToReview -> "Review Receipt"
                 uiState.parser.phase.name == "Running" || uiState.ocr.phase == OcrExtractionPhase.Running -> "Processing..."
@@ -323,7 +332,6 @@ fun ScanScreen(
                 modifier = Modifier.padding(top = 12.dp)
             )
 
-            // Optional: Error display if something fails
             val errorText = uiState.cameraErrorMessage ?: uiState.ocr.errorMessage ?: uiState.parser.errorMessage
             if (errorText != null) {
                 Text(
@@ -346,7 +354,6 @@ fun ScanScreen(
                     modifier = Modifier.padding(top = 8.dp)
                 )
             }
-
         }
     }
 }
@@ -392,6 +399,7 @@ private fun CapturedReceiptCard(uiState: ScanUiState) {
 @Composable
 private fun CameraCardDesign(
     uiState: ScanUiState,
+    isScreenReady: Boolean,
     onToggleCamera: () -> Unit,
     onCameraPreviewReady: () -> Unit,
     onCameraFailure: (String) -> Unit,
@@ -403,24 +411,32 @@ private fun CameraCardDesign(
         modifier = Modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(24.dp))
-            .clickable { onToggleCamera() }, // This makes the whole card a toggle switch!
+            .clickable { onToggleCamera() },
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1C1A)),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
 
-            // 1. Camera Stream OR Inactive Placeholder Layer
             if (uiState.isCameraActive) {
                 when (uiState.permissionState) {
                     CameraPermissionState.Granted -> {
-                        CameraPreviewSurface(
-                            sessionId = uiState.cameraSessionId,
-                            showLoading = uiState.capturePhase == ScanCapturePhase.PreviewLoading,
-                            onCameraPreviewReady = onCameraPreviewReady,
-                            onCameraFailure = onCameraFailure,
-                            onImageCaptureReady = onImageCaptureReady,
-                        )
+                        if (isScreenReady) {
+                            CameraPreviewSurface(
+                                sessionId = uiState.cameraSessionId,
+                                showLoading = uiState.capturePhase == ScanCapturePhase.PreviewLoading,
+                                onCameraPreviewReady = onCameraPreviewReady,
+                                onCameraFailure = onCameraFailure,
+                                onImageCaptureReady = onImageCaptureReady,
+                            )
+                        } else {
+                            Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1A1C1A))) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.align(Alignment.Center),
+                                    color = Color(0xFF00E676)
+                                )
+                            }
+                        }
                     }
                     CameraPermissionState.Denied -> {
                         Column(
@@ -453,7 +469,6 @@ private fun CameraCardDesign(
                     else -> {}
                 }
             } else {
-                // Inactive State Placeholder
                 Column(
                     modifier = Modifier.align(Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -473,7 +488,6 @@ private fun CameraCardDesign(
                 }
             }
 
-            // 2. Green Reticle Overlay (Frame)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -481,7 +495,6 @@ private fun CameraCardDesign(
                     .border(2.dp, Color(0xFF00E676), RoundedCornerShape(16.dp))
             )
 
-            // 3. AI Badge Overlay
             Surface(
                 color = Color(0xFF262626),
                 shape = RoundedCornerShape(16.dp),
@@ -492,7 +505,7 @@ private fun CameraCardDesign(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        painter = painterResource(id = R.drawable.astroid), // Your custom star drawable
+                        painter = painterResource(id = R.drawable.astroid),
                         contentDescription = "AI Ready",
                         tint = Color(0xFF00E676),
                         modifier = Modifier.size(14.dp)
@@ -508,8 +521,6 @@ private fun CameraCardDesign(
         }
     }
 }
-
-// --- Retained Backend Logic Functions ---
 
 @Composable
 private fun CameraPreviewSurface(
@@ -567,7 +578,6 @@ private fun CameraPreviewSurface(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(24.dp)) // Ensures the camera doesn't overflow the rounded card
             .background(Color.Transparent),
     ) {
         AndroidView(

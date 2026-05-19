@@ -94,14 +94,15 @@ class ScanViewModelTest {
     }
 
     @Test
-    fun `remote failure is represented as parser failure with no ml kit fallback`() = runTest {
+    fun `remote failure creates manual review candidate so local save flow is not blocked`() = runTest {
+        val reviewRepository = FakeReviewRepository()
         val viewModel = ScanViewModel(
             repository = FakeScanRepository(),
             parserService = FakeReceiptParserService(),
             processService = FakeReceiptProcessService(
                 result = RemoteProcessResult.Failure("Receipt processing failed."),
             ),
-            reviewRepository = FakeReviewRepository(),
+            reviewRepository = reviewRepository,
             ioDispatcher = mainDispatcherRule.dispatcher,
         )
 
@@ -109,10 +110,13 @@ class ScanViewModelTest {
         viewModel.onOcrRequested()
         advanceUntilIdle()
 
-        assertEquals(ParserPhase.Failure, viewModel.uiState.parser.phase)
-        assertEquals("Processing failed", viewModel.uiState.parser.status)
-        assertEquals("Receipt processing failed.", viewModel.uiState.parser.errorMessage)
-        assertNull(viewModel.uiState.parser.candidate)
+        assertEquals(ParserPhase.Partial, viewModel.uiState.parser.phase)
+        assertEquals("Processing unavailable. Continue with manual review.", viewModel.uiState.parser.status)
+        assertEquals("Receipt processing failed.", viewModel.uiState.parser.candidate?.warnings?.single())
+        assertEquals("REMOTE_PROCESS_UNAVAILABLE", viewModel.uiState.parser.candidate?.warningCodes?.single())
+        assertNotNull(viewModel.uiState.parser.candidate)
+        assertTrue(viewModel.uiState.canContinueToReview)
+        assertEquals(viewModel.uiState.parser.candidate, reviewRepository.latestCandidate)
     }
 
     @Test
@@ -144,11 +148,15 @@ class ScanViewModelTest {
 }
 
 private class FakeReviewRepository : ReviewRepository {
+    var latestCandidate: ParsedReceiptCandidate? = null
+
     override fun loadDraft(): com.snapledger.feature.review.domain.ReviewUiState {
         return com.snapledger.feature.review.domain.ReviewUiState()
     }
 
-    override fun storeParsedCandidate(candidate: ParsedReceiptCandidate?) = Unit
+    override fun storeParsedCandidate(candidate: ParsedReceiptCandidate?) {
+        latestCandidate = candidate
+    }
 
     override suspend fun saveReviewedReceipt(uiState: com.snapledger.feature.review.domain.ReviewUiState): ReviewSaveResult {
         return ReviewSaveResult.ValidationFailed(uiState)

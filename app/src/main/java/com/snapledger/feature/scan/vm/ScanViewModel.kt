@@ -209,21 +209,31 @@ class ScanViewModel(
                 }
 
                 is RemoteProcessResult.RateLimited -> {
+                    val candidate = manualReviewCandidate(
+                        warning = remoteResult.message,
+                        warningCode = "REMOTE_PROCESS_RATE_LIMITED",
+                    )
+                    reviewRepository.storeParsedCandidate(candidate)
                     uiState = uiState.copy(
                         parser = ParserUiState(
-                            phase = ParserPhase.Failure,
-                            status = "Processing delayed",
-                            errorMessage = remoteResult.message,
+                            phase = ParserPhase.Partial,
+                            status = "Processing delayed. Continue with manual review.",
+                            candidate = candidate,
                         ),
                     )
                 }
 
                 is RemoteProcessResult.Failure -> {
+                    val candidate = manualReviewCandidate(
+                        warning = remoteResult.message,
+                        warningCode = "REMOTE_PROCESS_UNAVAILABLE",
+                    )
+                    reviewRepository.storeParsedCandidate(candidate)
                     uiState = uiState.copy(
                         parser = ParserUiState(
-                            phase = ParserPhase.Failure,
-                            status = "Processing failed",
-                            errorMessage = remoteResult.message,
+                            phase = ParserPhase.Partial,
+                            status = "Processing unavailable. Continue with manual review.",
+                            candidate = candidate,
                         ),
                     )
                 }
@@ -294,6 +304,18 @@ class ScanViewModel(
             cameraErrorMessage = null,
         )
     }
+
+    private fun manualReviewCandidate(
+        warning: String,
+        warningCode: String,
+    ) = com.snapledger.feature.scan.domain.ParsedReceiptCandidate(
+        merchant = null,
+        expenseDate = null,
+        totalAmount = null,
+        items = emptyList(),
+        warnings = listOf(warning),
+        warningCodes = listOf(warningCode),
+    )
 
     companion object {
         fun factory(applicationContext: Context): ViewModelProvider.Factory {

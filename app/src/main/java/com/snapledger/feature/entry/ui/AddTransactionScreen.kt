@@ -1,40 +1,36 @@
 package com.snapledger.feature.entry.ui
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
@@ -55,9 +51,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -66,14 +64,30 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.snapledger.R
+import com.snapledger.core.categories.expenseTransactionCategories
+import com.snapledger.core.categories.incomeTransactionCategories
+import com.snapledger.core.ledger.LedgerIncomePeriod
+import com.snapledger.core.ledger.LedgerRepository
+import com.snapledger.core.ledger.LedgerTransactionType
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
+
+private val amountInputRegex = Regex("^\\d{0,3}(,\\d{3})*(\\.\\d*)?$|^\\d*(\\.\\d*)?$")
+private val dateFormatter = SimpleDateFormat("MM/dd/yyyy", Locale.US)
 
 enum class TransactionType { EXPENSE, INCOME }
+
+enum class IncomePeriodOption(val label: String) {
+    WEEKLY("Weekly"),
+    MONTHLY("Monthly"),
+    BOTH("Both"),
+}
 
 data class CategoryUiModel(
     val name: String,
@@ -88,27 +102,26 @@ data class AddTransactionUiState(
     val date: String = "",
     val note: String = "",
     val selectedCategory: String = "",
+    val incomePeriod: IncomePeriodOption = IncomePeriodOption.BOTH,
     val isCustomCategoryInputVisible: Boolean = false,
     val customCategoryName: String = "",
     val categories: List<CategoryUiModel> = emptyList(),
     val isSaving: Boolean = false
 ) {
     val isSaveEnabled: Boolean
-        get() = amount.isNotBlank() &&
-                amount.toDoubleOrNull() != null &&
-                amount.toDouble() > 0 &&
-                merchant.isNotBlank() &&
+        get() = amount.toAmountOrNull()?.let { it > 0 } == true &&
+                (type == TransactionType.INCOME || merchant.isNotBlank()) &&
                 date.isNotBlank() &&
                 selectedCategory.isNotBlank()
 }
 
 sealed class AddTransactionEvent {
-    data class OnTypeChanged(val type: TransactionType) : AddTransactionEvent()
     data class OnAmountChanged(val amount: String) : AddTransactionEvent()
     data class OnMerchantChanged(val merchant: String) : AddTransactionEvent()
     data class OnDateChanged(val date: String) : AddTransactionEvent()
     data class OnNoteChanged(val note: String) : AddTransactionEvent()
     data class OnCategorySelected(val categoryName: String) : AddTransactionEvent()
+    data class OnIncomePeriodChanged(val period: IncomePeriodOption) : AddTransactionEvent()
     object OnToggleCustomCategory : AddTransactionEvent()
     data class OnCustomCategoryNameChanged(val name: String) : AddTransactionEvent()
     object OnAddCustomCategory : AddTransactionEvent()
@@ -117,30 +130,36 @@ sealed class AddTransactionEvent {
 
 @Composable
 fun AddTransactionRoute(
-    // viewModel: AddTransactionViewModel, // Uncomment when backend is ready
+    ledgerRepository: LedgerRepository,
+    transactionType: TransactionType,
     onBack: () -> Unit
 ) {
-    val defaultCategories = listOf(
-        CategoryUiModel("Food", R.drawable.utensils, Color(0xFF4CAF50)),
-        CategoryUiModel("Transport", R.drawable.car, Color(0xFF009688)),
-        CategoryUiModel("Shopping", R.drawable.shopping_basket, Color(0xFFE91E63)),
-        CategoryUiModel("Bills", R.drawable.receipt, Color(0xFFFFC107)),
-        CategoryUiModel("Entertainment", R.drawable.film, Color(0xFF9C27B0)),
-        CategoryUiModel("Health", R.drawable.heart_pulse, Color(0xFFFF9800)),
-        CategoryUiModel("Other", R.drawable.astroid, Color(0xFF9E9E9E))
-    )
+    val coroutineScope = rememberCoroutineScope()
+    val defaultCategories = remember {
+        transactionType.defaultCategories()
+    }
 
-    var state by remember { mutableStateOf(AddTransactionUiState(categories = defaultCategories)) }
+    var state by remember {
+        mutableStateOf(
+            AddTransactionUiState(
+                type = transactionType,
+                categories = defaultCategories,
+                selectedCategory = if (transactionType == TransactionType.INCOME) "Salary" else "",
+            )
+        )
+    }
 
     AddTransactionScreen(
         uiState = state,
         onEvent = { event ->
             when (event) {
-                is AddTransactionEvent.OnTypeChanged -> state = state.copy(type = event.type, selectedCategory = "")
                 is AddTransactionEvent.OnAmountChanged -> state = state.copy(amount = event.amount)
                 is AddTransactionEvent.OnMerchantChanged -> state = state.copy(merchant = event.merchant)
                 is AddTransactionEvent.OnDateChanged -> state = state.copy(date = event.date)
                 is AddTransactionEvent.OnNoteChanged -> state = state.copy(note = event.note)
+                is AddTransactionEvent.OnIncomePeriodChanged -> {
+                    state = state.copy(incomePeriod = event.period)
+                }
                 is AddTransactionEvent.OnCategorySelected -> {
                     if (event.categoryName == "New") {
                         state = state.copy(isCustomCategoryInputVisible = !state.isCustomCategoryInputVisible)
@@ -163,7 +182,20 @@ fun AddTransactionRoute(
                 }
                 is AddTransactionEvent.OnSaveClicked -> {
                     if (state.isSaveEnabled) {
-                        onBack()
+                        state = state.copy(isSaving = true)
+                        coroutineScope.launch {
+                            ledgerRepository.saveTransaction(
+                                type = state.type.toLedgerTransactionType(),
+                                amount = state.amount.toAmountOrNull() ?: return@launch,
+                                merchant = state.merchant.ifBlank { state.selectedCategory },
+                                date = state.date,
+                                note = state.note,
+                                category = state.selectedCategory,
+                                incomePeriod = state.incomePeriod.toLedgerIncomePeriod(),
+                            )
+                            state = state.copy(isSaving = false)
+                            onBack()
+                        }
                     }
                 }
             }
@@ -171,8 +203,6 @@ fun AddTransactionRoute(
         onBack = onBack
     )
 }
-
-// ui composables
 
 @Composable
 fun AddTransactionScreen(
@@ -199,122 +229,44 @@ fun AddTransactionScreen(
                     .clip(CircleShape)
                     .background(Color.White)
                     .border(1.dp, Color(0xFFE0E0E0), CircleShape)
-                    .clickable { onBack() },
+                    .noRippleClickable { onBack() },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color(0xFF424242))
             }
 
-            AnimatedContent(
-                targetState = uiState.type,
-                transitionSpec = { fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300)) },
-                label = "TitleAnimation"
-            ) { type ->
-                Text(
-                    text = if (type == TransactionType.EXPENSE) "Add Expense" else "Add Income",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1F1F1F)
-                )
-            }
+            Text(
+                text = if (uiState.type == TransactionType.INCOME) "Add Income" else "Add Expense",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1F1F1F)
+            )
 
-            val checkBgColor by animateColorAsState(if (uiState.isSaveEnabled) Color(0xFF00C875) else Color(0xFFBDBDBD), label = "SaveBtnColor")
+            val checkBgColor by animateColorAsState(if (uiState.isSaveEnabled && !uiState.isSaving) Color(0xFF00C875) else Color(0xFFBDBDBD), label = "SaveBtnColor")
             Box(
                 modifier = Modifier
                     .size(48.dp)
                     .clip(CircleShape)
                     .background(checkBgColor)
-                    .clickable(enabled = uiState.isSaveEnabled) { onEvent(AddTransactionEvent.OnSaveClicked) },
+                    .noRippleClickable(enabled = uiState.isSaveEnabled && !uiState.isSaving) { onEvent(AddTransactionEvent.OnSaveClicked) },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Rounded.Check, contentDescription = "Save", tint = Color.White)
             }
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 8.dp),
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            TransactionTypeSwitcher(uiState.type, onEvent)
-            AmountCard(uiState.amount, onEvent)
-            DetailsCard(uiState, onEvent)
-            CategoryCard(uiState, onEvent)
-            Spacer(modifier = Modifier.height(32.dp))
-        }
-    }
-}
-
-// Sliding Animation for the switcher
-@Composable
-private fun TransactionTypeSwitcher(
-    currentType: TransactionType,
-    onEvent: (AddTransactionEvent) -> Unit
-) {
-    val isExpense = currentType == TransactionType.EXPENSE
-
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .background(Color.White, RoundedCornerShape(28.dp))
-            .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(28.dp))
-            .padding(4.dp)
-    ) {
-        val pillWidth = this.maxWidth / 2
-
-        val offsetX by animateDpAsState(
-            targetValue = if (isExpense) 0.dp else pillWidth,
-            animationSpec = tween(300),
-            label = "SlideAnimation"
-        )
-        val bgColor by animateColorAsState(
-            targetValue = if (isExpense) Color(0xFFFF5252) else Color(0xFF00C875),
-            animationSpec = tween(300),
-            label = "ColorAnimation"
-        )
-
-        // The colored sliding background pill
-        Box(
-            modifier = Modifier
-                .width(pillWidth)
-                .fillMaxHeight()
-                .offset(x = offsetX)
-                .background(bgColor, RoundedCornerShape(24.dp))
-        )
-
-        // The clickable text labels floating on top
-        Row(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clickable { onEvent(AddTransactionEvent.OnTypeChanged(TransactionType.EXPENSE)) },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Expense",
-                    color = if (isExpense) Color.White else Color(0xFF757575),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
+            item { AmountCard(uiState.amount, onEvent) }
+            item { DetailsCard(uiState, onEvent) }
+            if (uiState.type == TransactionType.INCOME) {
+                item { IncomePeriodCard(uiState.incomePeriod, onEvent) }
             }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clickable { onEvent(AddTransactionEvent.OnTypeChanged(TransactionType.INCOME)) },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Income",
-                    color = if (isExpense) Color(0xFF757575) else Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
+            item { CategoryCard(uiState, onEvent) }
+            item { Spacer(modifier = Modifier.height(32.dp)) }
         }
     }
 }
@@ -341,20 +293,21 @@ private fun AmountCard(
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("$", fontSize = 36.sp, color = if (amount.isEmpty()) Color(0xFFBDBDBD) else Color(0xFF1F1F1F))
+                Text("PHP", fontSize = 28.sp, color = if (amount.isEmpty()) Color(0xFFBDBDBD) else Color(0xFF1F1F1F))
                 Spacer(modifier = Modifier.width(4.dp))
                 BasicTextField(
                     value = amount,
                     onValueChange = { newValue ->
-                        if (newValue.isEmpty() || newValue.matches(Regex("^\\d*\\.?\\d*\$"))) {
-                            onEvent(AddTransactionEvent.OnAmountChanged(newValue))
+                        val formatted = newValue.toFormattedAmountInput()
+                        if (formatted.isEmpty() || formatted.matches(amountInputRegex)) {
+                            onEvent(AddTransactionEvent.OnAmountChanged(formatted))
                         }
                     },
                     textStyle = TextStyle(fontSize = 36.sp, color = Color(0xFF1F1F1F), textAlign = TextAlign.Start),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     cursorBrush = SolidColor(Color(0xFF00A86B)),
-                    modifier = Modifier.width(IntrinsicSize.Min).widthIn(min = 40.dp), // Wraps tightly but guarantees minimum space
+                    modifier = Modifier.width(IntrinsicSize.Min).widthIn(min = 40.dp),
                     decorationBox = { innerTextField ->
                         Box(contentAlignment = Alignment.CenterStart) {
                             if (amount.isEmpty()) {
@@ -381,14 +334,16 @@ private fun DetailsCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(24.dp)) {
-            Text("Merchant", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
-            AddTransactionInputField(
-                value = uiState.merchant,
-                onValueChange = { onEvent(AddTransactionEvent.OnMerchantChanged(it)) },
-                hint = "e.g. Whole Foods"
-            )
+            if (uiState.type == TransactionType.EXPENSE) {
+                Text("Merchant", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
+                AddTransactionInputField(
+                    value = uiState.merchant,
+                    onValueChange = { onEvent(AddTransactionEvent.OnMerchantChanged(it)) },
+                    hint = "e.g. Grocery store"
+                )
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             Text("Date", fontSize = 12.sp, color = Color(0xFF9E9E9E), modifier = Modifier.padding(bottom = 8.dp))
             AddTransactionDateField(
@@ -408,6 +363,117 @@ private fun DetailsCard(
     }
 }
 
+private fun TransactionType.defaultCategories(): List<CategoryUiModel> {
+    return when (this) {
+        TransactionType.EXPENSE -> expenseTransactionCategories().map { category ->
+            CategoryUiModel(
+                name = category.name,
+                iconResId = category.iconResId,
+                tintColor = category.tintColor,
+            )
+        }
+        TransactionType.INCOME -> incomeTransactionCategories().map { category ->
+            CategoryUiModel(
+                name = category.name,
+                iconResId = category.iconResId,
+                tintColor = category.tintColor,
+            )
+        }
+    }
+}
+
+private fun TransactionType.toLedgerTransactionType(): LedgerTransactionType {
+    return when (this) {
+        TransactionType.EXPENSE -> LedgerTransactionType.EXPENSE
+        TransactionType.INCOME -> LedgerTransactionType.INCOME
+    }
+}
+
+private fun IncomePeriodOption.toLedgerIncomePeriod(): LedgerIncomePeriod {
+    return when (this) {
+        IncomePeriodOption.WEEKLY -> LedgerIncomePeriod.WEEKLY
+        IncomePeriodOption.MONTHLY -> LedgerIncomePeriod.MONTHLY
+        IncomePeriodOption.BOTH -> LedgerIncomePeriod.BOTH
+    }
+}
+
+private fun String.toAmountOrNull(): Double? {
+    return replace(",", "").toDoubleOrNull()
+}
+
+private fun String.toFormattedAmountInput(): String {
+    val raw = replace(",", "")
+        .filterIndexed { index, char -> char.isDigit() || (char == '.' && substring(0, index).none { it == '.' }) }
+    if (raw.isBlank()) return ""
+
+    val whole = raw.substringBefore(".").trimStart('0').ifBlank { "0" }
+    val decimal = raw.substringAfter(".", missingDelimiterValue = "")
+    val groupedWhole = whole.reversed()
+        .chunked(3)
+        .joinToString(",")
+        .reversed()
+
+    return if (raw.contains(".")) {
+        "$groupedWhole.$decimal"
+    } else {
+        groupedWhole
+    }
+}
+
+@Composable
+private fun IncomePeriodCard(
+    selectedPeriod: IncomePeriodOption,
+    onEvent: (AddTransactionEvent) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Column(modifier = Modifier.padding(24.dp)) {
+            Text(
+                text = "Count toward",
+                fontSize = 14.sp,
+                color = Color(0xFF757575),
+                modifier = Modifier.padding(bottom = 16.dp),
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .background(Color(0xFFF8F9FA), RoundedCornerShape(14.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                IncomePeriodOption.values().forEach { option ->
+                    val isSelected = selectedPeriod == option
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(if (isSelected) Color(0xFF00C875) else Color.Transparent)
+                            .noRippleClickable {
+                                onEvent(AddTransactionEvent.OnIncomePeriodChanged(option))
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = option.label,
+                            color = if (isSelected) Color.White else Color(0xFF757575),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun CategoryCard(
     uiState: AddTransactionUiState,
@@ -422,21 +488,18 @@ private fun CategoryCard(
         Column(modifier = Modifier.padding(24.dp)) {
             Text("Category", fontSize = 14.sp, color = Color(0xFF757575), modifier = Modifier.padding(bottom = 16.dp))
 
-            // FIX: Safely calculate total items (categories + 1 for the "New" button)
             val totalItems = uiState.categories.size + 1
-            // Create a list of indices and chunk them into rows of 4
-            val rows = (0 until totalItems).chunked(4)
+            val rows = remember(uiState.categories) { (0 until totalItems).chunked(2) }
 
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 rows.forEach { rowIndices ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         rowIndices.forEach { index ->
-                            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
+                            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                                 if (index < uiState.categories.size) {
-                                    // Render normal category
                                     val category = uiState.categories[index]
                                     CategoryItem(
                                         category = category,
@@ -444,26 +507,13 @@ private fun CategoryCard(
                                         onClick = { onEvent(AddTransactionEvent.OnCategorySelected(category.name)) }
                                     )
                                 } else {
-                                    // Render "New" button at the very end
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.clickable { onEvent(AddTransactionEvent.OnCategorySelected("New")) }
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(56.dp)
-                                                .border(1.dp, Color(0xFFBDBDBD), RoundedCornerShape(16.dp)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(Icons.Rounded.Add, contentDescription = "New", tint = Color(0xFF757575))
-                                        }
-                                        Text("New", fontSize = 12.sp, color = Color(0xFF757575), modifier = Modifier.padding(top = 8.dp))
+                                    NewCategoryItem {
+                                        onEvent(AddTransactionEvent.OnCategorySelected("New"))
                                     }
                                 }
                             }
                         }
-                        // Fill empty spots if a row has less than 4 items to keep alignment perfect
-                        repeat(4 - rowIndices.size) {
+                        repeat(2 - rowIndices.size) {
                             Spacer(modifier = Modifier.weight(1f))
                         }
                     }
@@ -508,36 +558,94 @@ private fun CategoryItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val bgColor by animateColorAsState(if (isSelected) category.tintColor.copy(alpha = 0.15f) else Color.Transparent, label = "catBg")
-    val iconTint = if (isSelected) category.tintColor else Color(0xFFBDBDBD)
+    val bgColor by animateColorAsState(
+        if (isSelected) category.tintColor.copy(alpha = 0.16f) else Color(0xFFF8F9FA),
+        label = "catBg",
+    )
+    val iconTint = if (isSelected) category.tintColor else Color(0xFF757575)
     val textWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
     val textColor = if (isSelected) Color(0xFF1F1F1F) else Color(0xFF757575)
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable { onClick() }
+    Surface(
+        color = bgColor,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isSelected) category.tintColor else Color(0xFFE0E0E0),
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .noRippleClickable { onClick() },
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .size(56.dp)
-                .background(bgColor, RoundedCornerShape(16.dp)),
-            contentAlignment = Alignment.Center
+                .fillMaxSize()
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
         ) {
             Icon(
                 painter = painterResource(id = category.iconResId),
                 contentDescription = category.name,
                 tint = iconTint,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = category.name,
+                fontSize = 12.sp,
+                color = textColor,
+                fontWeight = textWeight,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 6.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
             )
         }
-        Text(
-            text = category.name,
-            fontSize = 12.sp,
-            color = textColor,
-            fontWeight = textWeight,
-            modifier = Modifier.padding(top = 8.dp),
-            maxLines = 1
-        )
+    }
+}
+
+@Composable
+private fun NewCategoryItem(onClick: () -> Unit) {
+    Surface(
+        color = Color(0xFFF8F9FA),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(width = 1.dp, color = Color(0xFFE0E0E0)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .noRippleClickable { onClick() },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Add,
+                contentDescription = "New",
+                tint = Color(0xFF757575),
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = "New",
+                fontSize = 12.sp,
+                color = Color(0xFF757575),
+                fontWeight = FontWeight.Normal,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 6.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 
@@ -595,8 +703,7 @@ private fun AddTransactionDateField(
             confirmButton = {
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let { millis ->
-                        val formatter = SimpleDateFormat("MM/dd/yyyy", Locale.US)
-                        onValueChange(formatter.format(Date(millis)))
+                        onValueChange(dateFormatter.format(Date(millis)))
                     }
                     showDialog = false
                 }) {
@@ -618,7 +725,7 @@ private fun AddTransactionDateField(
             .fillMaxWidth()
             .height(48.dp)
             .background(Color(0xFFF8F9FA), RoundedCornerShape(12.dp))
-            .clickable { showDialog = true }
+            .noRippleClickable { showDialog = true }
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.CenterStart
     ) {
@@ -633,4 +740,18 @@ private fun AddTransactionDateField(
             }
         }
     }
+}
+
+//custom modifier to remove ripples
+
+fun Modifier.noRippleClickable(
+    enabled: Boolean = true,
+    onClick: () -> Unit
+): Modifier = composed {
+    this.clickable(
+        interactionSource = remember { MutableInteractionSource() },
+        indication = null,
+        enabled = enabled,
+        onClick = onClick
+    )
 }

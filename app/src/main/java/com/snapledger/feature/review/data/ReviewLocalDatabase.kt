@@ -1,6 +1,7 @@
 package com.snapledger.feature.review.data
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -22,6 +23,12 @@ import com.snapledger.core.sync.ReceiptSyncMutationStore
 import com.snapledger.core.sync.ReceiptSyncPendingMutationStore
 import com.snapledger.core.sync.RECEIPT_SYNC_CURSOR_KEY
 import com.snapledger.core.sync.INITIAL_RECEIPT_SYNC_CURSOR
+import com.snapledger.core.ledger.LedgerBudgetCategory
+import com.snapledger.core.ledger.LedgerBudgetPeriod
+import com.snapledger.core.ledger.LedgerIncomePeriod
+import com.snapledger.core.ledger.LedgerTransaction
+import com.snapledger.core.ledger.LedgerTransactionSource
+import com.snapledger.core.ledger.LedgerTransactionType
 import com.snapledger.feature.review.domain.LocalReceiptItemRecord
 import com.snapledger.feature.review.domain.LocalReceiptRecord
 import com.snapledger.feature.review.domain.ReviewAtomicSaveStore
@@ -33,6 +40,8 @@ import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STA
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STATUS_PENDING
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STATUS_SYNCED
 import com.snapledger.feature.review.domain.ReceiptSyncQueueRecord.Companion.STATUS_TERMINAL_FAILED
+import kotlinx.coroutines.flow.Flow
+import kotlin.math.roundToLong
 
 @Entity(tableName = "local_receipts")
 data class LocalReceiptEntity(
@@ -90,6 +99,44 @@ data class ReceiptSyncQueueEntity(
 data class ReceiptSyncStateEntity(
     @PrimaryKey val stateKey: String,
     val stateValue: String,
+)
+
+@Entity(
+    tableName = "ledger_transactions",
+    indices = [
+        Index("type"),
+        Index("category"),
+        Index("date"),
+        Index("createdAtMillis"),
+    ],
+)
+data class LedgerTransactionEntity(
+    @PrimaryKey val id: String,
+    val type: String,
+    val source: String,
+    val amountMinor: Long,
+    val merchant: String,
+    val date: String,
+    val note: String?,
+    val category: String,
+    val createdAtMillis: Long,
+    @ColumnInfo(defaultValue = "'BOTH'")
+    val incomePeriod: String,
+)
+
+@Entity(
+    tableName = "ledger_budget_categories",
+    indices = [
+        Index("period"),
+        Index("name"),
+    ],
+)
+data class LedgerBudgetCategoryEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val period: String,
+    val allocatedMinor: Long,
+    val createdAtMillis: Long,
 )
 
 @Dao
@@ -236,20 +283,60 @@ interface ReceiptSyncStateDao {
     suspend fun loadStateValue(stateKey: String): String?
 }
 
+@Dao
+interface LedgerTransactionDao {
+    @Query("SELECT * FROM ledger_transactions ORDER BY createdAtMillis ASC, id ASC")
+    fun observeTransactions(): Flow<List<LedgerTransactionEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: LedgerTransactionEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(entities: List<LedgerTransactionEntity>)
+
+    @Query("SELECT * FROM ledger_transactions WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): LedgerTransactionEntity?
+
+    @Query("DELETE FROM ledger_transactions WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+@Dao
+interface LedgerBudgetCategoryDao {
+    @Query("SELECT * FROM ledger_budget_categories ORDER BY createdAtMillis ASC, id ASC")
+    fun observeBudgetCategories(): Flow<List<LedgerBudgetCategoryEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: LedgerBudgetCategoryEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(entities: List<LedgerBudgetCategoryEntity>)
+
+    @Query("SELECT * FROM ledger_budget_categories WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): LedgerBudgetCategoryEntity?
+
+    @Query("DELETE FROM ledger_budget_categories WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
 @Database(
     entities = [
         LocalReceiptEntity::class,
         LocalReceiptItemEntity::class,
         ReceiptSyncQueueEntity::class,
         ReceiptSyncStateEntity::class,
+        LedgerTransactionEntity::class,
+        LedgerBudgetCategoryEntity::class,
     ],
-    version = 3,
+    version = 5,
     exportSchema = false,
 )
 abstract class ReviewLocalDatabase : RoomDatabase() {
     abstract fun localReceiptDao(): LocalReceiptDao
     abstract fun receiptSyncQueueDao(): ReceiptSyncQueueDao
     abstract fun receiptSyncStateDao(): ReceiptSyncStateDao
+    abstract fun ledgerTransactionDao(): LedgerTransactionDao
+    abstract fun ledgerBudgetCategoryDao(): LedgerBudgetCategoryDao
 
     companion object {
         @Volatile
@@ -261,7 +348,9 @@ abstract class ReviewLocalDatabase : RoomDatabase() {
                     context,
                     ReviewLocalDatabase::class.java,
                     "snapledger-review.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .build()
+                    .also { instance = it }
             }
         }
     }
@@ -548,4 +637,134 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
             """.trimIndent(),
         )
     }
+}
+
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `ledger_transactions` (
+                `id` TEXT NOT NULL,
+                `type` TEXT NOT NULL,
+                `source` TEXT NOT NULL,
+                `amountMinor` INTEGER NOT NULL,
+                `merchant` TEXT NOT NULL,
+                `date` TEXT NOT NULL,
+                `note` TEXT,
+                `category` TEXT NOT NULL,
+                `createdAtMillis` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS `index_ledger_transactions_type`
+            ON `ledger_transactions` (`type`)
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS `index_ledger_transactions_category`
+            ON `ledger_transactions` (`category`)
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS `index_ledger_transactions_date`
+            ON `ledger_transactions` (`date`)
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS `index_ledger_transactions_createdAtMillis`
+            ON `ledger_transactions` (`createdAtMillis`)
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `ledger_budget_categories` (
+                `id` TEXT NOT NULL,
+                `name` TEXT NOT NULL,
+                `period` TEXT NOT NULL,
+                `allocatedMinor` INTEGER NOT NULL,
+                `createdAtMillis` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS `index_ledger_budget_categories_period`
+            ON `ledger_budget_categories` (`period`)
+            """.trimIndent(),
+        )
+        database.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS `index_ledger_budget_categories_name`
+            ON `ledger_budget_categories` (`name`)
+            """.trimIndent(),
+        )
+    }
+}
+
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            """
+            ALTER TABLE `ledger_transactions`
+            ADD COLUMN `incomePeriod` TEXT NOT NULL DEFAULT '${LedgerIncomePeriod.BOTH.name}'
+            """.trimIndent(),
+        )
+    }
+}
+
+fun LedgerTransactionEntity.toDomain(): LedgerTransaction {
+    return LedgerTransaction(
+        id = id,
+        type = LedgerTransactionType.valueOf(type),
+        source = LedgerTransactionSource.valueOf(source),
+        amount = amountMinor.toDouble() / 100.0,
+        merchant = merchant,
+        date = date,
+        note = note,
+        category = category,
+        createdAtMillis = createdAtMillis,
+        incomePeriod = LedgerIncomePeriod.valueOf(incomePeriod),
+    )
+}
+
+fun LedgerTransaction.toEntity(): LedgerTransactionEntity {
+    return LedgerTransactionEntity(
+        id = id,
+        type = type.name,
+        source = source.name,
+        amountMinor = (amount * 100.0).roundToLong(),
+        merchant = merchant,
+        date = date,
+        note = note,
+        category = category,
+        createdAtMillis = createdAtMillis,
+        incomePeriod = incomePeriod.name,
+    )
+}
+
+fun LedgerBudgetCategoryEntity.toDomain(): LedgerBudgetCategory {
+    return LedgerBudgetCategory(
+        id = id,
+        name = name,
+        period = LedgerBudgetPeriod.valueOf(period),
+        allocated = allocatedMinor.toDouble() / 100.0,
+        createdAtMillis = createdAtMillis,
+    )
+}
+
+fun LedgerBudgetCategory.toEntity(): LedgerBudgetCategoryEntity {
+    return LedgerBudgetCategoryEntity(
+        id = id,
+        name = name,
+        period = period.name,
+        allocatedMinor = (allocated * 100.0).roundToLong(),
+        createdAtMillis = createdAtMillis,
+    )
 }
