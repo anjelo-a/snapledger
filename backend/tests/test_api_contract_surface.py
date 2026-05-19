@@ -18,6 +18,7 @@ EXPECTED_PATHS = {
     "/v1/insights/generate",
     "/v1/sync/push",
     "/v1/sync/pull",
+    "/v1/sync/account",
 }
 
 EXPECTED_METHODS = {
@@ -33,6 +34,7 @@ EXPECTED_METHODS = {
     "/v1/insights/generate": {"post"},
     "/v1/sync/push": {"post"},
     "/v1/sync/pull": {"get"},
+    "/v1/sync/account": {"delete"},
 }
 
 

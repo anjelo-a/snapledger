@@ -381,7 +381,12 @@ abstract class ReviewLocalDatabase : RoomDatabase() {
         ): ReviewLocalDatabase {
             val databaseName = profileDatabaseName(profileId)
             val profileDbPath = context.getDatabasePath(databaseName)
-            val shouldSeedFromLegacy = !profileDbPath.exists() && context.getDatabasePath(LEGACY_DATABASE_NAME).exists()
+            val legacyImportMarker = legacyImportMarkerFile(context)
+            val shouldSeedFromLegacy = (
+                !profileDbPath.exists() &&
+                    !legacyImportMarker.exists() &&
+                    context.getDatabasePath(LEGACY_DATABASE_NAME).exists()
+                )
             val database = buildDatabase(
                 context = context,
                 databaseName = databaseName,
@@ -391,6 +396,8 @@ abstract class ReviewLocalDatabase : RoomDatabase() {
                     profileDatabase = database,
                     legacyDatabase = getLegacySharedInstance(context),
                 )
+                legacyImportMarker.parentFile?.mkdirs()
+                legacyImportMarker.writeText(profileId)
             }
             return database
         }
@@ -458,7 +465,23 @@ abstract class ReviewLocalDatabase : RoomDatabase() {
             return "snapledger-review-$normalizedProfileId.db"
         }
 
+        fun deleteProfileDatabase(
+            context: Context,
+            profileId: String,
+        ) {
+            synchronized(this) {
+                val databaseName = profileDatabaseName(profileId)
+                profileInstances.remove(profileId)?.close()
+                context.applicationContext.deleteDatabase(databaseName)
+            }
+        }
+
+        private fun legacyImportMarkerFile(context: Context): java.io.File {
+            return java.io.File(context.filesDir, LEGACY_IMPORT_MARKER_FILE_NAME)
+        }
+
         private const val LEGACY_DATABASE_NAME = "snapledger-review.db"
+        private const val LEGACY_IMPORT_MARKER_FILE_NAME = "snapledger-legacy-imported.marker"
     }
 }
 

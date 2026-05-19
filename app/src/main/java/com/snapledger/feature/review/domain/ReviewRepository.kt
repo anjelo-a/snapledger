@@ -215,23 +215,36 @@ class LocalFirstReviewRepository(
 
     companion object {
         @Volatile
-        private var instance: LocalFirstReviewRepository? = null
+        private var instances: MutableMap<String, LocalFirstReviewRepository> = mutableMapOf()
 
         fun getInstance(applicationContext: Context): LocalFirstReviewRepository {
-            return instance ?: synchronized(this) {
-                instance ?: buildRepository(applicationContext.applicationContext).also {
-                    instance = it
-                }
-            }
-        }
-
-        private fun buildRepository(applicationContext: Context): LocalFirstReviewRepository {
-            val profileSession = ProfileSessionResolver.resolveActiveSession(applicationContext)
+            val appContext = applicationContext.applicationContext
+            val profileSession = ProfileSessionResolver.resolveActiveSession(appContext)
                 ?: ProfileSession(
                     localProfileId = "local-default",
                     accountMode = AccountMode.LOCAL,
                     googleSubject = null,
                 )
+            return synchronized(this) {
+                instances[profileSession.localProfileId] ?: buildRepository(
+                    applicationContext = appContext,
+                    profileSession = profileSession,
+                ).also {
+                    instances[profileSession.localProfileId] = it
+                }
+            }
+        }
+
+        fun removeInstance(localProfileId: String) {
+            synchronized(this) {
+                instances.remove(localProfileId)
+            }
+        }
+
+        private fun buildRepository(
+            applicationContext: Context,
+            profileSession: ProfileSession,
+        ): LocalFirstReviewRepository {
             val database = ReviewLocalDatabase.getInstance(
                 context = applicationContext,
                 profileId = profileSession.localProfileId,

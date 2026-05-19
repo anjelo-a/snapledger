@@ -88,6 +88,7 @@ fun SettingsRoute(
         onNameChanged = viewModel::updateDisplayName,
         onToggleDevTools = viewModel::toggleDeveloperTools,
         onLogOut = { viewModel.logOut(context) },
+        onDeleteAccount = { viewModel.deleteAccount(context) },
     )
 }
 
@@ -97,8 +98,10 @@ fun SettingsScreen(
     onNameChanged: (String) -> Unit,
     onToggleDevTools: () -> Unit,
     onLogOut: () -> Unit,
+    onDeleteAccount: () -> Unit,
 ) {
     var isEditingName by remember { mutableStateOf(false) }
+    var isConfirmingDelete by remember { mutableStateOf(false) }
     // Initialize draft with current name when dialog opens
     var nameDraft by remember { mutableStateOf("") }
 
@@ -243,6 +246,15 @@ fun SettingsScreen(
                             ) {
                                 Text("Log out")
                             }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedButton(
+                                onClick = { isConfirmingDelete = true },
+                                enabled = !uiState.isSaving,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Delete account")
+                            }
                         }
                     }
                 }
@@ -370,6 +382,41 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { isEditingName = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    if (isConfirmingDelete) {
+        AlertDialog(
+            onDismissRequest = { isConfirmingDelete = false },
+            title = { Text("Delete Account") },
+            text = {
+                Text(
+                    if (uiState.accountMode == AccountMode.GOOGLE) {
+                        "This permanently deletes this Google-linked profile, its on-device data, and its synced ledger data."
+                    } else {
+                        "This permanently deletes this local profile and its on-device ledger data."
+                    },
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        isConfirmingDelete = false
+                        onDeleteAccount()
+                    },
+                    enabled = !uiState.isSaving,
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { isConfirmingDelete = false },
+                    enabled = !uiState.isSaving,
+                ) {
                     Text("Cancel")
                 }
             },

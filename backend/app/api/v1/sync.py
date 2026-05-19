@@ -7,7 +7,12 @@ from sqlalchemy.orm import Session
 from app.api.error_handlers import to_http_exception
 from app.core.errors import DomainError
 from app.db.session import get_db
-from app.schemas.sync import SyncPullResponse, SyncPushRequest, SyncPushResponse
+from app.schemas.sync import (
+    SyncAccountDeleteResponse,
+    SyncPullResponse,
+    SyncPushRequest,
+    SyncPushResponse,
+)
 from app.services.sync_service import SyncPayloadValidationError, SyncService
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -48,6 +53,22 @@ def pull_sync(
 ) -> SyncPullResponse | JSONResponse:
     try:
         return SyncService.pull(db, cursor, owner_key=_normalize_owner_key(owner_key))
+    except SyncPayloadValidationError as exc:
+        return _validation_error_response(str(exc))
+    except DomainError as exc:
+        raise to_http_exception(exc) from exc
+
+
+@router.delete("/account", response_model=SyncAccountDeleteResponse)
+def delete_sync_account(
+    db: Annotated[Session, Depends(get_db)],
+    owner_key: Annotated[str | None, Header(alias="x-sync-owner")] = None,
+) -> SyncAccountDeleteResponse | JSONResponse:
+    try:
+        return SyncService.delete_account(
+            db,
+            owner_key=_normalize_owner_key(owner_key),
+        )
     except SyncPayloadValidationError as exc:
         return _validation_error_response(str(exc))
     except DomainError as exc:

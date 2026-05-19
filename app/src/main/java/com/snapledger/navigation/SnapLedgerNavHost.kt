@@ -79,7 +79,7 @@ fun SnapLedgerNavHost(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val ledgerRepository = remember(context) {
+    val ledgerRepository = remember(context, profile.localProfileId) {
         DataStoreLedgerRepository.getInstance(context)
     }
     val ledgerSnapshot by ledgerRepository.snapshotFlow.collectAsState(initial = LedgerSnapshot())
