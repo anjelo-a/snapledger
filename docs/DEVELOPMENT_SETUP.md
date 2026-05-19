@@ -222,7 +222,8 @@ Required tests:
 1. Backend `/health` returns 200.
 2. Android app points to intended base URL.
 3. Scan flow can call `POST /v1/receipts/process` (if Gemini key configured).
-4. Reviewed receipt save persists locally and queues sync metadata.
+4. Review confirm can call `POST /v1/receipts/confirm`, and reviewed receipt save persists
+   locally while queuing sync metadata.
 5. Sync worker can hit `/v1/sync/push` and `/v1/sync/pull`.
 
 ## 12) Troubleshooting quick hits
