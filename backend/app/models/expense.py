@@ -10,7 +10,12 @@ from app.db.base import Base, TimestampMixin
 class Expense(TimestampMixin, Base):
     __tablename__ = "expenses"
 
-    owner_key: Mapped[str] = mapped_column(String(191), default="public", nullable=False, index=True)
+    owner_key: Mapped[str] = mapped_column(
+        String(191),
+        default="public",
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(16), nullable=False)
     merchant: Mapped[str] = mapped_column(String(160), nullable=False)
     expense_date: Mapped[date] = mapped_column(Date, nullable=False)

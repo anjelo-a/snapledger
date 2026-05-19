@@ -96,7 +96,11 @@ class SyncService:
     def pull(db: Session, cursor: str, *, owner_key: str) -> SyncPullResponse:
         try:
             cursor_key = _decode_pull_cursor(cursor)
-            stmt = select(Expense).where(Expense.owner_key == owner_key).options(selectinload(Expense.items))
+            stmt = (
+                select(Expense)
+                .where(Expense.owner_key == owner_key)
+                .options(selectinload(Expense.items))
+            )
             if cursor_key is not None:
                 updated_at, expense_id = cursor_key
                 stmt = stmt.where(
