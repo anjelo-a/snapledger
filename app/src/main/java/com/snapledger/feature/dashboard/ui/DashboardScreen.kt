@@ -879,8 +879,11 @@ private fun TrendCard(
                     .padding(top = 24.dp),
             ) {
                 Canvas(modifier = Modifier.matchParentSize()) {
-                    val drawablePoints = chartPoints.takeIf { it.isNotEmpty() }
-                        ?: listOf(0.0, 0.0, 0.0, 0.0)
+                    val drawablePoints = when (chartPoints.size) {
+                        0 -> listOf(0.0, 0.0, 0.0, 0.0)
+                        1 -> listOf(chartPoints.first(), chartPoints.first())
+                        else -> chartPoints
+                    }
                     val maxPoint = drawablePoints.maxOrNull() ?: 1.0
                     val minPoint = drawablePoints.minOrNull() ?: 0.0
                     val isFlat = maxPoint == minPoint
