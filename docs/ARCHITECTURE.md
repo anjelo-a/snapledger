@@ -106,8 +106,8 @@ Must not couple:
 - AI output directly to persistence without review and deterministic validation boundaries.
 
 ## Android module/package structure
-- `app/src/main/java/com/snapledger/core/*` shared data/network/sync utilities.
-- `app/src/main/java/com/snapledger/feature/*` feature-first folders.
+- `android/app/src/main/java/com/snapledger/core/*` shared data/network/sync utilities.
+- `android/app/src/main/java/com/snapledger/feature/*` feature-first folders.
 - `feature` packages: `entry`, `scan`, `review`, `budgets`, `dashboard`, `history`, `categories`, `insight`.
 
 ## Backend module structure

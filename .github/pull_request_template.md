@@ -4,7 +4,7 @@
 
 ## Validation
 
-- [ ] `./gradlew test` or backend tests run (if applicable)
+- [ ] `./android/gradlew -p android test` or backend tests run (if applicable)
 - [ ] Canary extraction eval run for backend changes
 - [ ] Full extraction eval run if PR touches parser/prompt/schema/`/v1/receipts/process`
 - [ ] Eval metrics snapshot attached or linked (for extraction-related changes)

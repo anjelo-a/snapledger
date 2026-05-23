@@ -13,7 +13,7 @@ This guide is the end-to-end setup for co-builders working on Android + backend 
 ## 2) Repository layout and canonical paths
 
 Use these as the source of truth:
-- Android app: `app/`
+- Android app: `android/app/`
 - Backend: `backend/`
 - Docs: `docs/`
 
@@ -26,8 +26,8 @@ Note:
 Android base URL is configured from `local.properties` and injected into `BuildConfig.BACKEND_BASE_URL`.
 
 Code references:
-- `app/build.gradle.kts`
-- `app/src/main/java/com/snapledger/core/network/NetworkConfig.kt`
+- `android/app/build.gradle.kts`
+- `android/app/src/main/java/com/snapledger/core/network/NetworkConfig.kt`
 
 Set this in root `local.properties`:
 

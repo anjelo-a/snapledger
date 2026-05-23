@@ -137,9 +137,9 @@ Last updated: May 1, 2026
 
 ### Evidence
 - Android verification passed:
-  - `./gradlew :app:assembleDebug`
-  - `./gradlew :app:assembleDebugAndroidTest`
-  - `./gradlew :app:testDebugUnitTest --tests com.snapledger.feature.scan.parser.DeterministicReceiptParserServiceTest`
+  - `./android/gradlew -p android :app:assembleDebug`
+  - `./android/gradlew -p android :app:assembleDebugAndroidTest`
+  - `./android/gradlew -p android :app:testDebugUnitTest --tests com.snapledger.feature.scan.parser.DeterministicReceiptParserServiceTest`
 - Backend parser fixture tests exist for:
   - clean receipt
   - noisy receipt
@@ -149,7 +149,7 @@ Last updated: May 1, 2026
   - multiline total
 - API validation tests cover malformed, blank, unknown-field, overlong-line, and
   overlong-total-text OCR payloads.
-- `./gradlew :app:connectedDebugAndroidTest` could not execute locally because no connected
+- `./android/gradlew -p android :app:connectedDebugAndroidTest` could not execute locally because no connected
   device/emulator was available.
 
 ### Deferred intentionally
@@ -278,7 +278,7 @@ Status: Completed on April 30, 2026 for backend scope (`/v1/budgets`, `/v1/dashb
 
 ### Evidence
 - Android verification currently passed:
-  - `./gradlew -g /Users/aa./snapledger/.gradle-local :app:testDebugUnitTest --tests com.snapledger.core.sync.ReceiptSyncMapperTest --tests com.snapledger.core.sync.ReceiptSyncPushProcessorTest --tests com.snapledger.core.sync.ReceiptSyncPullProcessorTest --tests com.snapledger.feature.review.domain.LocalFirstReviewRepositoryTest`
+  - `./android/gradlew -p android -g /Users/aa./snapledger/.gradle-local :app:testDebugUnitTest --tests com.snapledger.core.sync.ReceiptSyncMapperTest --tests com.snapledger.core.sync.ReceiptSyncPushProcessorTest --tests com.snapledger.core.sync.ReceiptSyncPullProcessorTest --tests com.snapledger.feature.review.domain.LocalFirstReviewRepositoryTest`
 - Android instrumentation/migration evidence present in repo:
   - Room migration tests for queue schema and sync cursor state
   - receipt flow smoke test still exists from Phase 2

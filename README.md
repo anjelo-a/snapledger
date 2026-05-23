@@ -28,12 +28,12 @@ Artifact timestamp set: **2026-05-19T15:42:49Z to 2026-05-19T15:42:53Z**
 
 ## Repository Structure
 
-- `app/` Android application (Jetpack Compose, local-first UX, sync client)
+- `android/app/` Android application (Jetpack Compose, local-first UX, sync client)
 - `backend/` FastAPI backend (API contracts, deterministic services, parser/inference orchestration)
 - `docs/` Architecture, API, planning, testing, and eval runbooks
 - `docs/setup/` Local setup helper scripts
 - `docs/governance/` Agent and skills operating guidance
-- `gradle/` Gradle wrapper support files
+- `android/gradle/` Gradle wrapper support files
 
 ## Key Documentation
 
