@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   enforce-checklist:
-    name: Require Agents.md and Skills.md acknowledgment
+    name: Require AGENTS/SKILLS acknowledgment
     runs-on: ubuntu-latest
 
     steps:
@@ -25,6 +25,6 @@ jobs:
               core.setFailed([
                 "Missing required checklist confirmation.",
                 "Please check this box in the PR description:",
-                "- [x] I reviewed `Agents.md` and `Skills.md` before making code changes, and this PR complies with both documents."
+                "- [x] I reviewed `docs/governance/AGENTS.md` and `docs/governance/SKILLS.md` before making code changes, and this PR complies with both documents."
               ].join("\n"));
             }

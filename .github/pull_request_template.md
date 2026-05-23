@@ -14,7 +14,7 @@
 
 ## Agent/Skill Compliance (Required)
 
-- [ ] I reviewed `Agents.md` and `Skills.md` before making code changes, and this PR complies with both documents.
+- [ ] I reviewed `docs/governance/AGENTS.md` and `docs/governance/SKILLS.md` before making code changes, and this PR complies with both documents.
 
 ## Notes
 
